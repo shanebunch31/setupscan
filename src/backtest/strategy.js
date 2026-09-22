@@ -1,0 +1,1 @@
+export function runSetupScanBacktest(candles, settings = {}) { return { candles, settings, trades: [], metrics: { totalTrades: 0, winRate: 0, netReturn: 0 } } }
