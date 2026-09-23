@@ -3,7 +3,22 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "scripts": { "dev": "concurrently \"node server/index.js\" \"vite\"", "worker": "node server/paperObserver.js", "build": "vite build", "test": "node --test server/*.test.js", "preview": "vite preview" },
-  "dependencies": { "@vitejs/plugin-react": "latest", "vite": "latest", "react": "latest", "react-dom": "latest", "lucide-react": "latest", "dotenv": "latest", "concurrently": "latest", "pg": "latest" },
-  "devDependencies": {}
+  "scripts": {
+    "dev": "concurrently \"node server/index.js\" \"vite\"",
+    "worker": "node server/paperObserver.js",
+    "build": "vite build",
+    "test": "node --test server/*.test.js src/backtest/*.test.js",
+    "preview": "vite preview",
+    "server": "node server/index.js"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "concurrently": "latest",
+    "dotenv": "latest",
+    "lucide-react": "latest",
+    "pg": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "vite": "latest"
+  }
 }
