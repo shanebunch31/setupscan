@@ -1,9 +1,18 @@
 import dotenv from 'dotenv'
 import http from 'node:http'
 import { createPaperObserver } from './paperObserverCore.js'
+import { describeDatabaseUrl } from './postgresPaperStore.js'
 
 dotenv.config()
 const port = Number(process.env.OBSERVER_PORT || 3102)
+
+if (process.env.DATABASE_URL) {
+  const { username, host, port: dbPort, database } = describeDatabaseUrl(process.env.DATABASE_URL)
+  console.log(`DATABASE_URL detected -> user=${username} host=${host} port=${dbPort} database=${database} (password redacted)`)
+} else {
+  console.log('DATABASE_URL not set — falling back to local JSON store (not suitable for production)')
+}
+
 const observer = await createPaperObserver()
 
 function sendJson(response, status, body) {

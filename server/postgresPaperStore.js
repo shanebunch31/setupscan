@@ -6,7 +6,30 @@ CREATE TABLE IF NOT EXISTS paper_trades (symbol text NOT NULL, signal_timestamp 
 CREATE TABLE IF NOT EXISTS paper_processed_candles (symbol text NOT NULL, candle_timestamp timestamptz NOT NULL, PRIMARY KEY (symbol, candle_timestamp));
 `
 
+// Validates DATABASE_URL shape and surfaces a redacted summary; never returns or logs the password itself.
+export function describeDatabaseUrl(connectionString) {
+  if (!connectionString) throw new Error('DATABASE_URL is not set')
+  let parsed
+  try {
+    parsed = new URL(connectionString)
+  } catch {
+    throw new Error('DATABASE_URL is not a valid connection URL (expected postgres://user:password@host:port/database)')
+  }
+  if (!/^postgres(ql)?:$/.test(parsed.protocol)) throw new Error(`DATABASE_URL has an unexpected protocol "${parsed.protocol}" (expected postgres:// or postgresql://)`)
+  if (!parsed.hostname) throw new Error('DATABASE_URL is missing a host')
+  if (!parsed.username) throw new Error('DATABASE_URL is missing a username')
+  const database = parsed.pathname.replace(/^\//, '')
+  if (!database) throw new Error('DATABASE_URL is missing a database name')
+  const rawPassword = decodeURIComponent(parsed.password || '')
+  if (!rawPassword) throw new Error('DATABASE_URL is missing a password')
+  if (/^\[.*\]$/.test(rawPassword) || /YOUR-PASSWORD/i.test(rawPassword)) {
+    throw new Error('DATABASE_URL password still contains a placeholder (e.g. "[YOUR-PASSWORD]") — replace it with the actual database password')
+  }
+  return { username: parsed.username, host: parsed.hostname, port: parsed.port || '5432', database }
+}
+
 export function createPostgresPaperStore({ connectionString = process.env.DATABASE_URL, pool } = {}) {
+  if (!pool) describeDatabaseUrl(connectionString)
   const clientPool = pool ?? new Pool({ connectionString, ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false } })
   let ready
   async function init() {
