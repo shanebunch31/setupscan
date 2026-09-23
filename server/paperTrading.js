@@ -52,6 +52,7 @@ function createPaperTrade(symbol, signal, signalIndex, candles) {
     status: 'open',
     signalTimestamp: signal.timestamp,
     signalScore: signal.score,
+    score: signal.score,
     setupType: signal.setupType,
     signalPrice: signal.close,
     theoreticalEntryPrice: entryPrice,
