@@ -12,13 +12,13 @@ export const METRIC_DEFINITIONS = [
   { term: 'Out-of-sample', description: 'Results from data the rules were not tuned on. A more honest check of whether the approach holds up — still historical, not a guarantee.' },
 ]
 
-export function MetricsGlossary() {
+export function MetricsGlossary({ title = 'What does this mean?', intro = 'Plain-English explanations for the metrics used throughout this research.', definitions = METRIC_DEFINITIONS }) {
   return (
     <div className="metrics-glossary">
-      <h3>What does this mean?</h3>
-      <p className="metrics-glossary-intro">Plain-English explanations for the metrics used throughout this research.</p>
+      <h3>{title}</h3>
+      <p className="metrics-glossary-intro">{intro}</p>
       <dl className="metrics-glossary-list">
-        {METRIC_DEFINITIONS.map(({ term, description }) => (
+        {definitions.map(({ term, description }) => (
           <div className="metrics-glossary-item" key={term}>
             <dt>{term}</dt>
             <dd>{description}</dd>
@@ -29,17 +29,31 @@ export function MetricsGlossary() {
   )
 }
 
-export function HowToReadResults() {
+const DEFAULT_HOW_TO_READ_ITEMS = [
+  'Everything above describes historical results — what already happened, not what will happen next.',
+  'Positive historical results do not guarantee future performance; market conditions change.',
+  'In-sample and out-of-sample results should be considered separately, not blended together.',
+  'Drawdowns matter even when expectancy is positive — a profitable average can still include an uncomfortable losing stretch.',
+  'This research is for investigation and learning, not financial advice.',
+]
+
+export function HowToReadResults({ title = 'How to read this test', items = DEFAULT_HOW_TO_READ_ITEMS }) {
   return (
     <div className="how-to-read">
-      <h3>How to read this test</h3>
+      <h3>{title}</h3>
       <ul className="how-to-read-list">
-        <li>Everything above describes historical results — what already happened, not what will happen next.</li>
-        <li>Positive historical results do not guarantee future performance; market conditions change.</li>
-        <li>In-sample and out-of-sample results should be considered separately, not blended together.</li>
-        <li>Drawdowns matter even when expectancy is positive — a profitable average can still include an uncomfortable losing stretch.</li>
-        <li>This research is for investigation and learning, not financial advice.</li>
+        {items.map((item) => <li key={item}>{item}</li>)}
       </ul>
     </div>
   )
 }
+
+export function PlainEnglishTakeaway({ title = 'Plain-English takeaway', children }) {
+  return (
+    <div className="plain-english-takeaway">
+      <h3>{title}</h3>
+      <p className="plain-english-takeaway-text">{children}</p>
+    </div>
+  )
+}
+
