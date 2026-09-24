@@ -297,7 +297,208 @@ Later phases may investigate:
 
 These are explicitly outside the first discovery campaign unless separately approved.
 
-## 17. Final Research Principle
+## 17. Session and Data-Handling Conventions
+
+Established by a read-only audit of the actual Alpaca 1H historical data path:
+
+- Alpaca 1H bar timestamps represent the **start** of the 1-hour interval (e.g. a bar timestamped
+  09:00 ET covers 09:00–10:00 ET), not the end.
+- The current historical data path (`server/alpacaProxy.js`) fetches Alpaca IEX data with no
+  regular-session-only filter. Existing "full-session" experiments (Batch A, Batch B) therefore
+  include whatever regular- and extended-hours bars Alpaca/IEX actually returns.
+- Existing Batch A and Batch B results are **not retroactively changed** by this section and must
+  be preserved exactly as they are: full-session experiments.
+- For any future "Regular Session Only" 1H research: because bars are hour-aligned rather than
+  09:30-aligned, use only bars fully contained inside the regular U.S. equity session (09:30–16:00
+  ET). Concretely, retain only bars whose Eastern start hour is 10:00, 11:00, 12:00, 13:00, 14:00,
+  or 15:00 — excluding the 09:00 ET bar (spans 09:00–10:00, partially overlaps the session open)
+  and the 16:00 ET bar (spans 16:00–17:00, entirely postmarket).
+- Do not reconstruct, interpolate, or splice partial bars to approximate the 09:30 boundary.
+- This is a research convention for defining a stricter data universe, not a threshold
+  optimization, and it does not change the frozen Momentum Breakout signal, entry, stop, or
+  outcome rules themselves.
+
+## 19. Historical Market Context Research Protocol
+
+Historical market context is intended to test whether a setup's behavior changes
+depending on the environment surrounding the signal.
+
+Context research must remain separate from the frozen setup definition unless a
+later validation phase explicitly approves a change. Context variables are
+descriptive research inputs first, not automatic trade filters.
+
+### 19.1 Initial Context Families
+
+The first context campaign may investigate:
+
+- **Scheduled macro events:** Federal Reserve decisions, CPI, PPI, employment reports,
+  GDP releases, and other major scheduled economic releases.
+- **Market-wide conditions:** broad market trend, volatility level, market breadth,
+  and risk-on/risk-off conditions where reliable historical data is available.
+- **Scheduled company events:** earnings releases and other material scheduled
+  corporate events for the underlying symbol.
+- **Cross-asset context:** relationships involving major index, rates, volatility,
+  commodity, or currency benchmarks where the historical data is sufficiently
+  complete.
+- **Major external events:** historically documented geopolitical or macro events
+  that could reasonably have been known to market participants at the time.
+
+These families are research categories, not evidence that any particular factor
+causes a trading outcome.
+
+### 19.2 Information-Availability Rule
+
+A context variable may only use information that was publicly available by the
+time the setup signal occurred.
+
+The research system must not use:
+
+- later revisions to economic data when an initial release value was available;
+- final event classifications that were not knowable at the time;
+- future market prices or future indicators;
+- post-event labels created with hindsight;
+- news, event, earnings, or macro information whose publication time cannot be
+  established reliably.
+
+Where publication timing cannot be established with sufficient precision, the
+observation should be excluded rather than assigned using hindsight.
+
+### 19.3 Event-Time Convention
+
+Every scheduled event used in research should retain:
+
+- event name;
+- event category;
+- scheduled or published timestamp;
+- relevant timezone;
+- source/provider;
+- the earliest timestamp at which the information was publicly available;
+- any revision status that materially affects interpretation.
+
+A setup should be classified relative to the event timestamp using only causal
+information available at that moment.
+
+### 19.4 Event Windows
+
+Initial research should use predefined event windows rather than selecting a
+window after observing results.
+
+Examples may include:
+
+- before the event;
+- same-session after the event;
+- next regular session;
+- no nearby scheduled event.
+
+The exact windows must be fixed before the corresponding experiment is run.
+
+### 19.5 Context Comparison
+
+For each frozen setup family, compare context groups using the standard research
+metrics already defined in this protocol:
+
+- occurrence count;
+- win rate;
+- profit factor;
+- expectancy;
+- average and median R;
+- total R;
+- maximum drawdown;
+- average hold;
+- MFE and MAE;
+- execution-cost sensitivity.
+
+Results should be shown by symbol and research period where sample size permits.
+
+Context research should distinguish:
+
+1. **setup occurrence rate** — how often the setup appears under a context;
+2. **setup outcome** — how the setup behaves once it occurs under that context;
+3. **market base rate** — how common the context is across all underlying market
+   bars.
+
+These are different quantities and must not be treated as interchangeable.
+
+### 19.6 Chronological Research Splits
+
+Context research must follow the same chronological development, out-of-sample,
+and holdout structure already established for Strategy Discovery.
+
+A context definition may not be tuned using later-period results and then treated
+as independently validated on that same later period.
+
+### 19.7 Data Quality and Coverage
+
+Every context dataset must record:
+
+- provider/source;
+- retrieval timestamp;
+- covered date range;
+- number of observations;
+- timezone convention;
+- event or market-condition coverage;
+- missing observations;
+- revisions or restatements where applicable;
+- exclusions made because timing or provenance was uncertain.
+
+No synthetic or demo context data may be substituted for unavailable historical
+information.
+
+### 19.8 Multiple Testing and Interpretation
+
+Context research may produce many comparisons. A context relationship should not
+be treated as confirmed merely because one subgroup shows a strong historical
+difference.
+
+Research should examine:
+
+- consistency across chronological periods;
+- consistency across symbols;
+- sensitivity to reasonable predefined context definitions;
+- sample size;
+- whether the relationship survives execution-cost assumptions;
+- whether the finding can be explained without relying on future information.
+
+A context finding that does not survive these checks remains exploratory.
+
+### 19.9 Discovery Before Filtering
+
+No context variable should automatically become a scanner filter merely because
+it is associated with better historical outcomes in one experiment.
+
+A context relationship must first pass through the existing discovery →
+validation → adversarial-testing process before it can be considered for any
+production scanner behavior.
+
+### 19.10 Research Record
+
+Every context experiment should preserve:
+
+- research question;
+- frozen setup definition;
+- context definition;
+- event/window definition;
+- chronological split;
+- exact parameters;
+- data provenance;
+- exclusions;
+- standard metrics;
+- execution-cost assumptions;
+- observed limitations;
+- interpretation status: exploratory, supported, or unsupported.
+
+Failed or inconclusive context experiments remain part of the research record.
+
+### 19.11 Phase Boundary
+
+Historical Market Context is a research layer around existing setup candidates.
+It does not replace Strategy Discovery, and it does not authorize live trading.
+
+The purpose of this phase is to determine whether market environment provides
+useful, reproducible information about setup behavior before any context variable
+is considered for candidate validation or production use.
+
+## 20. Final Research Principle
 
 SetupScan is not trying to find the strategy that looks best in hindsight. It is trying to
 identify market behavior that remains interesting after we deliberately try to disprove it.
