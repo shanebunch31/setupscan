@@ -34,6 +34,7 @@ import { YearlyRegimeLab } from './backtest/YearlyRegimeLab.jsx'
 import { CausalRegimeLab } from './backtest/CausalRegimeLab.jsx'
 import { WalkForwardRegimeLab } from './backtest/WalkForwardRegimeLab.jsx'
 import { VolatilityAwareVariantsLab } from './backtest/VolatilityAwareVariantsLab.jsx'
+import { StrategyDiscoveryLab } from './backtest/StrategyDiscoveryLab.jsx'
 import { PaperTradingPanel } from './paper/PaperTradingPanel.jsx'
 import './styles.css'
 
@@ -55,6 +56,7 @@ const researchTabs = [
   { id: 'causal-regime', label: 'Causal Market-Regime Analysis' },
   { id: 'walk-forward-regime', label: 'Walk-Forward Regime Validation' },
   { id: 'volatility-aware-variants', label: 'Volatility-Aware Variants' },
+  { id: 'strategy-discovery', label: 'Strategy Discovery Lab' },
 ]
 const formatPrice = (value) => `$${value.toFixed(2)}`
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -879,6 +881,7 @@ function App() {
             {researchTab === 'volatility-aware-variants' && (
               <VolatilityAwareVariantsLab datasets={robustnessData} />
             )}
+            {researchTab === 'strategy-discovery' && <StrategyDiscoveryLab />}
           </>
         )}
         {view === 'settings' && (
