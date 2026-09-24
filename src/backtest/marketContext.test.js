@@ -32,6 +32,20 @@ test('future candles cannot change earlier context values', () => {
   before.rows.slice(0, 60).forEach((row, index) => assert.deepEqual(row, after.rows[index]))
 })
 
+test('normalized provenance stays in metadata while rows retain auditable timestamps', () => {
+  const retrievalAtBySymbol = { SPY: '2026-09-24T00:00:00Z', QQQ: '2026-09-24T00:01:00Z', IWM: '2026-09-24T00:02:00Z' }
+  const context = buildMarketWideContext(buildFixture(), { retrievalAtBySymbol })
+  assert.equal(context.metadata.sourcePath, 'https://data.alpaca.markets/v2/stocks/{symbol}/bars')
+  assert.deepEqual(context.metadata.retrievalAtBySymbol, retrievalAtBySymbol)
+  assert.equal(context.metadata.sourceTimestampExceptions.length, 0)
+  assert.match(context.metadata.sourceTimestampNormalization, /same instant as the row timestampUTC/)
+  marketContextSymbols.forEach((symbol) => {
+    assert.equal(context.rows[0].symbols[symbol].sourceUrl, undefined)
+    assert.equal(context.rows[0].symbols[symbol].retrievedAt, undefined)
+    assert.ok(Date.parse(context.rows[0].timestampUTC))
+  })
+})
+
 test('incomplete universe coverage is retained but never used for breadth', () => {
   const source = buildFixture()
   source.IWM = source.IWM.filter((_, index) => index !== 10)

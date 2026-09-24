@@ -65,6 +65,7 @@ export function buildMarketWideContext(rawSeriesBySymbol, { retrievalAt = null, 
   const sourceCounts = {}
   const deduplicatedCounts = {}
   const duplicateTimestampsBySymbol = {}
+  const sourceTimestampExceptions = []
 
   marketContextSymbols.forEach((symbol) => {
     const rawSeries = (rawSeriesBySymbol?.[symbol] ?? []).filter((candle) => inResearchPeriod(candle.timestamp))
@@ -93,13 +94,10 @@ export function buildMarketWideContext(rawSeriesBySymbol, { retrievalAt = null, 
       const point = pointBySymbolAndTimestamp[symbol].get(timestampUTC) ?? null
       if (candle) coverageCount += 1
       symbolPoints.push(point)
+      if (candle && Date.parse(candle.timestamp) !== Date.parse(timestampUTC)) {
+        sourceTimestampExceptions.push({ symbol, sourceTimestamp: candle.timestamp, timestampUTC })
+      }
       symbolSnapshots[symbol] = {
-        symbol,
-        timeframe: marketContextTimeframe,
-        sourceUrl: marketContextSourcePath(symbol),
-        retrievedAt: retrievalAtBySymbol[symbol] ?? retrievalAt,
-        sourceTimestamp: candle?.timestamp ?? null,
-        timestampUTC: candle ? timestampUTC : null,
         coverageStatus: candle ? 'present' : 'missing',
         trendState: point?.trend?.classification ?? null,
         volatilityState: point?.volatility?.classification ?? null,
@@ -122,7 +120,7 @@ export function buildMarketWideContext(rawSeriesBySymbol, { retrievalAt = null, 
     metadata: {
       source: marketContextSource,
       sourcePath: 'https://data.alpaca.markets/v2/stocks/{symbol}/bars',
-      retrievalAt: Object.keys(retrievalAtBySymbol).length ? retrievalAtBySymbol : retrievalAt,
+      retrievalAtBySymbol: Object.keys(retrievalAtBySymbol).length ? retrievalAtBySymbol : null,
       timeframe: marketContextTimeframe,
       symbols: marketContextSymbols,
       researchStart: marketContextResearchStart,
@@ -130,6 +128,8 @@ export function buildMarketWideContext(rawSeriesBySymbol, { retrievalAt = null, 
       sourceCounts,
       deduplicatedCounts,
       duplicateTimestampsBySymbol,
+      sourceTimestampNormalization: 'For a present symbol, its original Alpaca source timestamp is the same instant as the row timestampUTC. Alpaca UTC timestamps may omit .000 milliseconds; normalization does not change the instant.',
+      sourceTimestampExceptions,
       synchronizedTimestampCount: rows.length,
       completeCoverageCount: rows.filter((row) => row.coverageStatus === 'complete').length,
       incompleteCoverageCount: rows.filter((row) => row.coverageStatus === 'incomplete').length,

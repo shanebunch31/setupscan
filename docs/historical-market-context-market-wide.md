@@ -35,10 +35,15 @@ The three source retrieval timestamps were:
 | QQQ | 2026-09-24T20:41:35.984Z | 10,384 | 2022-01-03T14:00:00Z | 2026-09-23T20:00:00Z |
 | IWM | 2026-09-24T20:41:40.821Z | 9,816 | 2022-01-03T14:00:00Z | 2026-09-23T20:00:00Z |
 
-Each cache row preserves the symbol, timeframe, source URL, retrieval time,
-original source timestamp, and normalized UTC timestamp. The cache metadata
-also preserves source counts, requested range, provider results, duplicate
-counts, and exclusions.
+The normalized cache stores `sourcePath` once in metadata and stores retrieval
+times in `retrievalAtBySymbol`, keyed by symbol. Rows identify symbols by their
+`symbols` keys and retain coverage and derived states without repeating source
+URLs or retrieval times. Each row retains its normalized `timestampUTC`, which
+is the same instant as the original Alpaca source timestamp for every present
+symbol. The metadata records the source-timestamp normalization rule and an
+explicit `sourceTimestampExceptions` list; this retrieval has no instant-level
+exceptions. Source counts, requested range, provider results, duplicate counts,
+and exclusions remain in metadata.
 
 ## Coverage and data quality
 
