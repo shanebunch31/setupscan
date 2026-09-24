@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { apiUrl } from '../config/apiBase.js'
 import './paperTrading.css'
 
 const formatR = (value) => `${value === Infinity ? '∞' : value.toFixed(2)}R`
@@ -19,7 +20,7 @@ export function PaperTradingPanel() {
   const [loading, setLoading] = useState(true)
   const refresh = () => {
     setLoading(true)
-    fetch('/api/paper-trading').then((response) => response.json().then((data) => ({ response, data }))).then(({ response, data }) => {
+    fetch(apiUrl('/api/paper-trading')).then((response) => response.json().then((data) => ({ response, data }))).then(({ response, data }) => {
       if (!response.ok) throw new Error(data.error || 'Paper data unavailable')
       setSnapshot(data)
       setError(null)

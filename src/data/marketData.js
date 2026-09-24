@@ -1,3 +1,5 @@
+import { apiUrl } from '../config/apiBase.js'
+
 const marketFixtures = {
   SPY: { price: 574.81, change: 0.62, vwap: 572.94, ema9: 573.68, ema21: 570.55, rsi: 61, relativeVolume: 1.28, breakout: true, trend: 'Bullish' },
   QQQ: { price: 488.26, change: 0.41, vwap: 487.9, ema9: 487.55, ema21: 484.7, rsi: 58, relativeVolume: 1.12, breakout: true, trend: 'Bullish' },
@@ -15,7 +17,7 @@ export async function fetchHistoricalMarketData(symbol = 'SPY', timeframe = '1Ho
   const params = new URLSearchParams({ symbol, timeframe })
   if (start) params.set('start', start)
   if (end) params.set('end', end)
-  const response = await fetch(`/api/historical?${params}`)
+  const response = await fetch(apiUrl(`/api/historical?${params}`))
   const payload = await response.json()
   if (!response.ok) throw new Error(payload.error || 'Historical data request failed')
   return payload
