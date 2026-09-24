@@ -29,6 +29,7 @@ import { getBacktestBreakdown } from './backtest/breakdown.js'
 import { StrategyRobustnessLab } from './backtest/RobustnessLab.jsx'
 import { RelativeValueResearchLab } from './backtest/RelativeValueResearchLab.jsx'
 import { SignalQualityResearchLab } from './backtest/SignalQualityResearchLab.jsx'
+import { FrozenScoreHoldoutLab } from './backtest/FrozenScoreHoldoutLab.jsx'
 import { PaperTradingPanel } from './paper/PaperTradingPanel.jsx'
 import './styles.css'
 
@@ -45,7 +46,7 @@ const researchTabs = [
   { id: 'robustness', label: 'Strategy Robustness' },
   { id: 'relative-value', label: 'Relative Value' },
   { id: 'signal-quality', label: 'Signal Quality / Expected Value' },
-  { id: 'frozen-score-holdout', label: 'Frozen Score Holdout', placeholder: true },
+  { id: 'frozen-score-holdout', label: 'Frozen Score Holdout' },
   { id: 'yearly-regime', label: 'Yearly / Regime Stability', placeholder: true },
   { id: 'causal-regime', label: 'Causal Market-Regime Analysis', placeholder: true },
   { id: 'walk-forward-regime', label: 'Walk-Forward Regime Validation', placeholder: true },
@@ -880,7 +881,7 @@ function App() {
               <SignalQualityResearchLab datasets={robustnessData} />
             )}
             {researchTab === 'frozen-score-holdout' && (
-              <ResearchPlaceholder title="Frozen Score Holdout" />
+              <FrozenScoreHoldoutLab datasets={robustnessData} />
             )}
             {researchTab === 'yearly-regime' && (
               <ResearchPlaceholder title="Yearly / Regime Stability" />
