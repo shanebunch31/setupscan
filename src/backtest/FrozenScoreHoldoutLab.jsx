@@ -65,7 +65,7 @@ function BucketTable({ title, buckets, monotonicity }) {
 function BucketComparisonTable({ holdoutBuckets, developmentBuckets }) {
   return (
     <div className="robustness-section">
-      <h3>Development vs. holdout \u2014 bucket by bucket</h3>
+      <h3>Development vs. holdout — bucket by bucket</h3>
       {holdoutBuckets.map((holdoutBucket, index) => {
         const developmentBucket = developmentBuckets[index]
         return (
