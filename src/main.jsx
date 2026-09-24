@@ -30,6 +30,10 @@ import { StrategyRobustnessLab } from './backtest/RobustnessLab.jsx'
 import { RelativeValueResearchLab } from './backtest/RelativeValueResearchLab.jsx'
 import { SignalQualityResearchLab } from './backtest/SignalQualityResearchLab.jsx'
 import { FrozenScoreHoldoutLab } from './backtest/FrozenScoreHoldoutLab.jsx'
+import { YearlyRegimeLab } from './backtest/YearlyRegimeLab.jsx'
+import { CausalRegimeLab } from './backtest/CausalRegimeLab.jsx'
+import { WalkForwardRegimeLab } from './backtest/WalkForwardRegimeLab.jsx'
+import { VolatilityAwareVariantsLab } from './backtest/VolatilityAwareVariantsLab.jsx'
 import { PaperTradingPanel } from './paper/PaperTradingPanel.jsx'
 import './styles.css'
 
@@ -47,10 +51,10 @@ const researchTabs = [
   { id: 'relative-value', label: 'Relative Value' },
   { id: 'signal-quality', label: 'Signal Quality / Expected Value' },
   { id: 'frozen-score-holdout', label: 'Frozen Score Holdout' },
-  { id: 'yearly-regime', label: 'Yearly / Regime Stability', placeholder: true },
-  { id: 'causal-regime', label: 'Causal Market-Regime Analysis', placeholder: true },
-  { id: 'walk-forward-regime', label: 'Walk-Forward Regime Validation', placeholder: true },
-  { id: 'volatility-aware-variants', label: 'Volatility-Aware Variants', placeholder: true },
+  { id: 'yearly-regime', label: 'Yearly / Regime Stability' },
+  { id: 'causal-regime', label: 'Causal Market-Regime Analysis' },
+  { id: 'walk-forward-regime', label: 'Walk-Forward Regime Validation' },
+  { id: 'volatility-aware-variants', label: 'Volatility-Aware Variants' },
 ]
 const formatPrice = (value) => `$${value.toFixed(2)}`
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -350,26 +354,6 @@ function NavBar({ view, onNavigate, navOpen, onToggleNav }) {
   )
 }
 
-function ResearchPlaceholder({ title }) {
-  return (
-    <div className="research-placeholder">
-      <section className="panel">
-        <div className="panel-heading compact">
-          <div>
-            <p className="eyebrow">RESEARCH · CLI ONLY</p>
-            <h2>{title}</h2>
-          </div>
-          <span className="coming-soon">NO DASHBOARD UI YET</span>
-        </div>
-        <p>
-          This research module exists as a standalone, unmodified analysis script (see{' '}
-          <code>scripts/</code>) with its own tests, but has not been wired into the dashboard yet.
-          Run it from the command line to view results.
-        </p>
-      </section>
-    </div>
-  )
-}
 
 function App() {
   const [view, setView] = useState('scan')
@@ -884,16 +868,16 @@ function App() {
               <FrozenScoreHoldoutLab datasets={robustnessData} />
             )}
             {researchTab === 'yearly-regime' && (
-              <ResearchPlaceholder title="Yearly / Regime Stability" />
+              <YearlyRegimeLab datasets={robustnessData} />
             )}
             {researchTab === 'causal-regime' && (
-              <ResearchPlaceholder title="Causal Market-Regime Analysis" />
+              <CausalRegimeLab datasets={robustnessData} />
             )}
             {researchTab === 'walk-forward-regime' && (
-              <ResearchPlaceholder title="Walk-Forward Regime Validation" />
+              <WalkForwardRegimeLab datasets={robustnessData} />
             )}
             {researchTab === 'volatility-aware-variants' && (
-              <ResearchPlaceholder title="Volatility-Aware Variants" />
+              <VolatilityAwareVariantsLab datasets={robustnessData} />
             )}
           </>
         )}
