@@ -7,7 +7,7 @@
     "dev": "concurrently \"node server/index.js\" \"vite\"",
     "worker": "node server/paperObserver.js",
     "build": "vite build",
-    "test": "node --test server/*.test.js src/backtest/*.test.js",
+    "test": "node --test server/*.test.js src/backtest/*.test.js src/backtest/strategyDiscovery/*.test.js",
     "preview": "vite preview",
     "server": "node server/index.js"
   },
