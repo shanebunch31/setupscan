@@ -21,7 +21,6 @@ import {
   enrichHistoricalCandles,
   fetchHistoricalMarketData,
   getHistoricalMarketData,
-  getWatchlistSnapshot,
 } from './data/marketData.js'
 import { scanSetups } from './logic/scanner.js'
 import { runSetupScanBacktest } from './backtest/strategy.js'
@@ -377,8 +376,61 @@ function App() {
     start.setUTCFullYear(start.getUTCFullYear() - 2)
     return { start: start.toISOString(), end: end.toISOString() }
   }, [])
-  const snapshot = useMemo(() => getWatchlistSnapshot(watchlist), [])
-  const results = useMemo(() => scanSetups(snapshot), [snapshot])
+  const scanRange = useMemo(() => {
+    const end = new Date()
+    const start = new Date(end)
+    start.setUTCDate(start.getUTCDate() - 30)
+    return { start: start.toISOString(), end: end.toISOString() }
+  }, [])
+  const [scanSnapshot, setScanSnapshot] = useState([])
+  const [scanUnavailable, setScanUnavailable] = useState([])
+  const [scanLoading, setScanLoading] = useState(true)
+  useEffect(() => {
+    let active = true
+    setScanLoading(true)
+    Promise.all(
+      watchlist.map(async (symbol) => {
+        try {
+          const data = await fetchHistoricalMarketData(symbol, '1Hour', scanRange)
+          const candles = data?.candles ?? []
+          if (!candles.length) return { symbol, available: false }
+          const enriched = enrichHistoricalCandles(candles)
+          const latest = enriched[enriched.length - 1]
+          const previous = enriched.length > 1 ? enriched[enriched.length - 2] : latest
+          const change = previous.close ? ((latest.close - previous.close) / previous.close) * 100 : 0
+          return {
+            symbol,
+            available: true,
+            snapshot: {
+              symbol,
+              price: latest.price,
+              change,
+              vwap: latest.vwap,
+              ema9: latest.ema9,
+              ema21: latest.ema21,
+              rsi: latest.rsi,
+              relativeVolume: latest.relativeVolume,
+              breakout: latest.breakout,
+              trend: latest.trend,
+              atr: latest.atr,
+              volume: latest.volume,
+            },
+          }
+        } catch (error) {
+          return { symbol, available: false }
+        }
+      }),
+    ).then((entries) => {
+      if (!active) return
+      setScanSnapshot(entries.filter((entry) => entry.available).map((entry) => entry.snapshot))
+      setScanUnavailable(entries.filter((entry) => !entry.available).map((entry) => entry.symbol))
+      setScanLoading(false)
+    })
+    return () => {
+      active = false
+    }
+  }, [scanRange])
+  const results = useMemo(() => scanSetups(scanSnapshot), [scanSnapshot])
   const selected = results.find((item) => item.symbol === selectedSymbol) ?? results[0]
   const qualified = results.filter((item) => item.score >= threshold)
   useEffect(() => {
@@ -446,9 +498,9 @@ function App() {
   )
   const backtest = useMemo(() => runSetupScanBacktest(backtestCandles), [backtestCandles])
   const bullishCount = results.filter((item) => item.status === 'Bullish').length
-  const averageScore = Math.round(
-    results.reduce((total, item) => total + item.score, 0) / results.length,
-  )
+  const averageScore = results.length
+    ? Math.round(results.reduce((total, item) => total + item.score, 0) / results.length)
+    : 0
   const refreshData = () =>
     setLastUpdated(
       `${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} ET`,
@@ -481,6 +533,13 @@ function App() {
                   A disciplined read on trend, momentum, and participation across your core
                   watchlist.
                 </p>
+                {scanLoading ? (
+                  <p className="hero-copy">Loading real Alpaca historical data…</p>
+                ) : scanUnavailable.length ? (
+                  <p className="hero-copy">
+                    Unavailable (no real Alpaca data): {scanUnavailable.join(', ')}
+                  </p>
+                ) : null}
               </div>
               <div className="hero-meta">
                 <div className="data-freshness">
@@ -706,50 +765,60 @@ function App() {
               </aside>
             </div>
             <section className="detail-grid single-column">
-              <section className="detail-panel panel">
-                <div className="detail-header">
-                  <div>
-                    <p className="eyebrow">SETUP BREAKDOWN</p>
-                    <h2>
-                      Why {selected.symbol} scored {selected.score}
-                    </h2>
-                  </div>
-                  <TrendBadge trend={selected.trend} />
-                </div>
-                <div className="detail-metrics">
-                  <div>
-                    <span>Last price</span>
-                    <strong>{formatPrice(selected.price)}</strong>
-                    <small className={selected.change >= 0 ? 'positive' : 'negative'}>
-                      {selected.change >= 0 ? '+' : ''}
-                      {selected.change.toFixed(2)}% today
-                    </small>
-                  </div>
-                  <div>
-                    <span>Setup type</span>
-                    <strong>{selected.setupType}</strong>
-                    <small>
-                      {selected.status === 'No Setup'
-                        ? 'Waiting for confirmation'
-                        : 'Conditions aligned'}
-                    </small>
-                  </div>
-                </div>
-                <div className="reason-list">
-                  {selected.reasons.map((reason) => (
-                    <div className="reason-item" key={reason.label}>
-                      <span className={reason.points > 0 ? 'reason-positive' : 'reason-neutral'}>
-                        {reason.points > 0 ? '+' : ''}
-                        {reason.points}
-                      </span>
-                      <div>
-                        <strong>{reason.label}</strong>
-                        <p>{reason.detail}</p>
-                      </div>
+              {selected ? (
+                <section className="detail-panel panel">
+                  <div className="detail-header">
+                    <div>
+                      <p className="eyebrow">SETUP BREAKDOWN</p>
+                      <h2>
+                        Why {selected.symbol} scored {selected.score}
+                      </h2>
                     </div>
-                  ))}
-                </div>
-              </section>
+                    <TrendBadge trend={selected.trend} />
+                  </div>
+                  <div className="detail-metrics">
+                    <div>
+                      <span>Last price</span>
+                      <strong>{formatPrice(selected.price)}</strong>
+                      <small className={selected.change >= 0 ? 'positive' : 'negative'}>
+                        {selected.change >= 0 ? '+' : ''}
+                        {selected.change.toFixed(2)}% today
+                      </small>
+                    </div>
+                    <div>
+                      <span>Setup type</span>
+                      <strong>{selected.setupType}</strong>
+                      <small>
+                        {selected.status === 'No Setup'
+                          ? 'Waiting for confirmation'
+                          : 'Conditions aligned'}
+                      </small>
+                    </div>
+                  </div>
+                  <div className="reason-list">
+                    {selected.reasons.map((reason) => (
+                      <div className="reason-item" key={reason.label}>
+                        <span className={reason.points > 0 ? 'reason-positive' : 'reason-neutral'}>
+                          {reason.points > 0 ? '+' : ''}
+                          {reason.points}
+                        </span>
+                        <div>
+                          <strong>{reason.label}</strong>
+                          <p>{reason.detail}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : (
+                <section className="detail-panel panel">
+                  <div className="empty-state">
+                    {scanLoading
+                      ? 'Loading real Alpaca historical data…'
+                      : 'No real Alpaca data available for this watchlist right now.'}
+                  </div>
+                </section>
+              )}
             </section>
           </>
         )}
@@ -881,7 +950,7 @@ function App() {
             {researchTab === 'volatility-aware-variants' && (
               <VolatilityAwareVariantsLab datasets={robustnessData} />
             )}
-            {researchTab === 'strategy-discovery' && <StrategyDiscoveryLab />}
+            {researchTab === 'strategy-discovery' && <StrategyDiscoveryLab datasets={robustnessData} />}
           </>
         )}
         {view === 'settings' && (
