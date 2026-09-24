@@ -7,6 +7,13 @@ dotenv.config()
 
 const port = Number(process.env.PORT || 3001)
 const paperService = createPaperService()
+const ALLOWED_ORIGIN = 'https://setupscan.vercel.app'
+
+function setCorsHeaders(response) {
+  response.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN)
+  response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+}
 
 function logCredentialStatus() {
   console.log(JSON.stringify({
@@ -23,6 +30,13 @@ function sendJson(response, status, body) {
 }
 
 const server = http.createServer(async (request, response) => {
+  setCorsHeaders(response)
+  if (request.method === 'OPTIONS') {
+    response.writeHead(204)
+    response.end()
+    return
+  }
+
   const url = new URL(request.url, `http://${request.headers.host}`)
   if (url.pathname === '/api/paper-trading') {
     try {
