@@ -370,11 +370,22 @@ function App() {
   const [robustnessData, setRobustnessData] = useState(
     robustnessSymbols.map((symbol) => ({ symbol, status: 'LOADING' })),
   )
+  const [frozenScoreData, setFrozenScoreData] = useState(
+    robustnessSymbols.map((symbol) => ({ symbol, status: 'LOADING' })),
+  )
   const historicalRange = useMemo(() => {
     const end = new Date()
     const start = new Date(end)
     start.setUTCFullYear(start.getUTCFullYear() - 2)
     return { start: start.toISOString(), end: end.toISOString() }
+  }, [])
+
+  const frozenScoreRange = useMemo(() => {
+    const end = new Date()
+    return {
+      start: '2022-01-01T00:00:00.000Z',
+      end: end.toISOString(),
+    }
   }, [])
   const scanRange = useMemo(() => {
     const end = new Date()
@@ -492,6 +503,39 @@ function App() {
       active = false
     }
   }, [historicalRange])
+
+  useEffect(() => {
+    let active = true
+    Promise.all(
+      robustnessSymbols.map(async (symbol) => {
+        try {
+          const data = await fetchHistoricalMarketData(symbol, '1Hour', frozenScoreRange)
+          const minimumExpectedCandles = data.minimumExpectedCandles ?? 1000
+          if (
+            data.provider !== 'ALPACA HISTORICAL' ||
+            data.complete === false ||
+            !data.candles?.length ||
+            data.candleCount < minimumExpectedCandles
+          ) {
+            return {
+              symbol,
+              status: 'UNAVAILABLE',
+              error: 'Real Alpaca dataset unavailable or incomplete.',
+            }
+          }
+          return { symbol, status: 'AVAILABLE', data }
+        } catch (error) {
+          return { symbol, status: 'UNAVAILABLE', error: error.message }
+        }
+      }),
+    ).then((datasets) => {
+      if (active) setFrozenScoreData(datasets)
+    })
+    return () => {
+      active = false
+    }
+  }, [frozenScoreRange])
+
   const backtestCandles = useMemo(
     () => enrichHistoricalCandles(historicalData?.candles ?? []),
     [historicalData],
@@ -936,7 +980,7 @@ function App() {
               <SignalQualityResearchLab datasets={robustnessData} />
             )}
             {researchTab === 'frozen-score-holdout' && (
-              <FrozenScoreHoldoutLab datasets={robustnessData} />
+              <FrozenScoreHoldoutLab datasets={frozenScoreData} />
             )}
             {researchTab === 'yearly-regime' && (
               <YearlyRegimeLab datasets={robustnessData} />
