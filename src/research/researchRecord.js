@@ -15,6 +15,10 @@ export const FINDING_STATES = Object.freeze([
   'untested',
 ])
 
+// 'not-modeled' must never be read as zero cost — it means the native research doesn't touch
+// costs at all. 'not-applicable' is reserved for results with no trade-level cost concept.
+export const COST_MODEL_STATUSES = Object.freeze(['modeled', 'not-modeled', 'not-applicable'])
+
 function assertAllowed(value, allowed, label) {
   if (!allowed.includes(value)) {
     throw new Error(`Unknown ${label}: ${value}`)
@@ -71,6 +75,7 @@ export function createResearchRecord({
     throw new Error('A research record requires id, title, and category')
   }
   assertAllowed(status, RESEARCH_STATUSES, 'research status')
+  if (costModel?.status !== undefined) assertAllowed(costModel.status, COST_MODEL_STATUSES, 'cost model status')
 
   return {
     id,

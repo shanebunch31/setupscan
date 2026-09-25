@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createResearchRecordForExperiment, getResearchExperiment, listResearchExperiments, researchRegistry } from './registry.js'
 import { adaptStandardResearchOutput } from './adapters.js'
-import { createFinding, createResearchRecord, FINDING_STATES, RESEARCH_STATUSES } from './researchRecord.js'
+import { createFinding, createResearchRecord, COST_MODEL_STATUSES, FINDING_STATES, RESEARCH_STATUSES } from './researchRecord.js'
 
 // --- Small fixtures shaped exactly like the real runXResearch() outputs (src/backtest/*.js). ---
 
@@ -111,6 +111,14 @@ test('record factory rejects unknown statuses and finding states', () => {
   assert.throws(() => createFinding({ id: 'x', experimentId: 'y', state: 'validated', title: 'X' }), /Unknown finding state/)
 })
 
+test('record factory rejects an unknown cost model status', () => {
+  assert.deepEqual(COST_MODEL_STATUSES, ['modeled', 'not-modeled', 'not-applicable'])
+  assert.throws(
+    () => createResearchRecord({ id: 'x', title: 'X', category: 'test', costModel: { status: 'free' } }),
+    /Unknown cost model status/,
+  )
+})
+
 // --- robustness (runThresholdResearch + runMarketConditionResearch) ---
 
 test('robustness normalizes per-threshold metrics and preserves the native payload', () => {
@@ -132,6 +140,12 @@ test('robustness normalizes per-threshold metrics and preserves the native paylo
   assert.equal(record.metrics['75+'].totalR, 9)
   assert.notEqual(record.metrics['75+'].totalR, 22)
   assert.equal(record.metrics['90+'].totalR, 4)
+  // Threshold variants are all the same baseline strategy; the threshold is a ruleSetVariant, not a separate strategyId.
+  assert.equal(record.metrics['75+'].strategyId, 'setup-scan-baseline')
+  assert.equal(record.metrics['75+'].ruleSetVariant, 'threshold-75')
+  assert.equal(record.metrics['90+'].ruleSetVariant, 'threshold-90')
+  // strategy.js never models execution costs — must read as "not modeled", never as zero cost.
+  assert.equal(record.costModel.status, 'not-modeled')
   assert.equal(record.outOfSample.type, 'partition')
   assert.equal(record.outOfSample.inSampleMetrics.totalTrades, 28)
   assert.equal(record.input.candleCount, 3)
@@ -152,7 +166,7 @@ test('relative-value normalizes all four variants before/after costs', () => {
   const raw = { SPY: [makeCandle('SPY', '1h', 't0'), makeCandle('SPY', '1h', 't1')], QQQ: [makeCandle('QQQ', '1h', 't0'), makeCandle('QQQ', '1h', 't1')] }
   const nativePayload = {
     aligned: { raw, timestamps: ['t0', 't1'] },
-    options: { lookback: 20 },
+    options: { lookback: 20, executionCostR: 0.05 },
     summaries: {
       A: { overallBeforeCosts: makeOverall({ tradeCount: 5 }), overallAfterCosts: makeOverall({ tradeCount: 5, expectancy: 0.2 }) },
       B: { overallBeforeCosts: makeOverall({ tradeCount: 3 }), overallAfterCosts: makeOverall({ tradeCount: 3 }) },
@@ -164,9 +178,14 @@ test('relative-value normalizes all four variants before/after costs', () => {
   assert.equal(record.metrics.A.beforeCosts.tradeCount, 5)
   assert.equal(record.metrics.A.afterCosts.expectancy, 0.2)
   assert.equal(record.metrics.B.beforeCosts.tradeCount, 3)
+  // Variant A is the unmodified baseline; B is a genuinely different rule (RV-confirmation filter).
+  assert.equal(record.metrics.A.strategyId, 'setup-scan-baseline')
+  assert.equal(record.metrics.B.strategyId, 'rv-confirmation-filter')
+  assert.equal(record.costModel.status, 'modeled')
+  assert.equal(record.costModel.executionCostR, 0.05)
   assert.deepEqual(record.input.symbols, ['SPY', 'QQQ'])
   assert.equal(record.input.candleCount, 2)
-  assert.deepEqual(record.parameters, { lookback: 20 })
+  assert.deepEqual(record.parameters, { lookback: 20, executionCostR: 0.05 })
 })
 
 // --- signal-quality (runSignalQualityResearch) ---
@@ -188,6 +207,10 @@ test('signal-quality normalizes metrics per score bucket', () => {
   assert.equal(record.nativePayload, nativePayload)
   assert.equal(record.metrics['75-79'].tradeCount, 6)
   assert.equal(record.metrics['95-100'].tradeCount, 1)
+  // Score buckets are the same baseline strategy; the bucket is a ruleSetVariant, not a separate strategy.
+  assert.equal(record.metrics['75-79'].strategyId, 'setup-scan-baseline')
+  assert.equal(record.metrics['75-79'].ruleSetVariant, 'bucket-75-79')
+  assert.equal(record.costModel.status, 'modeled')
   assert.deepEqual(record.input.symbols, ['SPY'])
 })
 
@@ -208,6 +231,13 @@ test('frozen-score-holdout normalizes development/holdout baseline and RV-confir
 
   assert.equal(record.metrics.developmentBaseline.tradeCount, 20)
   assert.equal(record.metrics.holdoutBaseline.tradeCount, 6)
+  // development/holdout are evaluation partitions, not rule variants — only strategyId applies here.
+  assert.equal(record.metrics.developmentBaseline.strategyId, 'setup-scan-baseline')
+  assert.equal(record.metrics.developmentBaseline.ruleSetVariant, undefined)
+  assert.equal(record.metrics.developmentRvConfirmed.strategyId, 'rv-combined')
+  assert.equal(record.metrics.holdoutBaseline.strategyId, 'setup-scan-baseline')
+  assert.equal(record.metrics.holdoutRvConfirmed.strategyId, 'rv-combined')
+  assert.equal(record.costModel.status, 'modeled')
   assert.deepEqual(record.outOfSample, {
     type: 'holdout',
     developmentRange: nativePayload.developmentRange,
@@ -234,6 +264,12 @@ test('yearly-regime normalizes the combined summary plus one summary per calenda
   assert.equal(record.metrics.combinedBaseline.tradeCount, 21)
   assert.equal(record.metrics['year-2023'].tradeCount, 12)
   assert.equal(record.metrics['year-2024'].tradeCount, 9)
+  assert.equal(record.metrics.combinedBaseline.strategyId, 'setup-scan-baseline')
+  assert.equal(record.metrics.combinedRvConfirmed.strategyId, 'rv-combined')
+  // Calendar year is an evaluation partition, not a rule variant — only strategyId applies here.
+  assert.equal(record.metrics['year-2023'].strategyId, 'setup-scan-baseline')
+  assert.equal(record.metrics['year-2023'].ruleSetVariant, undefined)
+  assert.equal(record.costModel.status, 'modeled')
 })
 
 // --- causal-regime (runCausalRegimeResearch) ---
@@ -254,6 +290,11 @@ test('causal-regime normalizes the combined summary plus trend/volatility/breadt
   assert.equal(record.metrics['trend-Uptrend'].tradeCount, 18)
   assert.equal(record.metrics['volatility-High'].tradeCount, 4)
   assert.equal(record.metrics['breadth-Strong'].tradeCount, 7)
+  assert.equal(record.metrics.combinedRvConfirmed.strategyId, 'rv-combined')
+  // Trend/volatility/breadth regimes are evaluation partitions, not rule variants — only strategyId applies here.
+  assert.equal(record.metrics['trend-Uptrend'].strategyId, 'setup-scan-baseline')
+  assert.equal(record.metrics['trend-Uptrend'].ruleSetVariant, undefined)
+  assert.equal(record.costModel.status, 'modeled')
 })
 
 // --- walk-forward-regime (runWalkForwardRegimeResearch) ---
@@ -272,6 +313,11 @@ test('walk-forward-regime normalizes per-window metrics and retains walk-forward
 
   assert.equal(record.metrics.combinedBaseline.tradeCount, 25)
   assert.equal(record.metrics['Window 1'].tradeCount, 6)
+  assert.equal(record.metrics.combinedRvConfirmed.strategyId, 'rv-combined')
+  // A walk-forward window is an evaluation partition, not a rule variant — only strategyId applies here.
+  assert.equal(record.metrics['Window 1'].strategyId, 'setup-scan-baseline')
+  assert.equal(record.metrics['Window 1'].ruleSetVariant, undefined)
+  assert.equal(record.costModel.status, 'modeled')
   assert.equal(record.outOfSample.type, 'walk-forward')
   assert.equal(record.outOfSample.windows[0].testClassification, 2023)
   assert.equal(record.outOfSample.windows[0].trainStart, '2022-01-01')
@@ -295,6 +341,10 @@ test('volatility-aware-variants normalizes pooled metrics per variant and falls 
 
   assert.equal(record.metrics.control.tradeCount, 40)
   assert.equal(record.metrics.skipHighVol.tradeCount, 30)
+  // 'control' is the same strategy as the frozen baseline, not a fifth independent strategy.
+  assert.equal(record.metrics.control.strategyId, 'setup-scan-baseline')
+  assert.equal(record.metrics.skipHighVol.strategyId, 'vol-aware-skip-high')
+  assert.equal(record.costModel.status, 'modeled')
   assert.equal(record.outOfSample.type, 'walk-forward')
   assert.equal(record.outOfSample.windows[0].trainStart, '2022-01-05')
   assert.equal(record.outOfSample.windows[0].testClassification, 2023)
@@ -318,6 +368,12 @@ test('strategy-comparison normalizes control vs. trend/momentum metrics using ea
   // trendMomentum's native metrics have neither totalR nor totalPositiveR/netReturn — none should be invented.
   assert.equal(record.metrics.trendMomentum.tradeCount, 9)
   assert.equal('totalR' in record.metrics.trendMomentum, false)
+  // control is the frozen baseline; trend-momentum-v1 is strategyComparison.js's own construction —
+  // must never be confused with strategy-discovery's independently-implemented momentum-breakout-v1.
+  assert.equal(record.metrics.control.strategyId, 'setup-scan-baseline')
+  assert.equal(record.metrics.trendMomentum.strategyId, 'trend-momentum-v1')
+  // Neither side of strategy-comparison models execution costs.
+  assert.equal(record.costModel.status, 'not-modeled')
   assert.equal(record.outOfSample.type, 'partition')
   assert.equal(record.outOfSample.inSampleMetrics.totalTrades, 10)
   assert.deepEqual(record.input.symbols, ['SPY'])
@@ -337,6 +393,7 @@ test('strategy-discovery normalizes per-experiment metrics and surfaces universe
     ],
     generatedAt: '2026-01-01T00:00:00Z',
     gitCommit: 'abc123',
+    costTiers: [{ label: 'Before execution costs', entryBps: 0, exitBps: 0 }],
     experiments: [
       { experimentId: 'momentum-breakout', label: 'Momentum Breakout', summary: { overall: makeOverall({ tradeCount: 45, occurrenceCount: 45 }) } },
     ],
@@ -345,6 +402,10 @@ test('strategy-discovery normalizes per-experiment metrics and surfaces universe
 
   assert.equal(record.nativePayload, nativePayload)
   assert.equal(record.metrics['momentum-breakout'].tradeCount, 45)
+  // Strategy Discovery already versions its own native identity — reuse it as-is.
+  assert.equal(record.metrics['momentum-breakout'].strategyId, 'momentum-breakout')
+  assert.equal(record.costModel.status, 'modeled')
+  assert.deepEqual(record.costModel.costTiers, nativePayload.costTiers)
   assert.deepEqual(record.input.symbols, ['SPY', 'QQQ', 'IWM'])
   assert.equal(record.input.timeframe, '1Hour')
   assert.equal(record.input.candleCount, 1000)
