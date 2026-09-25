@@ -373,9 +373,6 @@ function App() {
   const [frozenScoreData, setFrozenScoreData] = useState(
     robustnessSymbols.map((symbol) => ({ symbol, status: 'LOADING' })),
   )
-  const [yearlyRegimeData, setYearlyRegimeData] = useState(
-    robustnessSymbols.map((symbol) => ({ symbol, status: 'LOADING' })),
-  )
   const historicalRange = useMemo(() => {
     const end = new Date()
     const start = new Date(end)
@@ -391,7 +388,6 @@ function App() {
     }
   }, [])
 
-  const yearlyRegimeRange = frozenScoreRange
   const scanRange = useMemo(() => {
     const end = new Date()
     const start = new Date(end)
@@ -478,36 +474,7 @@ function App() {
       active = false
     }
   }, [historicalRange])
-  useEffect(() => {
-    let active = true
-    Promise.all(
-      robustnessSymbols.map(async (symbol) => {
-        try {
-          const data = await fetchHistoricalMarketData(symbol, '1Hour', historicalRange)
-          const minimumExpectedCandles = data.minimumExpectedCandles ?? 1000
-          if (
-            data.provider !== 'ALPACA HISTORICAL' ||
-            data.complete === false ||
-            !data.candles?.length ||
-            data.candleCount < minimumExpectedCandles
-          )
-            return {
-              symbol,
-              status: 'UNAVAILABLE',
-              error: 'Real Alpaca dataset unavailable or incomplete.',
-            }
-          return { symbol, status: 'AVAILABLE', data }
-        } catch (error) {
-          return { symbol, status: 'UNAVAILABLE', error: error.message }
-        }
-      }),
-    ).then((datasets) => {
-      if (active) setRobustnessData(datasets)
-    })
-    return () => {
-      active = false
-    }
-  }, [historicalRange])
+
 
   useEffect(() => {
     let active = true
@@ -534,44 +501,17 @@ function App() {
         }
       }),
     ).then((datasets) => {
-      if (active) setFrozenScoreData(datasets)
+      if (active) {
+        setFrozenScoreData(datasets)
+        setRobustnessData(datasets)
+      }
     })
     return () => {
       active = false
     }
   }, [frozenScoreRange])
 
-  useEffect(() => {
-    let active = true
-    Promise.all(
-      robustnessSymbols.map(async (symbol) => {
-        try {
-          const data = await fetchHistoricalMarketData(symbol, '1Hour', yearlyRegimeRange)
-          const minimumExpectedCandles = data.minimumExpectedCandles ?? 1000
-          if (
-            data.provider !== 'ALPACA HISTORICAL' ||
-            data.complete === false ||
-            !data.candles?.length ||
-            data.candleCount < minimumExpectedCandles
-          ) {
-            return {
-              symbol,
-              status: 'UNAVAILABLE',
-              error: 'Real Alpaca dataset unavailable or incomplete.',
-            }
-          }
-          return { symbol, status: 'AVAILABLE', data }
-        } catch (error) {
-          return { symbol, status: 'UNAVAILABLE', error: error.message }
-        }
-      }),
-    ).then((datasets) => {
-      if (active) setYearlyRegimeData(datasets)
-    })
-    return () => {
-      active = false
-    }
-  }, [yearlyRegimeRange])
+
 
   const backtestCandles = useMemo(
     () => enrichHistoricalCandles(historicalData?.candles ?? []),
