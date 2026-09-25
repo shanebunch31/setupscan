@@ -1,7 +1,64 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createResearchRecordForExperiment, getResearchExperiment, listResearchExperiments, researchRegistry } from './registry.js'
+import { adaptStandardResearchOutput } from './adapters.js'
 import { createFinding, createResearchRecord, FINDING_STATES, RESEARCH_STATUSES } from './researchRecord.js'
+
+// --- Small fixtures shaped exactly like the real runXResearch() outputs (src/backtest/*.js). ---
+
+function makeCandle(symbol, timeframe, timestamp) {
+  return { symbol, timeframe, timestamp, open: 100, high: 101, low: 99, close: 100.5, volume: 1000 }
+}
+
+function makeOverall(overrides = {}) {
+  return {
+    tradeCount: 10,
+    winRate: 0.6,
+    profitFactor: 1.8,
+    expectancy: 0.3,
+    averageR: 0.3,
+    totalR: 3,
+    maximumDrawdown: 1.2,
+    averageHoldingTime: 90,
+    ...overrides,
+  }
+}
+
+// Real strategy.js getMetrics() shape: no `totalR` field — gross profit is `totalPositiveR`,
+// gross loss is `totalNegativeR`, and the actual net total R is `netReturn`.
+function makeStrategyJsMetrics(overrides = {}) {
+  return {
+    totalTrades: 10,
+    numberOfTrades: 10,
+    winRate: 0.6,
+    profitFactor: 1.8,
+    expectancy: 0.3,
+    averageR: 0.3,
+    totalPositiveR: 5,
+    totalNegativeR: -2,
+    netReturn: 3,
+    maximumDrawdown: 1.2,
+    averageHoldingTime: 90,
+    ...overrides,
+  }
+}
+
+// Real strategyComparison.js calculateResearchMetrics() shape (trendMomentum): no `totalR` and
+// no `totalPositiveR` at all — only grossProfit/grossLoss.
+function makeTrendMomentumMetrics(overrides = {}) {
+  return {
+    totalTrades: 9,
+    winRate: 0.55,
+    profitFactor: 1.5,
+    expectancy: 0.25,
+    averageR: 0.25,
+    grossProfit: 4,
+    grossLoss: -1.5,
+    maximumDrawdown: 1,
+    averageHoldingTime: 80,
+    ...overrides,
+  }
+}
 
 test('registry identifies all existing research areas and adapter boundaries', () => {
   assert.equal(researchRegistry.length, 10)
@@ -18,12 +75,13 @@ test('registry identifies all existing research areas and adapter boundaries', (
     'strategy-comparison',
   ])
   assert.equal(getResearchExperiment('signal-quality').category, 'baseline-validation')
-  assert.equal(typeof getResearchExperiment('signal-quality').adapter, 'function')
+  researchRegistry.forEach((definition) => assert.equal(typeof definition.adapter, 'function'))
 })
 
-test('record factory preserves native output and envelope fields', () => {
+test('generic adaptStandardResearchOutput preserves native output and envelope fields', () => {
   const nativePayload = { metrics: { totalTrades: 12, averageR: 0.4 }, aligned: { timestamps: ['a'] } }
-  const record = createResearchRecordForExperiment('signal-quality', nativePayload, {
+  const definition = { id: 'generic', title: 'Generic', category: 'baseline-validation' }
+  const record = adaptStandardResearchOutput(definition, nativePayload, {
     symbols: ['SPY'],
     provider: 'alpaca',
     actualStart: '2026-01-01',
@@ -40,33 +98,6 @@ test('record factory preserves native output and envelope fields', () => {
   assert.deepEqual(record.provenance, { source: 'test' })
 })
 
-test('unavailable discovery output remains unavailable without invented metrics', () => {
-  const nativePayload = { available: false, missingSymbols: ['IWM'], universe: ['SPY', 'QQQ', 'IWM'] }
-  const record = createResearchRecordForExperiment('strategy-discovery', nativePayload)
-
-  assert.equal(record.status, 'unavailable')
-  assert.deepEqual(record.metrics, {})
-  assert.deepEqual(record.nativePayload, nativePayload)
-})
-
-test('adapters retain holdout and walk-forward out-of-sample boundaries', () => {
-  const holdout = createResearchRecordForExperiment('frozen-score-holdout', {
-    developmentRange: ['2020-01-01', '2023-12-31'],
-    holdoutRange: ['2024-01-01', '2025-12-31'],
-  })
-  assert.deepEqual(holdout.outOfSample, {
-    type: 'holdout',
-    developmentRange: ['2020-01-01', '2023-12-31'],
-    holdoutRange: ['2024-01-01', '2025-12-31'],
-  })
-
-  const walkForward = createResearchRecordForExperiment('walk-forward-regime', {
-    windows: [{ trainStart: '2020', trainEnd: '2022', testStart: '2023', testEnd: '2023', testClassification: 'test' }],
-  })
-  assert.equal(walkForward.outOfSample.type, 'walk-forward')
-  assert.equal(walkForward.outOfSample.windows[0].testClassification, 'test')
-})
-
 test('finding factory supports every required evidence state', () => {
   FINDING_STATES.forEach((state) => {
     const finding = createFinding({ id: `finding-${state}`, experimentId: 'signal-quality', state, title: state })
@@ -78,4 +109,253 @@ test('finding factory supports every required evidence state', () => {
 test('record factory rejects unknown statuses and finding states', () => {
   assert.throws(() => createResearchRecord({ id: 'x', title: 'X', category: 'test', status: 'validated' }), /Unknown research status/)
   assert.throws(() => createFinding({ id: 'x', experimentId: 'y', state: 'validated', title: 'X' }), /Unknown finding state/)
+})
+
+// --- robustness (runThresholdResearch + runMarketConditionResearch) ---
+
+test('robustness normalizes per-threshold metrics and preserves the native payload', () => {
+  const candles = [makeCandle('SPY', '1h', 't0'), makeCandle('SPY', '1h', 't1'), makeCandle('SPY', '1h', 't2')]
+  const nativePayload = {
+    thresholdResults: [
+      { minimumScore: 75, candles, metrics: makeStrategyJsMetrics({ totalTrades: 40, totalPositiveR: 22, netReturn: 9 }), inSampleMetrics: makeStrategyJsMetrics({ totalTrades: 28 }), outOfSampleMetrics: makeStrategyJsMetrics({ totalTrades: 12 }) },
+      { minimumScore: 90, candles, metrics: makeStrategyJsMetrics({ totalTrades: 8, totalPositiveR: 10, netReturn: 4 }), inSampleMetrics: makeStrategyJsMetrics({ totalTrades: 5 }), outOfSampleMetrics: makeStrategyJsMetrics({ totalTrades: 3 }) },
+    ],
+    periodResults: [{ label: 'Period 1', start: 't0', end: 't2', candleCount: 3, metrics: makeStrategyJsMetrics() }],
+  }
+  const record = createResearchRecordForExperiment('robustness', nativePayload)
+
+  assert.equal(record.status, 'completed')
+  assert.equal(record.nativePayload, nativePayload)
+  assert.equal(record.metrics['75+'].tradeCount, 40)
+  assert.equal(record.metrics['90+'].tradeCount, 8)
+  // Normalized totalR must reflect net return, never the gross-profit-only totalPositiveR.
+  assert.equal(record.metrics['75+'].totalR, 9)
+  assert.notEqual(record.metrics['75+'].totalR, 22)
+  assert.equal(record.metrics['90+'].totalR, 4)
+  assert.equal(record.outOfSample.type, 'partition')
+  assert.equal(record.outOfSample.inSampleMetrics.totalTrades, 28)
+  assert.equal(record.input.candleCount, 3)
+  assert.deepEqual(record.input.symbols, ['SPY'])
+  assert.equal(record.input.timeframe, '1h')
+})
+
+test('robustness reports unavailable when no threshold results exist (e.g. SPY missing)', () => {
+  const nativePayload = { thresholdResults: [], periodResults: [] }
+  const record = createResearchRecordForExperiment('robustness', nativePayload)
+  assert.equal(record.status, 'unavailable')
+  assert.deepEqual(record.metrics, {})
+})
+
+// --- relative-value (runRelativeValueResearch) ---
+
+test('relative-value normalizes all four variants before/after costs', () => {
+  const raw = { SPY: [makeCandle('SPY', '1h', 't0'), makeCandle('SPY', '1h', 't1')], QQQ: [makeCandle('QQQ', '1h', 't0'), makeCandle('QQQ', '1h', 't1')] }
+  const nativePayload = {
+    aligned: { raw, timestamps: ['t0', 't1'] },
+    options: { lookback: 20 },
+    summaries: {
+      A: { overallBeforeCosts: makeOverall({ tradeCount: 5 }), overallAfterCosts: makeOverall({ tradeCount: 5, expectancy: 0.2 }) },
+      B: { overallBeforeCosts: makeOverall({ tradeCount: 3 }), overallAfterCosts: makeOverall({ tradeCount: 3 }) },
+    },
+  }
+  const record = createResearchRecordForExperiment('relative-value', nativePayload)
+
+  assert.equal(record.nativePayload, nativePayload)
+  assert.equal(record.metrics.A.beforeCosts.tradeCount, 5)
+  assert.equal(record.metrics.A.afterCosts.expectancy, 0.2)
+  assert.equal(record.metrics.B.beforeCosts.tradeCount, 3)
+  assert.deepEqual(record.input.symbols, ['SPY', 'QQQ'])
+  assert.equal(record.input.candleCount, 2)
+  assert.deepEqual(record.parameters, { lookback: 20 })
+})
+
+// --- signal-quality (runSignalQualityResearch) ---
+
+test('signal-quality normalizes metrics per score bucket', () => {
+  const raw = { SPY: [makeCandle('SPY', '1h', 't0')] }
+  const nativePayload = {
+    aligned: { raw, timestamps: ['t0'] },
+    options: { minimumScore: 75 },
+    scoreBuckets: [
+      { label: '75-79', min: 75, max: 79, overall: makeOverall({ tradeCount: 6 }) },
+      { label: '95-100', min: 95, max: 100, overall: makeOverall({ tradeCount: 1 }) },
+    ],
+    components: [],
+    decomposition: [],
+  }
+  const record = createResearchRecordForExperiment('signal-quality', nativePayload)
+
+  assert.equal(record.nativePayload, nativePayload)
+  assert.equal(record.metrics['75-79'].tradeCount, 6)
+  assert.equal(record.metrics['95-100'].tradeCount, 1)
+  assert.deepEqual(record.input.symbols, ['SPY'])
+})
+
+// --- frozen-score-holdout (runFrozenScoreHoldoutResearch) ---
+
+test('frozen-score-holdout normalizes development/holdout baseline and RV-confirmed metrics, preserving native ranges', () => {
+  const nativePayload = {
+    aligned: { raw: { SPY: [makeCandle('SPY', '1h', 't0')] }, timestamps: ['t0'] },
+    options: {},
+    developmentRange: { start: '2020-01-01', end: '2023-12-31', candleCount: 500 },
+    holdoutRange: { start: '2024-01-01', end: '2025-12-31', candleCount: 200 },
+    developmentBaseline: { overall: makeOverall({ tradeCount: 20 }) },
+    developmentRvConfirmed: { overall: makeOverall({ tradeCount: 8 }) },
+    holdoutBaseline: { overall: makeOverall({ tradeCount: 6 }) },
+    holdoutRvConfirmed: { overall: makeOverall({ tradeCount: 2 }) },
+  }
+  const record = createResearchRecordForExperiment('frozen-score-holdout', nativePayload)
+
+  assert.equal(record.metrics.developmentBaseline.tradeCount, 20)
+  assert.equal(record.metrics.holdoutBaseline.tradeCount, 6)
+  assert.deepEqual(record.outOfSample, {
+    type: 'holdout',
+    developmentRange: nativePayload.developmentRange,
+    holdoutRange: nativePayload.holdoutRange,
+  })
+  assert.deepEqual(record.input.sampleCounts, { developmentCandleCount: 500, holdoutCandleCount: 200 })
+})
+
+// --- yearly-regime (runYearlyRegimeResearch) ---
+
+test('yearly-regime normalizes the combined summary plus one summary per calendar year', () => {
+  const nativePayload = {
+    aligned: { raw: { SPY: [makeCandle('SPY', '1h', 't0')] }, timestamps: ['t0'] },
+    options: {},
+    years: [
+      { year: 2023, baseline: { overall: makeOverall({ tradeCount: 12 }) } },
+      { year: 2024, baseline: { overall: makeOverall({ tradeCount: 9 }) } },
+    ],
+    combinedBaseline: { overall: makeOverall({ tradeCount: 21 }) },
+    combinedRvConfirmed: { overall: makeOverall({ tradeCount: 5 }) },
+  }
+  const record = createResearchRecordForExperiment('yearly-regime', nativePayload)
+
+  assert.equal(record.metrics.combinedBaseline.tradeCount, 21)
+  assert.equal(record.metrics['year-2023'].tradeCount, 12)
+  assert.equal(record.metrics['year-2024'].tradeCount, 9)
+})
+
+// --- causal-regime (runCausalRegimeResearch) ---
+
+test('causal-regime normalizes the combined summary plus trend/volatility/breadth groups', () => {
+  const nativePayload = {
+    aligned: { raw: { SPY: [makeCandle('SPY', '1h', 't0')] }, timestamps: ['t0'] },
+    options: {},
+    combinedBaseline: { overall: makeOverall({ tradeCount: 30 }) },
+    combinedRvConfirmed: { overall: makeOverall({ tradeCount: 10 }) },
+    trendGroups: [{ label: 'Uptrend', baseline: { overall: makeOverall({ tradeCount: 18 }) } }],
+    volatilityGroups: [{ label: 'High', baseline: { overall: makeOverall({ tradeCount: 4 }) } }],
+    breadthGroups: [{ label: 'Strong', baseline: { overall: makeOverall({ tradeCount: 7 }) } }],
+  }
+  const record = createResearchRecordForExperiment('causal-regime', nativePayload)
+
+  assert.equal(record.metrics.combinedBaseline.tradeCount, 30)
+  assert.equal(record.metrics['trend-Uptrend'].tradeCount, 18)
+  assert.equal(record.metrics['volatility-High'].tradeCount, 4)
+  assert.equal(record.metrics['breadth-Strong'].tradeCount, 7)
+})
+
+// --- walk-forward-regime (runWalkForwardRegimeResearch) ---
+
+test('walk-forward-regime normalizes per-window metrics and retains walk-forward out-of-sample boundaries', () => {
+  const nativePayload = {
+    aligned: { raw: { SPY: [makeCandle('SPY', '1h', 't0')] }, timestamps: ['t0'] },
+    options: {},
+    combinedBaseline: { overall: makeOverall({ tradeCount: 25 }) },
+    combinedRvConfirmed: { overall: makeOverall({ tradeCount: 9 }) },
+    windows: [
+      { label: 'Window 1', testYear: 2023, trainStart: '2022-01-01', trainEnd: '2022-12-31', testStart: '2023-01-01', testEnd: '2023-12-31', baseline: { overall: makeOverall({ tradeCount: 6 }) } },
+    ],
+  }
+  const record = createResearchRecordForExperiment('walk-forward-regime', nativePayload)
+
+  assert.equal(record.metrics.combinedBaseline.tradeCount, 25)
+  assert.equal(record.metrics['Window 1'].tradeCount, 6)
+  assert.equal(record.outOfSample.type, 'walk-forward')
+  assert.equal(record.outOfSample.windows[0].testClassification, 2023)
+  assert.equal(record.outOfSample.windows[0].trainStart, '2022-01-01')
+})
+
+// --- volatility-aware-variants (runVolatilityAwareVariantsResearch) ---
+
+test('volatility-aware-variants normalizes pooled metrics per variant and falls back to realized window boundaries', () => {
+  const nativePayload = {
+    aligned: { raw: { SPY: [makeCandle('SPY', '1h', 't0')] }, timestamps: ['t0'] },
+    options: {},
+    pooled: [
+      { key: 'control', label: 'Control', summary: { overall: makeOverall({ tradeCount: 40 }) } },
+      { key: 'skipHighVol', label: 'Skip High Vol', summary: { overall: makeOverall({ tradeCount: 30 }) } },
+    ],
+    windows: [
+      { label: 'Window 1', testYear: 2023, trainRealizedStart: '2022-01-05', trainRealizedEnd: '2022-12-30', testRealizedStart: '2023-01-03', testRealizedEnd: '2023-12-29' },
+    ],
+  }
+  const record = createResearchRecordForExperiment('volatility-aware-variants', nativePayload)
+
+  assert.equal(record.metrics.control.tradeCount, 40)
+  assert.equal(record.metrics.skipHighVol.tradeCount, 30)
+  assert.equal(record.outOfSample.type, 'walk-forward')
+  assert.equal(record.outOfSample.windows[0].trainStart, '2022-01-05')
+  assert.equal(record.outOfSample.windows[0].testClassification, 2023)
+})
+
+// --- strategy-comparison (runStrategyComparison) ---
+
+test('strategy-comparison normalizes control vs. trend/momentum metrics using each side\'s real native shape', () => {
+  const candles = [makeCandle('SPY', '1h', 't0'), makeCandle('SPY', '1h', 't1')]
+  const nativePayload = {
+    control: { candles, settings: {}, trades: [], partitions: { inSample: [], outOfSample: [] }, metrics: makeStrategyJsMetrics({ totalTrades: 14, totalPositiveR: 20, netReturn: 6 }), inSampleMetrics: makeStrategyJsMetrics({ totalTrades: 10 }), outOfSampleMetrics: makeStrategyJsMetrics({ totalTrades: 4 }) },
+    trendMomentum: { candles, settings: {}, trades: [], partitions: { inSample: [], outOfSample: [] }, metrics: makeTrendMomentumMetrics({ totalTrades: 9 }), inSampleMetrics: makeTrendMomentumMetrics({ totalTrades: 6 }), outOfSampleMetrics: makeTrendMomentumMetrics({ totalTrades: 3 }) },
+  }
+  const record = createResearchRecordForExperiment('strategy-comparison', nativePayload)
+
+  assert.equal(record.nativePayload, nativePayload)
+  assert.equal(record.metrics.control.tradeCount, 14)
+  // Control's normalized return must be the real net return, not the gross-profit-only totalPositiveR.
+  assert.equal(record.metrics.control.totalR, 6)
+  assert.notEqual(record.metrics.control.totalR, 20)
+  // trendMomentum's native metrics have neither totalR nor totalPositiveR/netReturn — none should be invented.
+  assert.equal(record.metrics.trendMomentum.tradeCount, 9)
+  assert.equal('totalR' in record.metrics.trendMomentum, false)
+  assert.equal(record.outOfSample.type, 'partition')
+  assert.equal(record.outOfSample.inSampleMetrics.totalTrades, 10)
+  assert.deepEqual(record.input.symbols, ['SPY'])
+  assert.equal(record.input.candleCount, 2)
+})
+
+// --- strategy-discovery (runStrategyDiscoveryBatchA) ---
+
+test('strategy-discovery normalizes per-experiment metrics and surfaces universe/timeframe/provenance metadata', () => {
+  const nativePayload = {
+    available: true,
+    universe: ['SPY', 'QQQ', 'IWM'],
+    timeframe: '1Hour',
+    datasetInfo: [
+      { symbol: 'SPY', provider: 'ALPACA HISTORICAL', candleCount: 500, start: 't0', end: 't1', duplicatesRemoved: 0 },
+      { symbol: 'QQQ', provider: 'ALPACA HISTORICAL', candleCount: 500, start: 't0', end: 't1', duplicatesRemoved: 0 },
+    ],
+    generatedAt: '2026-01-01T00:00:00Z',
+    gitCommit: 'abc123',
+    experiments: [
+      { experimentId: 'momentum-breakout', label: 'Momentum Breakout', summary: { overall: makeOverall({ tradeCount: 45, occurrenceCount: 45 }) } },
+    ],
+  }
+  const record = createResearchRecordForExperiment('strategy-discovery', nativePayload)
+
+  assert.equal(record.nativePayload, nativePayload)
+  assert.equal(record.metrics['momentum-breakout'].tradeCount, 45)
+  assert.deepEqual(record.input.symbols, ['SPY', 'QQQ', 'IWM'])
+  assert.equal(record.input.timeframe, '1Hour')
+  assert.equal(record.input.candleCount, 1000)
+  assert.deepEqual(record.provenance, { generatedAt: '2026-01-01T00:00:00Z', gitCommit: 'abc123' })
+})
+
+test('unavailable discovery output remains unavailable without invented metrics', () => {
+  const nativePayload = { available: false, missingSymbols: ['IWM'], universe: ['SPY', 'QQQ', 'IWM'] }
+  const record = createResearchRecordForExperiment('strategy-discovery', nativePayload)
+
+  assert.equal(record.status, 'unavailable')
+  assert.deepEqual(record.metrics, {})
+  assert.deepEqual(record.nativePayload, nativePayload)
 })

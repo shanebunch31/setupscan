@@ -1,7 +1,14 @@
 import {
-  adaptStandardResearchOutput,
+  adaptCausalRegimeOutput,
+  adaptFrozenScoreHoldoutOutput,
+  adaptRelativeValueOutput,
+  adaptRobustnessOutput,
+  adaptSignalQualityOutput,
   adaptStrategyComparisonOutput,
   adaptStrategyDiscoveryOutput,
+  adaptVolatilityAwareVariantsOutput,
+  adaptWalkForwardRegimeOutput,
+  adaptYearlyRegimeOutput,
 } from './adapters.js'
 
 const definitions = [
@@ -11,7 +18,7 @@ const definitions = [
     category: 'baseline-validation',
     description: 'Threshold and market-condition sensitivity of the existing setup scan backtest.',
     methodology: 'Run existing threshold and market-condition research over supplied candles.',
-    adapter: adaptStandardResearchOutput,
+    adapter: adaptRobustnessOutput,
   },
   {
     id: 'relative-value',
@@ -19,7 +26,7 @@ const definitions = [
     category: 'context-regime',
     description: 'Relative-value confirmation and pair diagnostics.',
     methodology: 'Compare the existing baseline with relative-value variants using native summaries.',
-    adapter: adaptStandardResearchOutput,
+    adapter: adaptRelativeValueOutput,
   },
   {
     id: 'signal-quality',
@@ -27,7 +34,7 @@ const definitions = [
     category: 'baseline-validation',
     description: 'Score buckets, component analysis, and signal decomposition.',
     methodology: 'Analyze the existing signal catalogue without changing score construction.',
-    adapter: adaptStandardResearchOutput,
+    adapter: adaptSignalQualityOutput,
   },
   {
     id: 'frozen-score-holdout',
@@ -35,7 +42,7 @@ const definitions = [
     category: 'baseline-validation',
     description: 'Development and holdout comparison for the frozen score rule set.',
     methodology: 'Preserve the runner-provided development and holdout partitions.',
-    adapter: adaptStandardResearchOutput,
+    adapter: adaptFrozenScoreHoldoutOutput,
   },
   {
     id: 'yearly-regime',
@@ -43,7 +50,7 @@ const definitions = [
     category: 'baseline-validation',
     description: 'Calendar-year and regime-proxy breakdowns.',
     methodology: 'Summarize the runner-provided yearly partitions and regime proxies.',
-    adapter: adaptStandardResearchOutput,
+    adapter: adaptYearlyRegimeOutput,
   },
   {
     id: 'causal-regime',
@@ -51,7 +58,7 @@ const definitions = [
     category: 'context-regime',
     description: 'Causal trend, volatility, breadth, and combined regime breakdowns.',
     methodology: 'Preserve regime-at-signal groupings and native evidence tables.',
-    adapter: adaptStandardResearchOutput,
+    adapter: adaptCausalRegimeOutput,
   },
   {
     id: 'walk-forward-regime',
@@ -59,7 +66,7 @@ const definitions = [
     category: 'context-regime',
     description: 'Walk-forward training and test-window analysis.',
     methodology: 'Retain runner-defined training boundaries and test-period evidence.',
-    adapter: adaptStandardResearchOutput,
+    adapter: adaptWalkForwardRegimeOutput,
   },
   {
     id: 'volatility-aware-variants',
@@ -67,7 +74,7 @@ const definitions = [
     category: 'context-regime',
     description: 'Volatility-aware variants, stress tests, and control differences.',
     methodology: 'Expose native variant, pooled, consistency, and stress-test outputs.',
-    adapter: adaptStandardResearchOutput,
+    adapter: adaptVolatilityAwareVariantsOutput,
   },
   {
     id: 'strategy-discovery',

@@ -104,7 +104,9 @@ const metricAliases = {
   profitFactor: ['profitFactor'],
   expectancy: ['expectancy'],
   averageR: ['averageR'],
-  totalR: ['totalR', 'totalPositiveR'],
+  // `totalPositiveR` (strategy.js) is gross profit, not net return — never alias it as totalR.
+  // `netReturn` (strategy.js) is the actual net total R, so it maps onto normalized totalR instead.
+  totalR: ['totalR', 'netReturn'],
   maximumDrawdown: ['maximumDrawdown'],
 }
 
