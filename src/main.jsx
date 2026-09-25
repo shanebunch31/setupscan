@@ -1020,7 +1020,7 @@ function App() {
               <FrozenScoreHoldoutLab datasets={frozenScoreData} />
             )}
             {researchTab === 'yearly-regime' && (
-              <YearlyRegimeLab datasets={yearlyRegimeData} />
+              <YearlyRegimeLab datasets={frozenScoreData} />
             )}
             {researchTab === 'causal-regime' && (
               <CausalRegimeLab datasets={robustnessData} />
