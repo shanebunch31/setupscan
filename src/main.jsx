@@ -35,6 +35,8 @@ import { WalkForwardRegimeLab } from './backtest/WalkForwardRegimeLab.jsx'
 import { VolatilityAwareVariantsLab } from './backtest/VolatilityAwareVariantsLab.jsx'
 import { StrategyDiscoveryLab } from './backtest/StrategyDiscoveryLab.jsx'
 import { PaperTradingPanel } from './paper/PaperTradingPanel.jsx'
+import { listResearchRuns } from './research/researchRunHistory.js'
+import { projectResearchComparisonRuns, ResearchWorkspace } from './research/ResearchWorkspace.js'
 import './styles.css'
 
 const watchlist = ['SPY', 'QQQ', 'IWM', 'NVDA', 'TSLA', 'AAPL', 'AMD', 'META', 'AMZN']
@@ -360,6 +362,11 @@ function App() {
   const [view, setView] = useState('scan')
   const [navOpen, setNavOpen] = useState(false)
   const [researchTab, setResearchTab] = useState('robustness')
+  const [researchWorkspaceView, setResearchWorkspaceView] = useState('labs')
+  const [selectedResearchRunId, setSelectedResearchRunId] = useState(null)
+  const [comparisonRuns, setComparisonRuns] = useState([])
+  const [comparisonRunsLoading, setComparisonRunsLoading] = useState(false)
+  const [comparisonRunsError, setComparisonRunsError] = useState(null)
   const [threshold, setThreshold] = useState(65)
   const [selectedSymbol, setSelectedSymbol] = useState('SPY')
   const [watchlistOpen, setWatchlistOpen] = useState(false)
@@ -511,6 +518,24 @@ function App() {
     }
   }, [frozenScoreRange])
 
+  useEffect(() => {
+    if (view !== 'research' || researchWorkspaceView !== 'comparison') return undefined
+    let active = true
+    setComparisonRunsLoading(true)
+    setComparisonRunsError(null)
+    listResearchRuns({ limit: 100, offset: 0 })
+      .then((response) => {
+        if (active) setComparisonRuns(projectResearchComparisonRuns(response?.runs))
+      })
+      .catch((error) => {
+        if (active) setComparisonRunsError(error.message)
+      })
+      .finally(() => {
+        if (active) setComparisonRunsLoading(false)
+      })
+    return () => { active = false }
+  }, [view, researchWorkspaceView])
+
 
 
   const backtestCandles = useMemo(
@@ -530,6 +555,44 @@ function App() {
     setView(id)
     setNavOpen(false)
   }
+  const existingResearchLabs = (
+    <>
+      <nav className="research-subnav">
+        {researchTabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={`research-tab ${researchTab === tab.id ? 'active' : ''} ${tab.placeholder ? 'is-placeholder' : ''}`}
+            onClick={() => setResearchTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+      {researchTab === 'robustness' && <StrategyRobustnessLab datasets={robustnessData} />}
+      {researchTab === 'relative-value' && (
+        <RelativeValueResearchLab datasets={robustnessData} />
+      )}
+      {researchTab === 'signal-quality' && (
+        <SignalQualityResearchLab datasets={robustnessData} />
+      )}
+      {researchTab === 'frozen-score-holdout' && (
+        <FrozenScoreHoldoutLab datasets={frozenScoreData} />
+      )}
+      {researchTab === 'yearly-regime' && (
+        <YearlyRegimeLab datasets={frozenScoreData} />
+      )}
+      {researchTab === 'causal-regime' && (
+        <CausalRegimeLab datasets={robustnessData} />
+      )}
+      {researchTab === 'walk-forward-regime' && (
+        <WalkForwardRegimeLab datasets={robustnessData} />
+      )}
+      {researchTab === 'volatility-aware-variants' && (
+        <VolatilityAwareVariantsLab datasets={robustnessData} />
+      )}
+      {researchTab === 'strategy-discovery' && <StrategyDiscoveryLab datasets={robustnessData} />}
+    </>
+  )
 
   return (
     <div className="app-shell">
@@ -937,42 +1000,16 @@ function App() {
           </>
         )}
         {view === 'research' && (
-          <>
-            <nav className="research-subnav">
-              {researchTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  className={`research-tab ${researchTab === tab.id ? 'active' : ''} ${tab.placeholder ? 'is-placeholder' : ''}`}
-                  onClick={() => setResearchTab(tab.id)}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </nav>
-            {researchTab === 'robustness' && <StrategyRobustnessLab datasets={robustnessData} />}
-            {researchTab === 'relative-value' && (
-              <RelativeValueResearchLab datasets={robustnessData} />
-            )}
-            {researchTab === 'signal-quality' && (
-              <SignalQualityResearchLab datasets={robustnessData} />
-            )}
-            {researchTab === 'frozen-score-holdout' && (
-              <FrozenScoreHoldoutLab datasets={frozenScoreData} />
-            )}
-            {researchTab === 'yearly-regime' && (
-              <YearlyRegimeLab datasets={frozenScoreData} />
-            )}
-            {researchTab === 'causal-regime' && (
-              <CausalRegimeLab datasets={robustnessData} />
-            )}
-            {researchTab === 'walk-forward-regime' && (
-              <WalkForwardRegimeLab datasets={robustnessData} />
-            )}
-            {researchTab === 'volatility-aware-variants' && (
-              <VolatilityAwareVariantsLab datasets={robustnessData} />
-            )}
-            {researchTab === 'strategy-discovery' && <StrategyDiscoveryLab datasets={robustnessData} />}
-          </>
+          <ResearchWorkspace
+            activeView={researchWorkspaceView}
+            onNavigate={setResearchWorkspaceView}
+            existingLabs={existingResearchLabs}
+            selectedRunId={selectedResearchRunId}
+            onRunSelected={(runId) => setSelectedResearchRunId(runId)}
+            runs={comparisonRuns}
+            comparisonRunsLoading={comparisonRunsLoading}
+            comparisonRunsError={comparisonRunsError}
+          />
         )}
         {view === 'settings' && (
           <div className="settings-view">
