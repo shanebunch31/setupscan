@@ -336,6 +336,22 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
     return runFromRow(row, experiments.rows)
   }
 
+  async function getResearchRunComparisonSnapshot(runId) {
+    await init()
+    const result = await clientPool.query(
+      'SELECT run_id, requested_at, dataset_id, synthesis FROM research_runs WHERE run_id = $1',
+      [runId],
+    )
+    const row = result.rows[0]
+    if (!row) return null
+    return {
+      runId: row.run_id,
+      requestedAt: row.requested_at instanceof Date ? row.requested_at.toISOString() : row.requested_at,
+      datasetId: row.dataset_id,
+      synthesis: parseResearchJson(row.synthesis),
+    }
+  }
+
   async function listResearchRuns(filters = {}) {
     await init()
     const query = buildListQuery(filters)
@@ -360,5 +376,5 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
     })
   }
 
-  return { init, saveResearchRun, getResearchRun, listResearchRuns, pool: clientPool }
+  return { init, saveResearchRun, getResearchRun, getResearchRunComparisonSnapshot, listResearchRuns, pool: clientPool }
 }

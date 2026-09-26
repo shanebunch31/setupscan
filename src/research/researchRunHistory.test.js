@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { getResearchRun, listResearchRuns, saveResearchRun } from './researchRunHistory.js'
+import { compareResearchRuns, getResearchRun, listResearchRuns, saveResearchRun } from './researchRunHistory.js'
 
 test('saveResearchRun posts the persistence projection using the research history API', async () => {
   const originalFetch = globalThis.fetch
@@ -46,6 +46,25 @@ test('getResearchRun encodes runId and parses historical output', async () => {
     const result = await getResearchRun('run/1')
     assert.match(requestedUrl, /run%2F1$/)
     assert.equal(result.runContext.runId, 'run%2F1')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('compareResearchRuns calls the private comparison endpoint with both run IDs', async () => {
+  const originalFetch = globalThis.fetch
+  let requestedUrl
+  globalThis.fetch = async (url) => {
+    requestedUrl = String(url)
+    return { ok: true, text: async () => '{"comparisons":[],"unmatched":[]}' }
+  }
+  try {
+    const comparison = await compareResearchRuns('run/a', 'run b')
+    const parsed = new URL(requestedUrl, 'http://localhost')
+    assert.equal(parsed.pathname, '/api/research-runs/compare')
+    assert.equal(parsed.searchParams.get('runIdA'), 'run/a')
+    assert.equal(parsed.searchParams.get('runIdB'), 'run b')
+    assert.deepEqual(comparison.comparisons, [])
   } finally {
     globalThis.fetch = originalFetch
   }

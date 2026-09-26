@@ -22,6 +22,7 @@ class MemoryResearchPool {
     this.rolledBackTransactions = 0
     this.releasedClients = 0
     this.schemaQueries = 0
+    this.queries = []
   }
 
   async query(text, values = []) {
@@ -54,6 +55,7 @@ class MemoryResearchPool {
   }
 
   execute(text, values, state) {
+    this.queries.push({ text, values })
     if (text.includes('CREATE TABLE IF NOT EXISTS research_runs')) {
       this.schemaQueries += 1
       this.schemaSql = text
@@ -111,6 +113,24 @@ class MemoryResearchPool {
     }
     if (text.includes('FROM research_run_experiments WHERE run_id = $1')) {
       return { rows: [...(state.experiments.get(values[0]) ?? [])].sort((a, b) => a.execution_order - b.execution_order) }
+    }
+    if (text.startsWith('SELECT run_id, requested_at, dataset_id, synthesis FROM research_runs WHERE run_id = $1')) {
+      const row = state.runs.get(values[0])
+      return { rows: row ? [{
+        run_id: row.run_id,
+        requested_at: row.requested_at,
+        dataset_id: row.dataset_id,
+        synthesis: row.synthesis,
+      }] : [] }
+    }
+    if (text.startsWith('SELECT run_id, requested_at, dataset_id, synthesis FROM research_runs WHERE run_id = $1')) {
+      const row = state.runs.get(values[0])
+      return { rows: row ? [{
+        run_id: row.run_id,
+        requested_at: row.requested_at,
+        dataset_id: row.dataset_id,
+        synthesis: row.synthesis,
+      }] : [] }
     }
     if (text.includes('FROM research_runs WHERE run_id = $1')) {
       const row = state.runs.get(values[0])
@@ -344,6 +364,24 @@ test('header and experiment inserts roll back atomically when a child insert fai
 test('retrieval returns null for an unknown run ID', async () => {
   const store = createResearchRunStore({ pool: new MemoryResearchPool() })
   assert.equal(await store.getResearchRun('missing'), null)
+})
+
+test('comparison snapshot query reads only run metadata and synthesis', async () => {
+  const pool = new MemoryResearchPool()
+  const store = createResearchRunStore({ pool })
+  const run = makeRunResult()
+  await store.saveResearchRun(run)
+  pool.queries.length = 0
+  const snapshot = await store.getResearchRunComparisonSnapshot(run.runContext.runId)
+  assert.deepEqual(snapshot, {
+    runId: run.runContext.runId,
+    requestedAt: run.runContext.requestedAt,
+    datasetId: run.dataset.datasetId,
+    synthesis: run.synthesis,
+  })
+  assert.equal(pool.queries.length, 1)
+  assert.match(pool.queries[0].text, /SELECT run_id, requested_at, dataset_id, synthesis FROM research_runs/)
+  assert.doesNotMatch(pool.queries[0].text, /research_run_experiments|record|native_payload/)
 })
 
 test('lists recent runs with status, dataset, symbol, experiment, and pagination filters', async () => {

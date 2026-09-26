@@ -44,6 +44,11 @@ export function getResearchRun(runId) {
   return requestJson(`/api/research-runs/${encodeURIComponent(runId)}`, { method: 'GET' })
 }
 
+export function compareResearchRuns(runIdA, runIdB) {
+  const params = new URLSearchParams({ runIdA, runIdB })
+  return requestJson(`/api/research-runs/compare?${params}`, { method: 'GET' })
+}
+
 export function listResearchRuns(filters = {}) {
   const params = new URLSearchParams()
   if (filters.limit !== undefined) params.set('limit', String(filters.limit))

@@ -75,6 +75,44 @@ test('GET list forwards supported filters and returns runs array', async () => {
   })
 })
 
+test('compare route delegates run IDs to the comparison service without loading full runs', async () => {
+  const calls = []
+  const api = createResearchRunApi({
+    store: {
+      getResearchRunComparisonSnapshot: async (runId) => ({ runId, synthesis: { strategyGroups: [] } }),
+      getResearchRun: () => { throw new Error('must use compact synthesis snapshots') },
+    },
+    compareResearchRuns: async (runIdA, runIdB) => {
+      calls.push([runIdA, runIdB])
+      return { runA: { runId: runIdA }, runB: { runId: runIdB }, comparisons: [], unmatched: [] }
+    },
+  })
+  const response = await invoke(api, { path: '/api/research-runs/compare?runIdA=a&runIdB=b' })
+  assert.equal(response.status, 200)
+  assert.deepEqual(calls, [['a', 'b']])
+  assert.deepEqual(response.body.comparisons, [])
+})
+
+test('compare route validates IDs, maps missing history, and reports unavailable comparison storage', async () => {
+  const noCompare = createResearchRunApi({ store: { listResearchRuns: async () => [] } })
+  const unavailable = await invoke(noCompare, { path: '/api/research-runs/compare?runIdA=a&runIdB=b' })
+  assert.equal(unavailable.status, 503)
+
+  const api = createResearchRunApi({
+    store: { getResearchRunComparisonSnapshot: async () => null },
+    compareResearchRuns: async () => {
+      const error = new Error('missing')
+      error.statusCode = 404
+      error.code = 'RESEARCH_RUN_NOT_FOUND'
+      throw error
+    },
+  })
+  const invalid = await invoke(api, { path: '/api/research-runs/compare?runIdA=a' })
+  const missing = await invoke(api, { path: '/api/research-runs/compare?runIdA=a&runIdB=b' })
+  assert.equal(invalid.status, 400)
+  assert.equal(missing.status, 404)
+})
+
 test('duplicate run API error maps to conflict and invalid run shape maps to bad request', async () => {
   const api = createResearchRunApi({ store: {
     saveResearchRun: async (run) => {

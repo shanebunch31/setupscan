@@ -1,4 +1,5 @@
 import { parseResearchJson, stringifyResearchJson } from '../src/research/researchRunSerialization.js'
+import { createResearchRunComparisonService } from './researchRunComparisonService.js'
 
 function sendJson(response, status, body) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
@@ -33,7 +34,12 @@ function listFilters(searchParams) {
 }
 
 /** A small HTTP boundary isolated from the paper observer routes and store. */
-export function createResearchRunApi({ store = null } = {}) {
+export function createResearchRunApi({ store = null, compareResearchRuns } = {}) {
+  const compareRuns = compareResearchRuns ?? (
+    typeof store?.getResearchRunComparisonSnapshot === 'function'
+      ? createResearchRunComparisonService({ store })
+      : null
+  )
   return async function handleResearchRunRequest(request, response, url) {
     if (!store) {
       sendJson(response, 503, { error: 'Research Run History storage is not configured' })
@@ -51,6 +57,21 @@ export function createResearchRunApi({ store = null } = {}) {
       if (url.pathname === '/api/research-runs' && request.method === 'GET') {
         const runs = await store.listResearchRuns(listFilters(url.searchParams))
         sendJson(response, 200, { runs })
+        return
+      }
+
+      if (url.pathname === '/api/research-runs/compare' && request.method === 'GET') {
+        const runIdA = url.searchParams.get('runIdA')
+        const runIdB = url.searchParams.get('runIdB')
+        if (!runIdA || !runIdB) {
+          sendJson(response, 400, { error: 'runIdA and runIdB are required', code: 'RESEARCH_RUN_INVALID' })
+          return
+        }
+        if (!compareRuns) {
+          sendJson(response, 503, { error: 'Research Run comparison is not configured' })
+          return
+        }
+        sendJson(response, 200, await compareRuns(runIdA, runIdB))
         return
       }
 
