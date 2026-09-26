@@ -52,6 +52,14 @@ Optional observer settings and current defaults:
 
 The Postgres store creates these tables on startup: observer state, paper trades with a unique `(symbol, signal_timestamp)` key, and processed candle checkpoints. The local JSON journal is retained only as a development fallback when `DATABASE_URL` is absent; deployed operation should always provide persistent Postgres.
 
+### Research Run History (initial private, single-user boundary)
+
+The research history API is separate from the paper observer journal and uses `research_runs` and `research_run_experiments` in the same Postgres database when `DATABASE_URL` is configured. Its idempotent schema initialization runs on the first history API request, following the repository's existing Postgres-store convention; no separate migration runner currently exists. Saves are transactional and a duplicate `run_id` is rejected rather than overwritten. The browser-side helper is `src/research/researchRunHistory.js`; callers explicitly save a completed `runResearch()` result with `saveResearchRun(result)`. Research execution does not automatically persist.
+
+Available endpoints are `POST /api/research-runs`, `GET /api/research-runs/:runId`, and `GET /api/research-runs` with limit/offset, symbols, datasetId, experimentId, and status filters. Persisted datasets retain fetch metadata but not a separate copy of `rawSeriesBySymbol`; historical retrieval is for inspection and is not a replayable dataset. Native experiment payloads remain in each saved record and can themselves contain candle arrays. A representative three-symbol, 220-candle Signal Quality record plus synthesis serialized to 605,938 bytes in the persistence test; larger histories and multiple experiments scale higher. The run envelope stores persistence schema version `1`; synthesis retains its own schema version. There is no record/native-output version or run-level Git revision in this initial boundary.
+
+This first boundary has no authentication or per-user ownership and must only be exposed in a trusted private/single-user deployment. CORS is not authentication. Do not expose these endpoints to untrusted users until an application identity and authorization policy exist. Research history is stored in separate tables and never reads or writes paper-observer state, paper trades, or processed-candle checkpoints.
+
 Do not run the browser dashboard as the process responsible for observation. Codespaces and browser sessions are not reliable always-on hosting environments. No Alpaca trading or order endpoint is used.
 
 ## V1 scope

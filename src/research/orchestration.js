@@ -213,7 +213,15 @@ function normalizeRequestedDateRange(requestedStart, requestedEnd) {
   const end = requestedEnd ?? null
   if (start !== null && typeof start !== 'string') throw new Error('createResearchRunContext: requestedStart must be a string')
   if (end !== null && typeof end !== 'string') throw new Error('createResearchRunContext: requestedEnd must be a string')
-  if (start !== null && end !== null && !(new Date(start).getTime() < new Date(end).getTime())) {
+  const startTime = start === null ? null : new Date(start).getTime()
+  const endTime = end === null ? null : new Date(end).getTime()
+  if (start !== null && !Number.isFinite(startTime)) {
+    throw new Error('createResearchRunContext: requestedStart must be a valid date')
+  }
+  if (end !== null && !Number.isFinite(endTime)) {
+    throw new Error('createResearchRunContext: requestedEnd must be a valid date')
+  }
+  if (start !== null && end !== null && !(startTime < endTime)) {
     throw new Error('createResearchRunContext: requestedStart must be strictly before requestedEnd')
   }
   return { requestedStart: start, requestedEnd: end }
