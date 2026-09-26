@@ -212,12 +212,12 @@ test('evidence from different experiments sharing a strategyId is grouped togeth
   assert.ok(experimentIds.has('signal-quality'))
 })
 
-// --- 6. ruleSetVariant preserved ---
-test('ruleSetVariant is preserved for genuine rule variants', () => {
+// --- 6. ruleSetVariant is limited to genuine rule variants ---
+test('ruleSetVariant is preserved for rule variants but absent from score partitions', () => {
   const result = synthesizeResearch([robustnessRecord(), signalQualityRecord()])
   const group = findGroup(result, 'setup-scan-baseline')
   assert.equal(findEvidence(group, '75+').ruleSetVariant, 'threshold-75')
-  assert.equal(findEvidence(group, '75-79').ruleSetVariant, 'bucket-75-79')
+  assert.equal(findEvidence(group, '75-79').ruleSetVariant, null)
 })
 
 // --- 7. evaluation partition remains separate from ruleSetVariant ---

@@ -44,6 +44,9 @@ function alignedMeta(aligned) {
  */
 function deriveMetadataFromPayload(payload) {
   if (payload?.aligned?.raw) return alignedMeta(payload.aligned)
+  if (payload?.bySymbol && typeof payload.bySymbol === 'object' && !Array.isArray(payload.bySymbol)) {
+    return { symbols: Object.keys(payload.bySymbol) }
+  }
   if (Array.isArray(payload?.thresholdResults) && payload.thresholdResults[0]?.candles) {
     return firstCandleMeta(payload.thresholdResults[0].candles)
   }
@@ -186,7 +189,7 @@ function createAdaptedRecord(definition, payload, context = {}, metrics = extrac
     outOfSample: context.outOfSample ?? extractOutOfSample(payload),
     metrics,
     findings,
-    provenance: context.provenance ?? derivedProvenance(payload),
+    provenance: { ...derivedProvenance(payload), ...(context.provenance ?? {}) },
     nativePayload: payload,
   })
 }
@@ -245,10 +248,10 @@ export function adaptSignalQualityOutput(definition, payload, context = {}) {
   const scoreBuckets = Array.isArray(payload?.scoreBuckets) ? payload.scoreBuckets : []
   const metrics = Object.fromEntries(scoreBuckets.map((bucket) => [
     bucket.label,
-    withStrategy(normalizeMetrics(bucket.overall), STRATEGY_IDS.baseline, `bucket-${bucket.label}`),
+    withStrategy(normalizeMetrics(bucket.overall), STRATEGY_IDS.baseline),
   ]))
-  // Score-bucket membership is diagnostic evidence about the baseline strategy, not a strategy
-  // of its own — components (aboveVwap, rvConfirmation, ...) are never assigned a strategyId.
+  // Score buckets are evaluation cohorts of the baseline strategy, not rule-set variants.
+  // Components (aboveVwap, rvConfirmation, ...) are never assigned a strategyId.
   const costModel = context.costModel ?? withCostStatus('modeled', payload)
   return createAdaptedRecord(definition, payload, { ...context, costModel }, metrics)
 }
@@ -354,15 +357,28 @@ export function adaptVolatilityAwareVariantsOutput(definition, payload, context 
 }
 
 export function adaptStrategyComparisonOutput(definition, payload, context = {}) {
-  const metrics = {
-    // trend-momentum-v1 here is strategyComparison.js's own trend/momentum construction — distinct
-    // from strategy-discovery's independently-implemented momentum-breakout-v1.
-    control: withStrategy(normalizeMetrics(firstObject(payload?.control?.metrics, payload?.control?.overall)), STRATEGY_IDS.baseline),
-    trendMomentum: withStrategy(normalizeMetrics(firstObject(payload?.trendMomentum?.metrics, payload?.trendMomentum?.overall)), STRATEGY_IDS.trendMomentum),
-  }
-  // Control/trend-momentum each carry their own in/out-of-sample split; the shared partition
-  // extractor only looks at the top level, so surface the control split explicitly here.
-  const outOfSample = context.outOfSample ?? (payload?.control
+  const bySymbol = payload?.bySymbol && typeof payload.bySymbol === 'object' && !Array.isArray(payload.bySymbol)
+    ? payload.bySymbol
+    : null
+  const metrics = bySymbol
+    ? Object.fromEntries(Object.entries(bySymbol).flatMap(([symbol, branches]) => [
+      [`${symbol}::control`, withStrategy(
+        normalizeMetrics(firstObject(branches?.control?.metrics, branches?.control?.overall)),
+        STRATEGY_IDS.baseline,
+      )],
+      [`${symbol}::trendMomentum`, withStrategy(
+        normalizeMetrics(firstObject(branches?.trendMomentum?.metrics, branches?.trendMomentum?.overall)),
+        STRATEGY_IDS.trendMomentum,
+      )],
+    ]))
+    : {
+      // trend-momentum-v1 here is strategyComparison.js's own construction — distinct from
+      // strategy-discovery's independently-implemented momentum-breakout-v1.
+      control: withStrategy(normalizeMetrics(firstObject(payload?.control?.metrics, payload?.control?.overall)), STRATEGY_IDS.baseline),
+      trendMomentum: withStrategy(normalizeMetrics(firstObject(payload?.trendMomentum?.metrics, payload?.trendMomentum?.overall)), STRATEGY_IDS.trendMomentum),
+    }
+  // The composite form has per-symbol/per-strategy partitions, so no single record-level split is truthful.
+  const outOfSample = context.outOfSample ?? (!bySymbol && payload?.control
     ? { type: 'partition', inSampleMetrics: payload.control.inSampleMetrics ?? null, outOfSampleMetrics: payload.control.outOfSampleMetrics ?? null }
     : null)
   const costModel = context.costModel ?? withCostStatus('not-modeled', payload)

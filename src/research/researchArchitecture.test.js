@@ -79,7 +79,12 @@ test('registry identifies all existing research areas and adapter boundaries', (
 })
 
 test('generic adaptStandardResearchOutput preserves native output and envelope fields', () => {
-  const nativePayload = { metrics: { totalTrades: 12, averageR: 0.4 }, aligned: { timestamps: ['a'] } }
+  const nativePayload = {
+    metrics: { totalTrades: 12, averageR: 0.4 },
+    aligned: { timestamps: ['a'] },
+    generatedAt: 'native-generated-at',
+    gitCommit: 'native-commit',
+  }
   const definition = { id: 'generic', title: 'Generic', category: 'baseline-validation' }
   const record = adaptStandardResearchOutput(definition, nativePayload, {
     symbols: ['SPY'],
@@ -87,7 +92,7 @@ test('generic adaptStandardResearchOutput preserves native output and envelope f
     actualStart: '2026-01-01',
     actualEnd: '2026-01-31',
     parameters: { lookback: 10 },
-    provenance: { source: 'test' },
+    provenance: { source: 'test', runId: 'run-test', datasetId: 'dataset-test', requestedAt: 'requested-at' },
   })
 
   assert.equal(record.status, 'completed')
@@ -95,7 +100,14 @@ test('generic adaptStandardResearchOutput preserves native output and envelope f
   assert.deepEqual(record.metrics, { tradeCount: 12, averageR: 0.4 })
   assert.deepEqual(record.input.symbols, ['SPY'])
   assert.deepEqual(record.parameters, { lookback: 10 })
-  assert.deepEqual(record.provenance, { source: 'test' })
+  assert.deepEqual(record.provenance, {
+    generatedAt: 'native-generated-at',
+    gitCommit: 'native-commit',
+    source: 'test',
+    runId: 'run-test',
+    datasetId: 'dataset-test',
+    requestedAt: 'requested-at',
+  })
 })
 
 test('finding factory supports every required evidence state', () => {
@@ -207,9 +219,9 @@ test('signal-quality normalizes metrics per score bucket', () => {
   assert.equal(record.nativePayload, nativePayload)
   assert.equal(record.metrics['75-79'].tradeCount, 6)
   assert.equal(record.metrics['95-100'].tradeCount, 1)
-  // Score buckets are the same baseline strategy; the bucket is a ruleSetVariant, not a separate strategy.
+  // Score buckets are evaluation cohorts of the same baseline strategy, not rule variants.
   assert.equal(record.metrics['75-79'].strategyId, 'setup-scan-baseline')
-  assert.equal(record.metrics['75-79'].ruleSetVariant, 'bucket-75-79')
+  assert.equal(record.metrics['75-79'].ruleSetVariant, undefined)
   assert.equal(record.costModel.status, 'modeled')
   assert.deepEqual(record.input.symbols, ['SPY'])
 })
@@ -378,6 +390,36 @@ test('strategy-comparison normalizes control vs. trend/momentum metrics using ea
   assert.equal(record.outOfSample.inSampleMetrics.totalTrades, 10)
   assert.deepEqual(record.input.symbols, ['SPY'])
   assert.equal(record.input.candleCount, 2)
+})
+
+test('strategy-comparison normalizes the per-symbol composite without shared ranges or counts', () => {
+  const nativePayload = {
+    bySymbol: {
+      SPY: {
+        control: { metrics: makeStrategyJsMetrics({ totalTrades: 14, netReturn: 6 }) },
+        trendMomentum: { metrics: makeTrendMomentumMetrics({ totalTrades: 9 }) },
+      },
+      QQQ: {
+        control: { metrics: makeStrategyJsMetrics({ totalTrades: 8, netReturn: 3 }) },
+        trendMomentum: { metrics: makeTrendMomentumMetrics({ totalTrades: 4 }) },
+      },
+    },
+  }
+  const record = createResearchRecordForExperiment('strategy-comparison', nativePayload)
+
+  assert.equal(record.nativePayload, nativePayload)
+  assert.deepEqual(Object.keys(record.metrics), [
+    'SPY::control', 'SPY::trendMomentum', 'QQQ::control', 'QQQ::trendMomentum',
+  ])
+  assert.equal(record.metrics['SPY::control'].strategyId, 'setup-scan-baseline')
+  assert.equal(record.metrics['SPY::trendMomentum'].strategyId, 'trend-momentum-v1')
+  assert.equal(record.metrics['QQQ::control'].strategyId, 'setup-scan-baseline')
+  assert.equal(record.metrics['QQQ::trendMomentum'].strategyId, 'trend-momentum-v1')
+  assert.deepEqual(record.input.symbols, ['SPY', 'QQQ'])
+  assert.equal(record.input.actualStart, null)
+  assert.equal(record.input.actualEnd, null)
+  assert.equal(record.input.candleCount, null)
+  assert.equal(record.outOfSample, null)
 })
 
 // --- strategy-discovery (runStrategyDiscoveryBatchA) ---
