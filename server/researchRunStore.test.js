@@ -68,7 +68,7 @@ class MemoryResearchPool {
     }
     if (text.startsWith('INSERT INTO research_runs')) {
       const [runId, requestedAt, status, fetchStatus, symbols, timeframe, requestedStart, requestedEnd,
-        requestedExperiments, datasetId, provider, fetchIssues, datasetMetadata, synthesis, schemaVersion] = values
+        requestedExperiments, emaContractVersion, datasetId, provider, fetchIssues, datasetMetadata, synthesis, schemaVersion] = values
       if (state.runs.has(runId)) {
         const error = new Error('duplicate run')
         error.code = '23505'
@@ -85,6 +85,7 @@ class MemoryResearchPool {
         requested_start: requestedStart,
         requested_end: requestedEnd,
         requested_experiments: requestedExperiments,
+        ema_contract_version: emaContractVersion,
         dataset_id: datasetId,
         provider,
         fetch_issues: JSON.parse(fetchIssues),
@@ -196,21 +197,23 @@ class MemoryResearchPool {
     if (text.includes('FROM research_run_experiments WHERE run_id = $1')) {
       return { rows: [...(state.experiments.get(values[0]) ?? [])].sort((a, b) => a.execution_order - b.execution_order) }
     }
-    if (text.startsWith('SELECT run_id, requested_at, dataset_id, synthesis FROM research_runs WHERE run_id = $1')) {
+    if (text.startsWith('SELECT run_id, requested_at, dataset_id, ema_contract_version, synthesis FROM research_runs WHERE run_id = $1')) {
       const row = state.runs.get(values[0])
       return { rows: row ? [{
         run_id: row.run_id,
         requested_at: row.requested_at,
         dataset_id: row.dataset_id,
+        ema_contract_version: row.ema_contract_version,
         synthesis: row.synthesis,
       }] : [] }
     }
-    if (text.startsWith('SELECT run_id, requested_at, dataset_id, synthesis FROM research_runs WHERE run_id = $1')) {
+    if (text.startsWith('SELECT run_id, requested_at, dataset_id, ema_contract_version, synthesis FROM research_runs WHERE run_id = $1')) {
       const row = state.runs.get(values[0])
       return { rows: row ? [{
         run_id: row.run_id,
         requested_at: row.requested_at,
         dataset_id: row.dataset_id,
+        ema_contract_version: row.ema_contract_version,
         synthesis: row.synthesis,
       }] : [] }
     }
@@ -299,6 +302,7 @@ function makeRunResult({
     runContext: {
       runId, requestedAt, symbols, timeframe: '1Hour',
       requestedStart: '2022-01-01T00:00:00Z', requestedEnd: '2026-09-26T00:00:00Z', requestedExperiments,
+      emaContractVersion: 'setupscan-ema-sma-seeded-recursive-v1',
     },
     status,
     fetchStatus,
@@ -333,6 +337,7 @@ test('saves and retrieves a completed run with record, nativePayload, synthesis,
   assert.equal(retrieved.status, 'completed')
   assert.equal(retrieved.fetchStatus, 'complete')
   assert.deepEqual(retrieved.runContext, run.runContext)
+  assert.equal(retrieved.runContext.emaContractVersion, 'setupscan-ema-sma-seeded-recursive-v1')
   assert.equal(retrieved.records.length, 1)
   assert.equal(retrieved.records[0].id, 'robustness')
   assert.equal(retrieved.records[0].nativePayload.thresholdResults[0].metrics.profitFactor, Infinity)
@@ -459,10 +464,11 @@ test('comparison snapshot query reads only run metadata and synthesis', async ()
     runId: run.runContext.runId,
     requestedAt: run.runContext.requestedAt,
     datasetId: run.dataset.datasetId,
+    emaContractVersion: 'setupscan-ema-sma-seeded-recursive-v1',
     synthesis: run.synthesis,
   })
   assert.equal(pool.queries.length, 1)
-  assert.match(pool.queries[0].text, /SELECT run_id, requested_at, dataset_id, synthesis FROM research_runs/)
+  assert.match(pool.queries[0].text, /SELECT run_id, requested_at, dataset_id, ema_contract_version, synthesis FROM research_runs/)
   assert.doesNotMatch(pool.queries[0].text, /research_run_experiments|record|native_payload/)
 })
 
@@ -506,7 +512,7 @@ test('persists the storage schema version and uses current synthesis schema meta
   const header = pool.state.runs.get(run.runContext.runId)
   assert.equal(header.persistence_schema_version, RESEARCH_PERSISTENCE_SCHEMA_VERSION)
   assert.equal(header.synthesis.schemaVersion, 1)
-  assert.equal(header.persistence_schema_version, 1)
+  assert.equal(header.persistence_schema_version, 2)
 })
 
 test('representative multi-symbol Signal Quality persistence reports serialized payload size', async () => {

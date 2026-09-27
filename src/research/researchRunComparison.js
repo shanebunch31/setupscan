@@ -87,6 +87,7 @@ function runSummary(synthesis, entries) {
     datasetId: synthesis.provenance?.datasetId ?? null,
     requestedAt: requestedAtFromEvidence(entries),
     requestedExperiments: synthesis.coverage?.requested ?? [],
+    emaContractVersion: synthesis.provenance?.emaContractVersion ?? null,
     codeRevision: { status: 'unknown', value: null, reason: 'No run-level code revision is stored.' },
   }
 }

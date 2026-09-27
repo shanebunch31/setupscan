@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { test } from 'node:test'
 import { createDatasetId, createResearchRunContext, createRunId, executeResearchRun } from './orchestration.js'
 import { listResearchExperiments } from './registry.js'
+import { EMA_CONTRACT_VERSION } from '../data/marketData.js'
 
 test('createRunId returns a string', () => {
   assert.equal(typeof createRunId(), 'string')
@@ -67,8 +69,118 @@ function threeSymbolFetchResults() {
   ]
 }
 
+function candlesForIdentity(symbol = 'SPY', closes = [100, 101]) {
+  return closes.map((close, index) => ({
+    symbol,
+    timestamp: `2026-01-0${index + 1}T14:00:00Z`,
+    timeframe: '1Hour',
+    open: close - 0.5,
+    high: close + 1,
+    low: close - 1,
+    close,
+    volume: 1000 + index,
+  }))
+}
+
 test('createDatasetId: identical fetch results produce an identical datasetId', () => {
   assert.equal(createDatasetId(threeSymbolFetchResults()), createDatasetId(threeSymbolFetchResults()))
+})
+
+test('createDatasetId: identical metadata and identical ordered candles produce the same ID', () => {
+  const result = makeFetchResult({ candleCount: 2, candles: candlesForIdentity() })
+  assert.equal(createDatasetId([result]), createDatasetId([{ ...result, candles: candlesForIdentity() }]))
+})
+
+test('createDatasetId uses SHA-256 over the canonical metadata and candle tuple representation', () => {
+  const result = makeFetchResult({ candleCount: 1, candles: [candlesForIdentity()[0]] })
+  const candle = result.candles[0]
+  const canonical = [[
+    result.provider, result.symbol, result.timeframe, result.start, result.end, result.candleCount,
+    [[candle.symbol, candle.timestamp, candle.timeframe, candle.open, candle.high, candle.low, candle.close, candle.volume]],
+  ]]
+  const expected = `dataset_${createHash('sha256').update(JSON.stringify(canonical), 'utf8').digest('hex')}`
+  assert.equal(createDatasetId([result]), expected)
+})
+
+test('createDatasetId: a changed close with unchanged timestamps and count changes the ID', () => {
+  const baseline = makeFetchResult({ candleCount: 2, candles: candlesForIdentity() })
+  const changed = makeFetchResult({ candleCount: 2, candles: candlesForIdentity('SPY', [100, 102]) })
+  assert.notEqual(createDatasetId([baseline]), createDatasetId([changed]))
+})
+
+test('createDatasetId: changing each available OHLCV value changes the ID', () => {
+  const baselineCandle = candlesForIdentity()[0]
+  for (const field of ['open', 'high', 'low', 'volume']) {
+    const changedCandle = { ...baselineCandle, [field]: baselineCandle[field] + 1 }
+    assert.notEqual(
+      createDatasetId([makeFetchResult({ candleCount: 1, candles: [baselineCandle] })]),
+      createDatasetId([makeFetchResult({ candleCount: 1, candles: [changedCandle] })]),
+      `changed ${field} should change datasetId`,
+    )
+  }
+})
+
+test('createDatasetId: a changed pre-roll close changes the ID', () => {
+  const metadata = {
+    start: '2026-02-01T14:00:00Z', end: '2026-02-02T14:00:00Z', candleCount: 2,
+    calculationStart: '2026-01-02T14:00:00Z', calculationEnd: '2026-02-02T14:00:00Z', calculationCandleCount: 3,
+  }
+  const baseline = makeFetchResult({ ...metadata, candles: candlesForIdentity('SPY', [90, 100, 101]) })
+  const changed = makeFetchResult({ ...metadata, candles: candlesForIdentity('SPY', [91, 100, 101]) })
+  baseline.calculationCandles = baseline.candles
+  changed.calculationCandles = changed.candles
+  baseline.candles = baseline.candles.slice(1)
+  changed.candles = changed.candles.slice(1)
+  assert.notEqual(createDatasetId([baseline]), createDatasetId([changed]))
+})
+
+test('createDatasetId: a changed candle timestamp changes the ID', () => {
+  const baselineCandles = candlesForIdentity()
+  const changedCandles = candlesForIdentity()
+  changedCandles[0] = { ...changedCandles[0], timestamp: '2025-12-31T14:00:00Z' }
+  assert.notEqual(
+    createDatasetId([makeFetchResult({ candleCount: 2, candles: baselineCandles })]),
+    createDatasetId([makeFetchResult({ candleCount: 2, candles: changedCandles })]),
+  )
+})
+
+test('createDatasetId: a changed candle timeframe changes the ID', () => {
+  const baselineCandles = candlesForIdentity()
+  const changedCandles = candlesForIdentity()
+  changedCandles[0] = { ...changedCandles[0], timeframe: '15Min' }
+  assert.notEqual(
+    createDatasetId([makeFetchResult({ candleCount: 2, candles: baselineCandles })]),
+    createDatasetId([makeFetchResult({ candleCount: 2, candles: changedCandles })]),
+  )
+})
+
+test('createDatasetId: a changed candle symbol changes the ID', () => {
+  const baseline = makeFetchResult({ candleCount: 2, candles: candlesForIdentity() })
+  const changedCandles = candlesForIdentity()
+  changedCandles[0] = { ...changedCandles[0], symbol: 'QQQ' }
+  assert.notEqual(createDatasetId([baseline]), createDatasetId([{ ...baseline, candles: changedCandles }]))
+})
+
+test('createDatasetId: changing candle order changes the ID', () => {
+  const baselineCandles = candlesForIdentity()
+  assert.notEqual(
+    createDatasetId([makeFetchResult({ candleCount: 2, candles: baselineCandles })]),
+    createDatasetId([makeFetchResult({ candleCount: 2, candles: [...baselineCandles].reverse() })]),
+  )
+})
+
+test('createDatasetId: symbol input order and candle object key order do not affect canonical serialization', () => {
+  const spyCandles = candlesForIdentity('SPY')
+  const qqqCandles = candlesForIdentity('QQQ', [200, 201])
+  const first = [
+    makeFetchResult({ symbol: 'SPY', candleCount: 2, candles: spyCandles }),
+    makeFetchResult({ symbol: 'QQQ', candleCount: 2, candles: qqqCandles }),
+  ]
+  const reordered = [
+    makeFetchResult({ symbol: 'QQQ', candleCount: 2, candles: qqqCandles.map((candle) => Object.fromEntries(Object.entries(candle).reverse())) }),
+    makeFetchResult({ symbol: 'SPY', candleCount: 2, candles: spyCandles.map((candle) => Object.fromEntries(Object.entries(candle).reverse())) }),
+  ]
+  assert.equal(createDatasetId(first), createDatasetId(reordered))
 })
 
 test('createDatasetId: a changed actualStart produces a different datasetId', () => {
@@ -286,6 +398,19 @@ test('createResearchRunContext: omitting requestedExperiments defaults to all re
 test('createResearchRunContext: explicit requestedExperiments preserves caller order', () => {
   const context = createResearchRunContext(baseRequest({ requestedExperiments: ['signal-quality', 'robustness'] }))
   assert.deepEqual(context.requestedExperiments, ['signal-quality', 'robustness'])
+})
+
+test('createDatasetId includes the pre-roll interval used by EMA calculations', () => {
+  const baseline = makeFetchResult({
+    start: '2022-01-03T14:00:00Z', calculationStart: '2021-12-01T14:00:00Z',
+    calculationEnd: '2025-12-31T20:00:00Z', calculationCandleCount: 8900,
+  })
+  const changedPreroll = { ...baseline, calculationStart: '2021-12-02T14:00:00Z' }
+  assert.notEqual(createDatasetId([baseline]), createDatasetId([changedPreroll]))
+})
+
+test('createResearchRunContext records the active EMA contract version', () => {
+  assert.equal(createResearchRunContext(baseRequest()).emaContractVersion, EMA_CONTRACT_VERSION)
 })
 
 test('createResearchRunContext: duplicate experiment ids are removed', () => {

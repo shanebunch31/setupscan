@@ -21,17 +21,18 @@ function evidence(overrides = {}) {
     symbols: ['SPY', 'QQQ', 'IWM'],
     timeframe: '1Hour',
     provider: 'ALPACA HISTORICAL',
+    emaContractVersion: 'setupscan-ema-sma-recursive-v0',
     requestedDateRange: { start: '2022-01-01T00:00:00Z', end: '2023-01-01T00:00:00Z' },
     ...overrides,
   }
 }
 
-function synthesis({ runId = 'run-a', datasetId = 'dataset-a', entries = [evidence()], families = [], requested = ['signal-quality'] } = {}) {
+function synthesis({ runId = 'run-a', datasetId = 'dataset-a', emaContractVersion = 'setupscan-ema-sma-recursive-v0', entries = [evidence()], families = [], requested = ['signal-quality'] } = {}) {
   return {
     schemaVersion: 1,
     coverage: { requested, unavailable: [], incomplete: [], evaluated: requested },
     strategyGroups: [{ strategyId: 'setup-scan-baseline', evidence: entries, evidenceFamilies: families }],
-    provenance: { runId, datasetId },
+    provenance: { runId, datasetId, emaContractVersion },
   }
 }
 
@@ -248,4 +249,13 @@ test('comparison output contains no ranking, winner, score, recommendation, conf
     })
   }
   inspect(result)
+})
+
+test('EMA contract changes are surfaced as a compatibility mismatch', () => {
+  const result = compareResearchEvidence(
+    synthesis(),
+    synthesis({ runId: 'run-b', datasetId: 'dataset-b', entries: [evidence({ emaContractVersion: 'setupscan-ema-sma-seeded-recursive-v1' })] }),
+  )
+  assert.equal(result.comparisons[0].compatibility.compatible, false)
+  assert.ok(result.comparisons[0].compatibility.hardConflicts.some((entry) => entry.field === 'emaContractVersion'))
 })

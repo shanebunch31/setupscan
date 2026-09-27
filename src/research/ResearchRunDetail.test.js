@@ -9,7 +9,8 @@ function persistedRun() {
   return {
     runContext: {
       runId: 'run-detail-1', requestedAt: '2026-09-20T12:30:00.000Z', symbols: ['SPY', 'QQQ'],
-      timeframe: '1Hour', requestedStart: '2024-01-01', requestedEnd: '2025-01-01', requestedExperiments: ['robustness'],
+        timeframe: '1Hour', requestedStart: '2024-01-01', requestedEnd: '2025-01-01', requestedExperiments: ['robustness'],
+        emaContractVersion: 'setupscan-ema-sma-seeded-recursive-v1',
     },
     status: 'partial',
     fetchStatus: 'partial',

@@ -63,7 +63,7 @@ const researchTabs = [
   { id: 'volatility-aware-variants', label: 'Volatility-Aware Variants' },
   { id: 'strategy-discovery', label: 'Strategy Discovery Lab' },
 ]
-const formatPrice = (value) => `$${value.toFixed(2)}`
+const formatPrice = (value) => Number.isFinite(value) ? `$${value.toFixed(2)}` : '—'
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
 const formatR = (value) => `${value === Infinity ? '∞' : value.toFixed(2)}R`
 const formatDate = (value) =>

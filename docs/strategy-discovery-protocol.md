@@ -299,6 +299,12 @@ These are explicitly outside the first discovery campaign unless separately appr
 
 ## 17. Session and Data-Handling Conventions
 
+### SetupScan EMA Contract
+
+The scanner's hourly EMA9 and EMA21 use the recursive update `EMA_t = alpha * close_t + (1 - alpha) * EMA_(t-1)`, where `alpha = 2 / (N + 1)`. Each EMA is seeded by the simple average of its first N observed closes. Values remain unavailable until that seed exists. Historical requests with a start date fetch 30 calendar days of pre-roll, calculate over those observed bars, then expose only candles inside the requested date range. If pre-roll does not contain enough usable bars, the EMA remains unavailable; no shortened seed is used.
+
+No bars are synthesized or interpolated. EMA state carries across normal market closures and updates once for each observed candle. Trend is `Bullish` only when EMA9 is greater than EMA21, `Bearish` only when EMA9 is less than EMA21, and `Neutral` when either EMA is unavailable or the values are equal. The current contract version is `setupscan-ema-sma-seeded-recursive-v1`. Research runs record that version; earlier runs whose version is unavailable must not be treated as equivalent evidence.
+
 Established by a read-only audit of the actual Alpaca 1H historical data path:
 
 - Alpaca 1H bar timestamps represent the **start** of the 1-hour interval (e.g. a bar timestamped

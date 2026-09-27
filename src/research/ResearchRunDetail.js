@@ -59,6 +59,7 @@ function PersistedRunSummary({ run }) {
         ...[
           ['Symbols', symbols], ['Timeframe', context.timeframe ?? 'Unavailable'],
           ['Requested period', requestedDates], ['Historical dataset', dataset.datasetId ? 'Available' : 'Unavailable'],
+          ['EMA contract', context.emaContractVersion ?? 'Legacy version unknown'],
           ['Evidence entries', String(evidenceCount)], ['Fetch issues', String(fetchIssues.length)],
         ].map(([label, value]) => h('div', { key: label }, h('dt', null, label), h('dd', null, value))),
       ),

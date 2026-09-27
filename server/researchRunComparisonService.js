@@ -24,11 +24,25 @@ export function createResearchRunComparisonService({ store, compare = compareRes
       throw error
     }
 
-    const result = compare(snapshotA.synthesis, snapshotB.synthesis)
+    const withEmaVersion = (synthesis, version) => ({
+      ...synthesis,
+      provenance: { ...synthesis?.provenance, emaContractVersion: version ?? synthesis?.provenance?.emaContractVersion ?? 'legacy-unknown' },
+      strategyGroups: (synthesis?.strategyGroups ?? []).map((group) => ({
+        ...group,
+        evidence: (group.evidence ?? []).map((entry) => ({
+          ...entry,
+          emaContractVersion: entry.emaContractVersion ?? version ?? 'legacy-unknown',
+        })),
+      })),
+    })
+    const result = compare(
+      withEmaVersion(snapshotA.synthesis, snapshotA.emaContractVersion),
+      withEmaVersion(snapshotB.synthesis, snapshotB.emaContractVersion),
+    )
     return {
       ...result,
-      runA: { ...result.runA, requestedAt: snapshotA.requestedAt },
-      runB: { ...result.runB, requestedAt: snapshotB.requestedAt },
+      runA: { ...result.runA, requestedAt: snapshotA.requestedAt, emaContractVersion: snapshotA.emaContractVersion ?? 'legacy-unknown' },
+      runB: { ...result.runB, requestedAt: snapshotB.requestedAt, emaContractVersion: snapshotB.emaContractVersion ?? 'legacy-unknown' },
     }
   }
 }

@@ -7,6 +7,7 @@ function snapshot(runId) {
     runId,
     requestedAt: `${runId}-requested-at`,
     datasetId: `${runId}-dataset`,
+    emaContractVersion: 'setupscan-ema-sma-seeded-recursive-v1',
     synthesis: { provenance: { runId, datasetId: `${runId}-dataset` }, strategyGroups: [] },
   }
 }
@@ -33,7 +34,26 @@ test('comparison service reads compact snapshots and adds header requestedAt pro
   assert.deepEqual(calls, ['a', 'b'])
   assert.equal(result.runA.requestedAt, 'a-requested-at')
   assert.equal(result.runB.requestedAt, 'b-requested-at')
+  assert.equal(result.runA.emaContractVersion, 'setupscan-ema-sma-seeded-recursive-v1')
   assert.deepEqual(result.comparisons, [])
+})
+
+test('comparison service supplies legacy EMA version metadata without rewriting saved synthesis', async () => {
+  const old = snapshot('old')
+  old.emaContractVersion = 'legacy-unknown'
+  const current = snapshot('current')
+  let receivedOld
+  const service = createResearchRunComparisonService({
+    store: { getResearchRunComparisonSnapshot: async (id) => id === 'old' ? old : current },
+    compare: (a, b) => {
+      receivedOld = a
+      return { runA: { emaContractVersion: a.provenance.emaContractVersion }, runB: { emaContractVersion: b.provenance.emaContractVersion } }
+    },
+  })
+  const result = await service('old', 'current')
+  assert.equal(receivedOld.provenance.emaContractVersion, 'legacy-unknown')
+  assert.equal(result.runA.emaContractVersion, 'legacy-unknown')
+  assert.equal(old.synthesis.provenance.emaContractVersion, undefined)
 })
 
 test('comparison service returns a not-found condition if either run is absent', async () => {

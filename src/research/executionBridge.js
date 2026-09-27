@@ -12,6 +12,7 @@ function provenanceFor(runContext, dataset) {
     runId: runContext?.runId ?? null,
     datasetId: dataset?.datasetId ?? null,
     requestedAt: runContext?.requestedAt ?? null,
+    emaContractVersion: runContext?.emaContractVersion ?? 'legacy-unknown',
   }
 }
 
@@ -26,6 +27,7 @@ function adapterContextFor(executionResult, runContext, dataset) {
     provider: dataset?.provider ?? null,
     requestedStart: runContext?.requestedStart ?? null,
     requestedEnd: runContext?.requestedEnd ?? null,
+    emaContractVersion: runContext?.emaContractVersion ?? 'legacy-unknown',
     available: executionResult.status !== 'unavailable',
     ...(executionResult.status === 'incomplete' ? { complete: false } : {}),
     status,
@@ -49,6 +51,7 @@ function createStatusRecord(executionResult, runContext, dataset, status) {
       provider: dataset?.provider ?? null,
       requestedStart: runContext?.requestedStart ?? null,
       requestedEnd: runContext?.requestedEnd ?? null,
+      emaContractVersion: runContext?.emaContractVersion ?? 'legacy-unknown',
       actualStart: null,
       actualEnd: null,
       candleCount: null,

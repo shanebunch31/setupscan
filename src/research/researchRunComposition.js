@@ -21,6 +21,9 @@ export function createResearchRunComposer({
       runId: executionRunResult.runContext.runId,
       datasetId: executionRunResult.dataset?.datasetId ?? null,
       requestedExperiments: executionRunResult.runContext.requestedExperiments,
+      ...(executionRunResult.runContext.emaContractVersion
+        ? { emaContractVersion: executionRunResult.runContext.emaContractVersion }
+        : {}),
     })
 
     return { ...executionRunResult, records, synthesis }

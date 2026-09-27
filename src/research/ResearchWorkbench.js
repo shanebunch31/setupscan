@@ -153,6 +153,7 @@ export function RunResultSummary({ result }) {
       h('div', null, h('dt', null, 'Symbols'), h('dd', null, (runContext.symbols ?? []).join(', ') || 'Unavailable')),
       h('div', null, h('dt', null, 'Timeframe'), h('dd', null, runContext.timeframe ?? 'Unavailable')),
       h('div', null, h('dt', null, 'Requested period'), h('dd', null, requestedDates)),
+      h('div', null, h('dt', null, 'EMA contract'), h('dd', null, runContext.emaContractVersion ?? 'Legacy version unknown')),
       h('div', null, h('dt', null, 'Historical dataset'), h('dd', null, result.dataset?.datasetId ? 'Available' : 'Unavailable')),
       h('div', null, h('dt', null, 'Evidence entries'), h('dd', null, String(evidenceCount))),
       h('div', null, h('dt', null, 'Fetch issues'), h('dd', null, String(fetchIssues.length))),

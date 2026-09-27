@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { listResearchExperiments } from './registry.js'
+import { EMA_CONTRACT_VERSION } from '../data/marketData.js'
 import {
   adaptResearchExecutionResult,
   createResearchExecutionBridge,
@@ -15,6 +16,7 @@ function runContext(overrides = {}) {
     requestedStart: '2022-01-01T00:00:00Z',
     requestedEnd: '2026-09-26T00:00:00Z',
     requestedExperiments: ['robustness'],
+    emaContractVersion: EMA_CONTRACT_VERSION,
     ...overrides,
   }
 }
@@ -74,6 +76,7 @@ test('succeeded execution selects the registry adapter and supplies run/dataset 
     runId: context.runId,
     datasetId: data.datasetId,
     requestedAt: context.requestedAt,
+    emaContractVersion: context.emaContractVersion,
   })
 })
 
@@ -199,6 +202,7 @@ test('Strategy Discovery native provenance survives orchestration provenance ove
     runId: 'run-bridge-test',
     datasetId: 'dataset-bridge-test',
     requestedAt: '2026-09-26T00:00:00.000Z',
+    emaContractVersion: EMA_CONTRACT_VERSION,
   })
   assert.equal(record.nativePayload, nativeOutput)
 })

@@ -115,6 +115,7 @@ function normalizeInput(context = {}, derived = {}) {
     provider: context.provider ?? context.input?.provider ?? derived.provider ?? null,
     requestedStart: context.requestedStart ?? context.input?.requestedStart ?? null,
     requestedEnd: context.requestedEnd ?? context.input?.requestedEnd ?? null,
+    emaContractVersion: context.emaContractVersion ?? context.input?.emaContractVersion ?? null,
     actualStart: context.actualStart ?? context.input?.actualStart ?? derived.actualStart ?? null,
     actualEnd: context.actualEnd ?? context.input?.actualEnd ?? derived.actualEnd ?? null,
     candleCount: context.candleCount ?? context.input?.candleCount ?? derived.candleCount ?? null,

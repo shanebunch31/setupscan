@@ -23,6 +23,7 @@ function runDetail(run) {
     ...[
       ['Run ID', run.runId], ['Requested at', run.requestedAt], ['Status', run.status],
       ['Symbols', (run.symbols ?? []).join(', ')], ['Timeframe', run.timeframe], ['Dataset ID', run.datasetId ?? 'Unavailable'],
+      ['EMA contract', run.emaContractVersion ?? run.synthesis?.provenance?.emaContractVersion ?? 'Unknown / legacy'],
     ].map(([label, value]) => h('div', { key: label }, h('dt', null, label), h('dd', null, value ?? '—'))),
   )
 }
@@ -52,6 +53,7 @@ function EvidenceSummary({ reference, side }) {
     ['Strategy', evidence.strategyId], ['Experiment', evidence.experimentId], ['Metrics key', evidence.metricsKey],
     ['Variant', evidence.ruleSetVariant], ['Partition', evidence.partition?.label ?? evidence.partition?.type],
     ['Out-of-sample role', evidence.outOfSampleRole], ['Symbols', evidence.symbols], ['Timeframe', evidence.timeframe],
+    ['EMA contract', evidence.emaContractVersion],
     ['Provider', evidence.provider], ['Cost model', evidence.costModelStatus],
   ].filter(([, value]) => value !== null && value !== undefined && value !== '')
   const metrics = Object.entries(evidence.metrics ?? {})
@@ -142,6 +144,7 @@ export function ResearchComparisonResult({ result }) {
       provenance.datasetIdsEqual === false ? h('p', null, 'Dataset differs between the selected runs.') : null,
       provenance.datasetIdsEqual === null ? h('p', null, 'Dataset identity is unknown for at least one run.') : null,
       ...[['Run A', result.runA], ['Run B', result.runB]].map(([label, run]) => h('p', { key: label }, `${label} requested at: ${run?.requestedAt ?? 'Unknown'}`)),
+      ...[['Run A', result.runA], ['Run B', result.runB]].map(([label, run]) => h('p', { key: `${label}-ema` }, `${label} EMA contract: ${run?.emaContractVersion ?? 'Unknown / legacy'}`)),
       ...[['Run A', result.runA?.codeRevision], ['Run B', result.runB?.codeRevision]].map(([label, revision]) => revision ? h('p', { key: `${label}-revision` }, `${label} code revision: ${revision.status ?? 'unknown'}${revision.reason ? ` · ${revision.reason}` : ''}`) : null),
     ),
     h('section', { className: 'research-comparison-matched' },
