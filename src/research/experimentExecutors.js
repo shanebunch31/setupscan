@@ -9,8 +9,9 @@ import { runStrategyDiscoveryBatchA } from '../backtest/strategyDiscovery/discov
 import { runVolatilityAwareVariantsResearch } from '../backtest/volatilityAwareVariantsBacktest.js'
 import { runWalkForwardRegimeResearch } from '../backtest/walkForwardRegimeBacktest.js'
 import { runYearlyRegimeResearch } from '../backtest/yearlyRegimeBacktest.js'
+import { getResearchExperiment } from './registry.js'
 
-const MULTI_SYMBOL_UNIVERSE = Object.freeze(['SPY', 'QQQ', 'IWM'])
+const MULTI_SYMBOL_UNIVERSE = getResearchExperiment('relative-value').requiredSymbols
 const enrichedByRawCandles = new WeakMap()
 
 function getEnrichedCandles(rawCandles) {
@@ -22,8 +23,10 @@ function getEnrichedCandles(rawCandles) {
   return enriched
 }
 
-function freezeExecutor({ requiredSymbols = [], execute }) {
-  return Object.freeze({ requiredSymbols: Object.freeze([...requiredSymbols]), execute })
+function freezeExecutor(experimentId, execute) {
+  const definition = getResearchExperiment(experimentId)
+  if (!definition) throw new Error(`No registry metadata for research experiment: ${experimentId}`)
+  return Object.freeze({ requiredSymbols: definition.requiredSymbols, execute })
 }
 
 function rawSeriesFor(symbols, availableBySymbol) {
@@ -44,58 +47,29 @@ function discoveryDatasetsFor(symbols, availableBySymbol) {
  * No executor fetches, aligns, filters, or rewrites the shared raw candles.
  */
 export const researchExperimentExecutors = Object.freeze({
-  robustness: freezeExecutor({
-    requiredSymbols: ['SPY'],
-    execute: ({ availableBySymbol }) => {
+  robustness: freezeExecutor('robustness', ({ availableBySymbol }) => {
       const candles = getEnrichedCandles(availableBySymbol.get('SPY').candles)
       return {
         thresholdResults: runThresholdResearch(candles),
         periodResults: runMarketConditionResearch(candles),
       }
-    },
-  }),
-  'relative-value': freezeExecutor({
-    requiredSymbols: MULTI_SYMBOL_UNIVERSE,
-    execute: ({ availableBySymbol }) => runRelativeValueResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol)),
-  }),
-  'signal-quality': freezeExecutor({
-    requiredSymbols: MULTI_SYMBOL_UNIVERSE,
-    execute: ({ availableBySymbol }) => runSignalQualityResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol)),
-  }),
-  'frozen-score-holdout': freezeExecutor({
-    requiredSymbols: MULTI_SYMBOL_UNIVERSE,
-    execute: ({ availableBySymbol }) => runFrozenScoreHoldoutResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol)),
-  }),
-  'yearly-regime': freezeExecutor({
-    requiredSymbols: MULTI_SYMBOL_UNIVERSE,
-    execute: ({ availableBySymbol }) => runYearlyRegimeResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol)),
-  }),
-  'causal-regime': freezeExecutor({
-    requiredSymbols: MULTI_SYMBOL_UNIVERSE,
-    execute: ({ availableBySymbol }) => runCausalRegimeResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol)),
-  }),
-  'walk-forward-regime': freezeExecutor({
-    requiredSymbols: MULTI_SYMBOL_UNIVERSE,
-    execute: ({ availableBySymbol }) => runWalkForwardRegimeResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol)),
-  }),
-  'volatility-aware-variants': freezeExecutor({
-    requiredSymbols: MULTI_SYMBOL_UNIVERSE,
-    execute: ({ availableBySymbol }) => runVolatilityAwareVariantsResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol)),
-  }),
-  'strategy-discovery': freezeExecutor({
-    requiredSymbols: MULTI_SYMBOL_UNIVERSE,
-    execute: ({ availableBySymbol }) => runStrategyDiscoveryBatchA(discoveryDatasetsFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol)),
-  }),
-  'strategy-comparison': freezeExecutor({
-    execute: ({ availableBySymbol, requestedSymbols }) => ({
+    }),
+  'relative-value': freezeExecutor('relative-value', ({ availableBySymbol }) => runRelativeValueResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),
+  'signal-quality': freezeExecutor('signal-quality', ({ availableBySymbol }) => runSignalQualityResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),
+  'frozen-score-holdout': freezeExecutor('frozen-score-holdout', ({ availableBySymbol }) => runFrozenScoreHoldoutResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),
+  'yearly-regime': freezeExecutor('yearly-regime', ({ availableBySymbol }) => runYearlyRegimeResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),
+  'causal-regime': freezeExecutor('causal-regime', ({ availableBySymbol }) => runCausalRegimeResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),
+  'walk-forward-regime': freezeExecutor('walk-forward-regime', ({ availableBySymbol }) => runWalkForwardRegimeResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),
+  'volatility-aware-variants': freezeExecutor('volatility-aware-variants', ({ availableBySymbol }) => runVolatilityAwareVariantsResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),
+  'strategy-discovery': freezeExecutor('strategy-discovery', ({ availableBySymbol }) => runStrategyDiscoveryBatchA(discoveryDatasetsFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),
+  'strategy-comparison': freezeExecutor('strategy-comparison', ({ availableBySymbol, requestedSymbols }) => ({
       bySymbol: Object.fromEntries(requestedSymbols
         .filter((symbol) => availableBySymbol.has(symbol))
         .map((symbol) => {
           const rawCandles = availableBySymbol.get(symbol).candles
           return [symbol, runStrategyComparison(rawCandles, getEnrichedCandles(rawCandles))]
         })),
-    }),
-  }),
+    })),
 })
 
 function datasetSymbolEntry(dataset, symbol) {

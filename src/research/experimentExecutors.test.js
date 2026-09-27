@@ -90,6 +90,7 @@ test('every registered multi-symbol executor requires SPY, QQQ, and IWM', () => 
   ]
   expected.forEach((experimentId) => {
     assert.deepEqual(researchExperimentExecutors[experimentId].requiredSymbols, requiredSymbols)
+    assert.deepEqual(listResearchExperiments().find(({ id }) => id === experimentId).requiredSymbols, requiredSymbols)
     const result = executeResearchExperiment(experimentId, makeDataset(['SPY', 'QQQ']), {})
     assert.equal(result.status, 'unavailable', experimentId)
   })
@@ -260,4 +261,12 @@ test('strategy-discovery native metadata passes through an injected executor unc
     gitCommit: 'native-commit',
     available: true,
   })
+})
+
+test('registry requirements match the executor backstops, including flexible Strategy Comparison', () => {
+  listResearchExperiments().forEach(({ id, requiredSymbols: registryRequirements }) => {
+    assert.deepEqual(researchExperimentExecutors[id].requiredSymbols, registryRequirements, id)
+  })
+  assert.deepEqual(researchExperimentExecutors.robustness.requiredSymbols, ['SPY'])
+  assert.deepEqual(researchExperimentExecutors['strategy-comparison'].requiredSymbols, [])
 })

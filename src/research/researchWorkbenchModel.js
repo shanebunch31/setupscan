@@ -25,6 +25,18 @@ export function createWorkbenchRunRequest(form) {
   const unknownExperiment = requestedExperiments.find((id) => !experimentIds.has(id))
   if (unknownExperiment) throw new Error(`Unknown research experiment: ${unknownExperiment}`)
 
+  const selectedSymbols = new Set(symbols)
+  const incompatible = requestedExperiments
+    .map((id) => listResearchExperiments().find((experiment) => experiment.id === id))
+    .filter((experiment) => experiment.requiredSymbols.some((symbol) => !selectedSymbols.has(symbol)))
+  if (incompatible.length) {
+    const details = incompatible.map((experiment) => {
+      const missing = experiment.requiredSymbols.filter((symbol) => !selectedSymbols.has(symbol))
+      return `${experiment.title} requires ${experiment.requiredSymbols.join(', ')} (missing ${missing.join(', ')})`
+    })
+    throw new Error(`Selected experiments do not match the selected symbols: ${details.join('; ')}. Add the required symbols or remove those experiments.`)
+  }
+
   return { symbols, timeframe, requestedStart, requestedEnd, requestedExperiments }
 }
 

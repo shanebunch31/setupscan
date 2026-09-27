@@ -98,7 +98,7 @@ test('valid form submission delegates the normalized Research Run request to the
   } })
   let prevented = false
   const form = {
-    symbols: ' spy, QQQ, SPY ',
+    symbols: ' spy, QQQ, SPY, IWM ',
     timeframe: '1Hour',
     requestedStart: '2025-02-01',
     requestedEnd: '2025-03-01',
@@ -107,7 +107,7 @@ test('valid form submission delegates the normalized Research Run request to the
   await actions.submit({ preventDefault: () => { prevented = true } }, form)
   assert.equal(prevented, true)
   assert.deepEqual(calls, [{
-    symbols: ['SPY', 'QQQ'],
+    symbols: ['SPY', 'QQQ', 'IWM'],
     timeframe: '1Hour',
     requestedStart: '2025-02-01',
     requestedEnd: '2025-03-01',
@@ -311,10 +311,10 @@ test('running a selected Investigation plan delegates to runResearch with its pl
     createInvestigation: async () => { createCalls += 1 },
   })
   await actions.runInvestigationPlan({
-    symbols: 'SPY', timeframe: '1Hour', requestedStart: '2025-01-01', requestedExperiments: ['robustness'],
+    symbols: 'SPY, QQQ, IWM', timeframe: '1Hour', requestedStart: '2025-01-01', requestedExperiments: ['robustness'],
   }, savedInvestigation(), () => { started += 1 })
   assert.deepEqual(calls, [{
-    symbols: ['SPY'], timeframe: '1Hour', requestedStart: '2025-01-01', requestedEnd: null,
+    symbols: ['SPY', 'QQQ', 'IWM'], timeframe: '1Hour', requestedStart: '2025-01-01', requestedEnd: null,
     requestedExperiments: ['relative-value', 'robustness'],
   }])
   assert.equal(started, 1)

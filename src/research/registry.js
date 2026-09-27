@@ -11,9 +11,12 @@ import {
   adaptYearlyRegimeOutput,
 } from './adapters.js'
 
+const MULTI_SYMBOL_REQUIREMENTS = ['SPY', 'QQQ', 'IWM']
+
 const definitions = [
   {
     id: 'robustness',
+    requiredSymbols: ['SPY'],
     title: 'Robustness',
     category: 'baseline-validation',
     description: 'Threshold and market-condition sensitivity of the existing setup scan backtest.',
@@ -22,6 +25,7 @@ const definitions = [
   },
   {
     id: 'relative-value',
+    requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Relative Value',
     category: 'context-regime',
     description: 'Relative-value confirmation and pair diagnostics.',
@@ -30,6 +34,7 @@ const definitions = [
   },
   {
     id: 'signal-quality',
+    requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Signal Quality',
     category: 'baseline-validation',
     description: 'Score buckets, component analysis, and signal decomposition.',
@@ -38,6 +43,7 @@ const definitions = [
   },
   {
     id: 'frozen-score-holdout',
+    requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Frozen Score Holdout',
     category: 'baseline-validation',
     description: 'Development and holdout comparison for the frozen score rule set.',
@@ -46,6 +52,7 @@ const definitions = [
   },
   {
     id: 'yearly-regime',
+    requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Yearly / Regime Stability',
     category: 'baseline-validation',
     description: 'Calendar-year and regime-proxy breakdowns.',
@@ -54,6 +61,7 @@ const definitions = [
   },
   {
     id: 'causal-regime',
+    requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Causal Regime',
     category: 'context-regime',
     description: 'Causal trend, volatility, breadth, and combined regime breakdowns.',
@@ -62,6 +70,7 @@ const definitions = [
   },
   {
     id: 'walk-forward-regime',
+    requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Walk-Forward Regime',
     category: 'context-regime',
     description: 'Walk-forward training and test-window analysis.',
@@ -70,6 +79,7 @@ const definitions = [
   },
   {
     id: 'volatility-aware-variants',
+    requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Volatility-Aware Variants',
     category: 'context-regime',
     description: 'Volatility-aware variants, stress tests, and control differences.',
@@ -78,6 +88,7 @@ const definitions = [
   },
   {
     id: 'strategy-discovery',
+    requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Strategy Discovery',
     category: 'discovery',
     description: 'Existing discovery batches and candidate-family research outputs.',
@@ -86,6 +97,7 @@ const definitions = [
   },
   {
     id: 'strategy-comparison',
+    requiredSymbols: [],
     title: 'Strategy Comparison',
     category: 'baseline-validation',
     description: 'Control versus trend and momentum comparison.',
@@ -94,7 +106,10 @@ const definitions = [
   },
 ]
 
-export const researchRegistry = Object.freeze(definitions.map((definition) => Object.freeze({ ...definition })))
+export const researchRegistry = Object.freeze(definitions.map((definition) => Object.freeze({
+  ...definition,
+  requiredSymbols: Object.freeze([...definition.requiredSymbols]),
+})))
 
 export function listResearchExperiments() {
   return researchRegistry.map((definition) => ({ ...definition }))
