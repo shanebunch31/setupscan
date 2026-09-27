@@ -100,6 +100,13 @@ inspected while developing or tuning strategies. Do not leak future information 
 a period's classification, indicators, and trade construction must only ever use information that
 was available at or before that period.
 
+For trade partitions, `splitIndex` is the first out-of-sample candle. Assign a trade by its entry
+candle (the candle after its signal), and include it in a partition only when every candle used to
+determine its observed outcome also falls within that partition. Exclude trades whose entry-to-
+outcome window crosses the split from both partition metrics. Preserve the existing shortened
+holding window at the end of available data; a truncated trade may be assigned when its entire
+observed entry and outcome window is within one partition.
+
 ## 7. Minimum Evidence Thresholds
 
 Use these as initial research guidelines:

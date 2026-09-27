@@ -82,12 +82,28 @@ function createTrade(signal, entryCandle, candles, signalIndex, settings) {
 	}
 }
 
+export function partitionTradesByEntryAndOutcome(trades, candles, splitIndex) {
+	const indexByTimestamp = new Map(candles.map((candle, index) => [candle.timestamp, index]))
+	const inSample = []
+	const outOfSample = []
+	let excludedCrossBoundaryTradeCount = 0
+
+	trades.forEach((trade) => {
+		const signalIndex = indexByTimestamp.get(trade.timestamp)
+		const entryIndex = signalIndex + 1
+		const outcomeEndIndex = signalIndex + trade.holdingBars
+		if (entryIndex < splitIndex && outcomeEndIndex < splitIndex) inSample.push(trade)
+		else if (entryIndex >= splitIndex && outcomeEndIndex < candles.length) outOfSample.push(trade)
+		else excludedCrossBoundaryTradeCount += 1
+	})
+	return { inSample, outOfSample, excludedCrossBoundaryTradeCount }
+}
+
 export function runSetupScanBacktest(candles, settings = {}) {
 	const options = { minimumScore: 65, stopDistance: null, targetDistance: null, stopDistancePercent: 0.005, targetR: 2, maxHoldingBars: 12, splitRatio: 0.7, ...settings }
 	const splitIndex = options.splitIndex ?? Math.floor(candles.length * options.splitRatio)
 	const signals = scanSetups(candles)
 	const trades = signals.map((signal) => ({ signal, index: candles.findIndex((candle) => candle.timestamp === signal.timestamp) })).filter(({ signal, index }) => signal.score >= options.minimumScore && signal.status === 'Bullish' && index >= 0 && index < candles.length - 1).map(({ signal, index }) => createTrade(signal, candles[index + 1], candles, index, options)).sort((a, b) => a.timestamp.localeCompare(b.timestamp))
-	const inSample = trades.filter((trade) => candles.findIndex((candle) => candle.timestamp === trade.timestamp) < splitIndex)
-	const outOfSample = trades.filter((trade) => !inSample.includes(trade))
-	return { candles, settings: { ...options, splitIndex }, trades, partitions: { inSample, outOfSample }, metrics: getMetrics(trades), inSampleMetrics: getMetrics(inSample), outOfSampleMetrics: getMetrics(outOfSample) }
+	const { inSample, outOfSample, excludedCrossBoundaryTradeCount } = partitionTradesByEntryAndOutcome(trades, candles, splitIndex)
+	return { candles, settings: { ...options, splitIndex }, trades, partitions: { inSample, outOfSample }, excludedCrossBoundaryTradeCount, metrics: getMetrics(trades), inSampleMetrics: getMetrics(inSample), outOfSampleMetrics: getMetrics(outOfSample) }
 }

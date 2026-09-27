@@ -1,4 +1,4 @@
-import { runSetupScanBacktest } from './strategy.js'
+import { partitionTradesByEntryAndOutcome, runSetupScanBacktest } from './strategy.js'
 
 export const trendMomentumParameters = {
   momentumLookback: 20,
@@ -94,9 +94,8 @@ export function runTrendMomentumBacktest(candles, settings = {}) {
     }
   }
   const trades = signals.map(({ candle, index, atr }) => createTrendMomentumTrade(candle, candles[index + 1], candles, index, atr, options)).sort((a, b) => a.timestamp.localeCompare(b.timestamp))
-  const inSample = trades.filter((trade) => candles.findIndex((candle) => candle.timestamp === trade.timestamp) < splitIndex)
-  const outOfSample = trades.filter((trade) => !inSample.includes(trade))
-  return { candles, settings: { ...options, splitIndex }, trades, partitions: { inSample, outOfSample }, metrics: calculateResearchMetrics(trades), inSampleMetrics: calculateResearchMetrics(inSample), outOfSampleMetrics: calculateResearchMetrics(outOfSample) }
+  const { inSample, outOfSample, excludedCrossBoundaryTradeCount } = partitionTradesByEntryAndOutcome(trades, candles, splitIndex)
+  return { candles, settings: { ...options, splitIndex }, trades, partitions: { inSample, outOfSample }, excludedCrossBoundaryTradeCount, metrics: calculateResearchMetrics(trades), inSampleMetrics: calculateResearchMetrics(inSample), outOfSampleMetrics: calculateResearchMetrics(outOfSample) }
 }
 
 export function runStrategyComparison(candles, enrichedCandles) {
