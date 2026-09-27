@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { enrichHistoricalCandles } from '../src/data/marketData.js'
 import { fetchAlpacaHistoricalBars } from './alpacaProxy.js'
+import { completedHourlyCandles } from './marketSession.js'
 import { createPaperTradingEngine } from './paperTrading.js'
 import { createPaperStore } from './paperStore.js'
 
@@ -17,7 +18,7 @@ export function createPaperService({ store = createPaperStore(path.resolve('serv
     for (const symbol of symbols) {
       try {
         const data = await fetchBars({ symbol, timeframe: '1Hour', start: start.toISOString(), end: end.toISOString() })
-        const candles = enrichHistoricalCandles(data.candles ?? [])
+        const candles = completedHourlyCandles(enrichHistoricalCandles(data.candles ?? []), end)
         engine.processCandles(symbol, candles)
         results.push({ symbol, status: 'AVAILABLE', provider: data.provider, candleCount: data.candleCount })
       } catch (error) {

@@ -2,7 +2,7 @@ function scoreItem(item) {
   const reasons = []
   let score = 0
   const aboveVwap = item.price > item.vwap
-  reasons.push({ label: 'Price vs VWAP', points: aboveVwap ? 20 : 0, detail: aboveVwap ? 'Trading above session VWAP, showing buyer control.' : 'Trading below session VWAP, limiting long-side conviction.' }); if (aboveVwap) score += 20
+  reasons.push({ label: 'Price vs VWAP', points: aboveVwap ? 20 : 0, detail: aboveVwap ? "Trading above SetupScan's running price reference, showing buyer control." : "Trading below SetupScan's running price reference, limiting long-side conviction." }); if (aboveVwap) score += 20
   const emaAligned = item.ema9 > item.ema21
   reasons.push({ label: 'EMA alignment', points: emaAligned ? 20 : 0, detail: emaAligned ? 'Fast EMA is above the slow EMA.' : 'Fast EMA remains below the slow EMA.' }); if (emaAligned) score += 20
   const rsiPoints = item.rsi >= 55 && item.rsi <= 70 ? 15 : item.rsi >= 45 ? 8 : 0

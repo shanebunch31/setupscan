@@ -20,6 +20,7 @@ import {
   fetchHistoricalMarketData,
   getHistoricalMarketData,
 } from './data/marketData.js'
+import { fetchScannerSnapshot, isSuccessfulScannerRefresh } from './data/scannerSnapshot.js'
 import { scanSetups } from './logic/scanner.js'
 import { runSetupScanBacktest } from './backtest/strategy.js'
 import { getBacktestBreakdown } from './backtest/breakdown.js'
@@ -408,39 +409,7 @@ function App() {
   useEffect(() => {
     let active = true
     setScanLoading(true)
-    Promise.all(
-      watchlist.map(async (symbol) => {
-        try {
-          const data = await fetchHistoricalMarketData(symbol, '1Hour', scanRange)
-          const candles = data?.candles ?? []
-          if (!candles.length) return { symbol, available: false }
-          const enriched = enrichHistoricalCandles(candles)
-          const latest = enriched[enriched.length - 1]
-          const previous = enriched.length > 1 ? enriched[enriched.length - 2] : latest
-          const change = previous.close ? ((latest.close - previous.close) / previous.close) * 100 : 0
-          return {
-            symbol,
-            available: true,
-            snapshot: {
-              symbol,
-              price: latest.price,
-              change,
-              vwap: latest.vwap,
-              ema9: latest.ema9,
-              ema21: latest.ema21,
-              rsi: latest.rsi,
-              relativeVolume: latest.relativeVolume,
-              breakout: latest.breakout,
-              trend: latest.trend,
-              atr: latest.atr,
-              volume: latest.volume,
-            },
-          }
-        } catch (error) {
-          return { symbol, available: false }
-        }
-      }),
-    ).then((entries) => {
+    fetchScannerSnapshot(watchlist, scanRange).then((entries) => {
       if (!active) return
       setScanSnapshot(entries.filter((entry) => entry.available).map((entry) => entry.snapshot))
       setScanUnavailable(entries.filter((entry) => !entry.available).map((entry) => entry.symbol))
@@ -549,7 +518,17 @@ function App() {
   const qualified = filterScannerResults(results, threshold)
   const visibleResults = qualified
   const selected = visibleResults.find((item) => item.symbol === selectedSymbol) ?? visibleResults[0]
-  const refreshData = () => setLastUpdated(createRefreshTimestamp())
+  const refreshData = async () => {
+    setScanLoading(true)
+    try {
+      const entries = await fetchScannerSnapshot(watchlist, scanRange)
+      setScanSnapshot(entries.filter((entry) => entry.available).map((entry) => entry.snapshot))
+      setScanUnavailable(entries.filter((entry) => !entry.available).map((entry) => entry.symbol))
+      if (isSuccessfulScannerRefresh(entries)) setLastUpdated(createRefreshTimestamp())
+    } finally {
+      setScanLoading(false)
+    }
+  }
   const handleNavigate = (id) => {
     setView(id)
     setNavOpen(false)
@@ -632,7 +611,7 @@ function App() {
                     ? 'ALPACA HISTORICAL · SPY · 1H'
                     : `${historicalStatus} data · delayed snapshot`}
                 </div>
-                <button className="refresh-button" onClick={refreshData}>
+                <button className="refresh-button" onClick={refreshData} disabled={scanLoading}>
                   <RefreshCw size={15} /> Refresh <span>{formatLastRefresh(lastUpdated)}</span>
                 </button>
               </div>
