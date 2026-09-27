@@ -5,7 +5,7 @@ import {
   runMeanReversionTest,
   relativeValueDefaults,
 } from './relativeValueBacktest.js'
-import { HowToReadResults, MetricsGlossary, PlainEnglishTakeaway } from './MetricsGlossary.jsx'
+import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
 import './robustness.css'
 
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -115,6 +115,7 @@ export function RelativeValueResearchLab({ datasets }) {
     const maxTrades = Math.max(...variantTradeCounts)
     return `At a ${lookback}-bar lookback and ${forwardHorizon}-bar forward horizon, tested SPY/QQQ/IWM divergences reverted within the forward horizon in an average of ${avgReversionRate !== null ? formatPercent(avgReversionRate) : 'an unavailable share'} of evaluated cases across the pairs shown above. Across the four tested variants, trade counts before costs ranged from ${minTrades} to ${maxTrades}, with win rate, profit factor, expectancy, and drawdown differing by variant, symbol, and market period as shown in the tables above. This side-by-side comparison does not identify any variant as more successful, profitable, or validated than another.`
   }, [research, meanReversion, lookback, forwardHorizon])
+  const variantTradeCounts = research ? variantMeta.map(([key]) => research.summaries[key].overallBeforeCosts.tradeCount) : []
 
   return (
     <section className="robustness-lab panel">
@@ -127,11 +128,17 @@ export function RelativeValueResearchLab({ datasets }) {
         This experiment is separate from — and does not modify, weaken, or feed into — the production scanner, the paper trading worker, or Alpaca credentials.
         No variant is selected as a winner; all results are reported side by side.
       </p>
-      <div className="robustness-section"><MetricsGlossary title="What does this mean?" intro="Plain-English explanations for the terms used in this relative-value research." definitions={RELATIVE_VALUE_DEFINITIONS} /></div>
       {!hasAllSymbols ? (
         <div className="robustness-error">Waiting for real Alpaca historical data for SPY, QQQ, and IWM. This experiment never substitutes demo data.</div>
       ) : (
         <>
+          <ResearchFirstAnswer
+            question="Does relative performance between SPY, QQQ, and IWM change how the existing setup behaves?"
+            sample={`Four variants are shown separately; their before-cost trade counts range from ${Math.min(...variantTradeCounts)} to ${Math.max(...variantTradeCounts)} and may overlap.`}
+            takeaway={takeawayText}
+            limitation="Historical results describe this sample only. No variant is selected as a winner."
+          />
+          <LearningDetails label="More details">
           <div className="robustness-section">
             <h3>Research parameters</h3>
             <p className="robustness-muted">
@@ -169,10 +176,15 @@ export function RelativeValueResearchLab({ datasets }) {
             existing baseline strategy for comparability but is computed independently. No results here alter live paper trading.
           </p>
 
-          <div className="robustness-section"><PlainEnglishTakeaway>{takeawayText}</PlainEnglishTakeaway></div>
+          </LearningDetails>
         </>
       )}
-      <div className="robustness-section"><HowToReadResults title="How to read this test" items={RELATIVE_VALUE_HOW_TO_READ} /></div>
+      <LearningDetails label="What does this mean?">
+        <MetricsGlossary title="Relative Value terms" intro="Plain-English explanations for terms used in this test." definitions={RELATIVE_VALUE_DEFINITIONS} />
+      </LearningDetails>
+      <LearningDetails label="How was this tested?">
+        <HowToReadResults title="How to read this test" items={RELATIVE_VALUE_HOW_TO_READ} />
+      </LearningDetails>
     </section>
   )
 }

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { test } from 'node:test'
-import { ResearchComparison, ResearchComparisonResult, ResearchComparisonView } from './ResearchComparison.js'
+import { ResearchComparison, ResearchComparisonResult, ResearchComparisonView, selectDistinctResearchRun } from './ResearchComparison.js'
 import { createResearchComparisonActions } from './researchComparisonModel.js'
 
 const runs = [
@@ -101,6 +101,18 @@ test('selecting the same run in both controls does not permit comparison', () =>
   assert.equal(compareButton.props.disabled, true)
 })
 
+test('Investigation comparison can reject a selection that duplicates the other run', () => {
+  assert.deepEqual(selectDistinctResearchRun({ selectedRunIdA: 'run/a', selectedRunIdB: 'run b' }, 'B', 'run/a', true), {
+    selectedRunIdA: 'run/a', selectedRunIdB: 'run b',
+  })
+  assert.deepEqual(selectDistinctResearchRun({ selectedRunIdA: 'run/a', selectedRunIdB: '' }, 'B', 'run b', true), {
+    selectedRunIdA: 'run/a', selectedRunIdB: 'run b',
+  })
+  assert.deepEqual(selectDistinctResearchRun({ selectedRunIdA: 'run/a', selectedRunIdB: '' }, 'B', 'run/a'), {
+    selectedRunIdA: 'run/a', selectedRunIdB: 'run/a',
+  })
+})
+
 test('selecting two runs and clicking the component Compare button invokes the comparison action with exact IDs', async () => {
   const calls = []
   const actions = createResearchComparisonActions({
@@ -140,9 +152,10 @@ test('comparison error is rendered ahead of loading state', () => {
 
 test('matched evidence and normalized metadata render without object dumps', () => {
   const html = renderToStaticMarkup(React.createElement(ResearchComparisonResult, { result: comparisonResult() }))
-  for (const text of ['run/a', 'run b', 'Matched evidence', 'Run A', 'Run B', 'baseline', 'overall', 'tradeCount: 12', 'Dataset differs']) {
+  for (const text of ['run/a', 'run b', 'Matched evidence', 'Run A', 'Run B', 'baseline', 'overall', 'tradeCount: 12', 'Dataset differs', 'A measured result from an experiment and sample', 'Whether the available information allows two results to be compared directly', 'does not prove every raw candle is identical']) {
     assert.ok(html.includes(text), `expected comparison output to include ${text}`)
   }
+  assert.match(html, /<summary>More evidence details<\/summary>/)
   assert.doesNotMatch(html, /\[object Object\]|<pre/)
 })
 
@@ -156,9 +169,16 @@ test('unmatched evidence from both sides is displayed with unknown status kept n
 
 test('hard conflicts, soft mismatches, unknowns, shared families, and provenance notes render descriptively', () => {
   const html = renderToStaticMarkup(React.createElement(ResearchComparisonResult, { result: comparisonResult() }))
-  for (const text of ['Hard conflicts', 'symbols', 'Soft mismatches', 'requestedEnd', 'Unknown metadata', 'Provenance is incomplete.', 'Shared evidence family', 'Non-independence annotation', 'Dataset identity differs', 'Reproducibility limitation']) {
+  for (const text of ['Hard conflicts', 'symbols', 'Soft mismatches', 'requestedEnd', 'Unknown metadata', 'Provenance is incomplete.', 'Shared evidence family', 'Non-independence annotation', 'related results may reuse data, trades, or test windows', 'Dataset identity differs', 'Reproducibility limitation']) {
     assert.ok(html.includes(text), `expected comparison details to include ${text}`)
   }
+})
+
+test('out-of-sample evidence explains that it is a historical check, not proof', () => {
+  const result = comparisonResult()
+  result.comparisons[0].evidenceA.evidence.outOfSampleRole = 'holdout'
+  const html = renderToStaticMarkup(React.createElement(ResearchComparisonResult, { result }))
+  assert.match(html, /Out-of-sample: Testing on historical data the rules were not tuned on; it is a check, not proof of future performance/)
 })
 
 test('empty comparison states distinguish no evidence and unmatched evidence', () => {

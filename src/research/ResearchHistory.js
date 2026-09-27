@@ -4,6 +4,7 @@ import { listResearchExperiments } from './registry.js'
 import { createResearchHistoryActions, createResearchHistoryPage, normalizeResearchHistoryFilters, RESEARCH_HISTORY_PAGE_SIZE } from './researchHistoryModel.js'
 import { getResearchRun } from './researchRunHistory.js'
 import { ResearchRunDetail } from './ResearchRunDetail.js'
+import { TermHelp } from '../TermHelp.js'
 
 const h = React.createElement
 const experiments = listResearchExperiments()
@@ -15,7 +16,9 @@ export function ResearchHistoryTable({ runs, selectedRunId, onSelectRun }) {
     h('table', { className: 'research-history-table' },
       h('thead', null,
         h('tr', null,
-          ...['Run ID', 'Requested', 'Status', 'Symbols', 'Timeframe', 'Dataset', 'Experiments', ''].map((label) => h('th', { key: label }, label)),
+          ...['Run ID', 'Requested', 'Status', 'Symbols', 'Timeframe', 'Dataset', 'Experiments', ''].map((label) => label === 'Dataset'
+            ? h('th', { key: label }, 'Dataset ID', h(TermHelp, { term: 'Dataset ID', explanation: 'An identity key for the historical market-data set used by the run; it does not prove every raw candle is identical.' }))
+            : h('th', { key: label }, label)),
         ),
       ),
       h('tbody', null, runs.map((run) => h('tr', { key: run.runId, className: selectedRunId === run.runId ? 'research-history-selected' : undefined },
@@ -113,6 +116,7 @@ export function ResearchHistory({ listRuns, getRun = getResearchRun, onSelectRun
       h('div', null,
         h('p', { className: 'workbench-eyebrow' }, 'RESEARCH RUNS'),
         h('h2', { id: 'research-history-title' }, 'History'),
+        h('p', { className: 'workbench-muted' }, 'A Research Run is one saved execution of selected experiments using shared historical data.'),
       ),
       loading ? h('span', { className: 'workbench-muted', role: 'status' }, h(LoaderCircle, { size: 15, className: 'workbench-spinner', 'aria-hidden': true }), ' Loading runs') : null,
     ),

@@ -60,6 +60,7 @@ export function ResearchWorkspace({
       'aria-current': activeView === item.id ? 'page' : undefined,
       onClick: () => onNavigate(item.id),
     }, item.label))),
+    h('p', { className: 'research-workspace-orientation' }, 'Labs explore different tests. Workbench runs a selected plan and organizes questions across related runs. History reviews saved runs; Compare examines evidence from two saved runs.'),
     content,
   )
 }

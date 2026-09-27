@@ -35,6 +35,54 @@ test('saveResearchRun posts the persistence projection using the research histor
   }
 })
 
+test('saveResearchRun distinguishes non-JSON upstream responses from malformed JSON', async () => {
+  const originalFetch = globalThis.fetch
+  const run = { runContext: { runId: 'r-non-json' }, dataset: null, experimentResults: [] }
+  try {
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 502,
+      headers: new Headers({ 'content-type': 'text/html; charset=utf-8' }),
+      text: async () => '<html><title>Bad Gateway</title></html>',
+    })
+    await assert.rejects(saveResearchRun(run), /non-JSON response \(HTTP 502; Content-Type text\/html\)/)
+
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 502,
+      headers: new Headers({ 'content-type': 'application/problem+json' }),
+      text: async () => '{"error":',
+    })
+    await assert.rejects(saveResearchRun(run), /malformed JSON \(HTTP 502; Content-Type application\/problem\+json\)/)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('saveResearchRun exposes structured persistence-unavailable and server errors', async () => {
+  const originalFetch = globalThis.fetch
+  const run = { runContext: { runId: 'r-api-error' }, dataset: null, experimentResults: [] }
+  try {
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 503,
+      headers: new Headers({ 'content-type': 'application/json; charset=utf-8' }),
+      text: async () => '{"error":"Research Run History storage is not configured"}',
+    })
+    await assert.rejects(saveResearchRun(run), /Research Run History storage is not configured/)
+
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 500,
+      headers: new Headers({ 'content-type': 'application/json; charset=utf-8' }),
+      text: async () => '{"error":"Research Run History storage failed"}',
+    })
+    await assert.rejects(saveResearchRun(run), /Research Run History storage failed/)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('getResearchRun encodes runId and parses historical output', async () => {
   const originalFetch = globalThis.fetch
   let requestedUrl

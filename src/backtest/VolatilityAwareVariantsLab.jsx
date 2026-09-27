@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import { runVolatilityAwareVariantsResearch, variantDefinitions } from './volatilityAwareVariantsBacktest.js'
-import { HowToReadResults, MetricsGlossary, PlainEnglishTakeaway } from './MetricsGlossary.jsx'
+import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
 import './robustness.css'
 
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -175,27 +175,33 @@ export function VolatilityAwareVariantsLab({ datasets }) {
         touched, no variant is deployed, and no thresholds are searched or optimized after seeing results. No winner is
         auto-selected.
       </p>
-      <div className="robustness-section"><MetricsGlossary title="What does this mean?" intro="Plain-English explanations for the terms used in this volatility-aware variants research." definitions={VOLATILITY_AWARE_DEFINITIONS} /></div>
-      <div className="robustness-section"><HowToReadResults title="How to read this test" items={VOLATILITY_AWARE_HOW_TO_READ} /></div>
       {!hasAllSymbols ? (
         <div className="robustness-error">Waiting for real Alpaca historical data for SPY, QQQ, and IWM. This experiment never substitutes demo data.</div>
       ) : (
         <>
+          <ResearchFirstAnswer
+            question="How did three predefined volatility-aware entry rules compare with the unchanged Control across walk-forward test periods?"
+            sample={`${research.pooled.find((variant) => variant.key === 'control')?.summary.overall.tradeCount ?? 0} Control trades across the pooled test periods.`}
+            takeaway={takeawayText}
+            limitation="Variants are predefined research only; no live filter is changed or automatically adapted."
+          />
+          <LearningDetails label="More details">
           <VariantDefinitionsList />
           <PooledVariantsTable pooled={research.pooled} />
           <WindowsVariantsTable windows={research.windows} />
           <DiffsTable windows={research.windows} />
           <ConsistencyTable consistency={research.consistency} />
 
-          <div className="robustness-section"><PlainEnglishTakeaway>{takeawayText}</PlainEnglishTakeaway></div>
-
-          <p className="research-note">
-            Descriptive research only, on the same frozen walk-forward test periods as Experiment #6. Comparing predefined variants
-            side by side does not guarantee future performance, and results here do not automatically change production scoring,
-            paper trading, or any live volatility filter.
-          </p>
+          </LearningDetails>
         </>
       )}
+      <LearningDetails label="What does this mean?">
+        <MetricsGlossary title="Volatility-Aware terms" intro="Plain-English explanations for terms used in this test." definitions={VOLATILITY_AWARE_DEFINITIONS} />
+      </LearningDetails>
+      <LearningDetails label="How was this tested?">
+        <HowToReadResults title="How to read this test" items={VOLATILITY_AWARE_HOW_TO_READ} />
+      </LearningDetails>
+      <p className="research-note">Descriptive historical research only; comparisons do not guarantee future performance.</p>
     </section>
   )
 }

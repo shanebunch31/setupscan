@@ -1,8 +1,11 @@
+import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { describeDatabaseUrl } from './postgresPaperStore.js'
 import { parseResearchJson, stringifyResearchJson } from '../src/research/researchRunSerialization.js'
+import { normalizeResearchInvestigationInput, normalizeResearchRunId } from '../src/research/researchInvestigation.js'
 
 export const RESEARCH_PERSISTENCE_SCHEMA_VERSION = 1
+export const RESEARCH_INVESTIGATION_PERSISTENCE_SCHEMA_VERSION = 1
 
 const schema = `
 CREATE TABLE IF NOT EXISTS research_runs (
@@ -38,6 +41,25 @@ CREATE TABLE IF NOT EXISTS research_run_experiments (
 );
 CREATE INDEX IF NOT EXISTS research_run_experiments_experiment_id_idx ON research_run_experiments (experiment_id);
 CREATE INDEX IF NOT EXISTS research_run_experiments_status_idx ON research_run_experiments (experiment_id, execution_status);
+CREATE TABLE IF NOT EXISTS research_investigations (
+  investigation_id text PRIMARY KEY,
+  question text NOT NULL,
+  status text NOT NULL CHECK (status IN ('active')),
+  requested_experiments text[] NOT NULL,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  persistence_schema_version integer NOT NULL
+);
+CREATE INDEX IF NOT EXISTS research_investigations_created_at_idx ON research_investigations (created_at DESC, investigation_id DESC);
+CREATE TABLE IF NOT EXISTS research_investigation_runs (
+  investigation_id text NOT NULL REFERENCES research_investigations(investigation_id) ON DELETE CASCADE,
+  run_id text NOT NULL REFERENCES research_runs(run_id) ON DELETE CASCADE,
+  position integer NOT NULL CHECK (position >= 0),
+  created_at timestamptz NOT NULL,
+  PRIMARY KEY (investigation_id, run_id),
+  UNIQUE (investigation_id, position)
+);
+CREATE INDEX IF NOT EXISTS research_investigation_runs_run_id_idx ON research_investigation_runs (run_id);
 `
 
 const RUN_COLUMNS = `run_id, requested_at, status, fetch_status, symbols, timeframe,
@@ -55,6 +77,65 @@ function required(value, label) {
 
 function jsonParameter(value) {
   return value == null ? null : stringifyResearchJson(value)
+}
+
+function investigationNotFound(investigationId) {
+  const error = new Error(`Research investigation not found: ${investigationId}`)
+  error.name = 'ResearchInvestigationNotFoundError'
+  error.code = 'RESEARCH_INVESTIGATION_NOT_FOUND'
+  error.statusCode = 404
+  return error
+}
+
+function researchRunNotFound(runId) {
+  const error = new Error(`Research run not found: ${runId}`)
+  error.name = 'ResearchRunNotFoundError'
+  error.code = 'RESEARCH_RUN_NOT_FOUND'
+  error.statusCode = 404
+  return error
+}
+
+function investigationRunExists(runId) {
+  const error = new Error(`Research run is already attached to this investigation: ${runId}`)
+  error.name = 'ResearchInvestigationRunExistsError'
+  error.code = 'RESEARCH_INVESTIGATION_RUN_EXISTS'
+  error.statusCode = 409
+  return error
+}
+
+function dateString(value) {
+  return value instanceof Date ? value.toISOString() : value
+}
+
+function investigationFromRows(row, runRows = []) {
+  return {
+    investigationId: row.investigation_id,
+    question: row.question,
+    status: row.status,
+    createdAt: dateString(row.created_at),
+    updatedAt: dateString(row.updated_at),
+    requestedExperiments: row.requested_experiments,
+    runIds: runRows.map((run) => run.run_id),
+    persistenceSchemaVersion: row.persistence_schema_version,
+  }
+}
+
+function investigationListBounds(filters = {}) {
+  const limit = filters.limit ?? 20
+  const offset = filters.offset ?? 0
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    const error = new Error('limit must be an integer between 1 and 100')
+    error.name = 'ResearchInvestigationValidationError'
+    error.code = 'RESEARCH_INVESTIGATION_INVALID'
+    throw error
+  }
+  if (!Number.isInteger(offset) || offset < 0) {
+    const error = new Error('offset must be a non-negative integer')
+    error.name = 'ResearchInvestigationValidationError'
+    error.code = 'RESEARCH_INVESTIGATION_INVALID'
+    throw error
+  }
+  return { limit, offset }
 }
 
 function metadataOnlyDataset(dataset) {
@@ -376,5 +457,116 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
     })
   }
 
-  return { init, saveResearchRun, getResearchRun, getResearchRunComparisonSnapshot, listResearchRuns, pool: clientPool }
+  async function createResearchInvestigation(input) {
+    const normalized = normalizeResearchInvestigationInput(input)
+    await init()
+    const investigationId = `investigation_${randomUUID()}`
+    const result = await clientPool.query(
+      `INSERT INTO research_investigations
+        (investigation_id, question, status, requested_experiments, created_at, updated_at, persistence_schema_version)
+       VALUES ($1, $2, 'active', $3, now(), now(), $4)
+       RETURNING investigation_id, question, status, requested_experiments, created_at, updated_at, persistence_schema_version`,
+      [investigationId, normalized.question, normalized.requestedExperiments, RESEARCH_INVESTIGATION_PERSISTENCE_SCHEMA_VERSION],
+    )
+    return investigationFromRows(result.rows[0])
+  }
+
+  async function getResearchInvestigation(investigationId) {
+    await init()
+    const result = await clientPool.query(
+      `SELECT investigation_id, question, status, requested_experiments, created_at, updated_at, persistence_schema_version
+       FROM research_investigations WHERE investigation_id = $1`,
+      [investigationId],
+    )
+    const row = result.rows[0]
+    if (!row) return null
+    const runs = await clientPool.query(
+      `SELECT run_id FROM research_investigation_runs
+       WHERE investigation_id = $1 ORDER BY position`,
+      [investigationId],
+    )
+    return investigationFromRows(row, runs.rows)
+  }
+
+  async function listResearchInvestigations(filters = {}) {
+    await init()
+    const { limit, offset } = investigationListBounds(filters)
+    const result = await clientPool.query(
+      `SELECT investigation_id, question, status, requested_experiments, created_at, updated_at, persistence_schema_version
+       FROM research_investigations ORDER BY created_at DESC, investigation_id DESC LIMIT $1 OFFSET $2`,
+      [limit, offset],
+    )
+    if (!result.rows.length) return []
+    const investigationIds = result.rows.map((row) => row.investigation_id)
+    const runResult = await clientPool.query(
+      `SELECT investigation_id, run_id FROM research_investigation_runs
+       WHERE investigation_id = ANY($1::text[]) ORDER BY investigation_id, position`,
+      [investigationIds],
+    )
+    const runsByInvestigation = new Map(investigationIds.map((id) => [id, []]))
+    runResult.rows.forEach((run) => runsByInvestigation.get(run.investigation_id)?.push(run))
+    return result.rows.map((row) => investigationFromRows(row, runsByInvestigation.get(row.investigation_id)))
+  }
+
+  async function attachResearchRunToInvestigation(investigationId, runId) {
+    const normalizedRunId = normalizeResearchRunId(runId)
+    await init()
+    const client = await clientPool.connect()
+    try {
+      await client.query('BEGIN')
+      const investigation = await client.query(
+        'SELECT investigation_id FROM research_investigations WHERE investigation_id = $1 FOR UPDATE',
+        [investigationId],
+      )
+      if (!investigation.rows[0]) throw investigationNotFound(investigationId)
+
+      const run = await client.query('SELECT run_id FROM research_runs WHERE run_id = $1', [normalizedRunId])
+      if (!run.rows[0]) throw researchRunNotFound(normalizedRunId)
+
+      const existing = await client.query(
+        'SELECT run_id FROM research_investigation_runs WHERE investigation_id = $1 AND run_id = $2',
+        [investigationId, normalizedRunId],
+      )
+      if (existing.rows[0]) throw investigationRunExists(normalizedRunId)
+
+      const positionResult = await client.query(
+        'SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM research_investigation_runs WHERE investigation_id = $1',
+        [investigationId],
+      )
+      const position = Number(positionResult.rows[0]?.next_position ?? 0)
+      await client.query(
+        `INSERT INTO research_investigation_runs (investigation_id, run_id, position, created_at)
+         VALUES ($1, $2, $3, now())`,
+        [investigationId, normalizedRunId, position],
+      )
+      await client.query('UPDATE research_investigations SET updated_at = now() WHERE investigation_id = $1', [investigationId])
+      await client.query('COMMIT')
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK')
+      } catch (rollbackError) {
+        error.rollbackError = rollbackError
+      }
+      if (error.code === '23505' && error.constraint?.includes('research_investigation_runs')) {
+        throw investigationRunExists(normalizedRunId)
+      }
+      throw error
+    } finally {
+      client.release()
+    }
+    return getResearchInvestigation(investigationId)
+  }
+
+  return {
+    init,
+    saveResearchRun,
+    getResearchRun,
+    getResearchRunComparisonSnapshot,
+    listResearchRuns,
+    createResearchInvestigation,
+    getResearchInvestigation,
+    listResearchInvestigations,
+    attachResearchRunToInvestigation,
+    pool: clientPool,
+  }
 }

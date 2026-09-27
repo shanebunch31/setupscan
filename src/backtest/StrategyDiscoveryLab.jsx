@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react'
-import { HowToReadResults, MetricsGlossary, PlainEnglishTakeaway } from './MetricsGlossary.jsx'
+import { HowToReadResults, LearningDetails, MetricsGlossary, PlainEnglishTakeaway, ResearchFirstAnswer } from './MetricsGlossary.jsx'
 import { runStrategyDiscoveryBatchA } from './strategyDiscovery/discoveryRunner.js'
 import { runBreakoutContextResearch } from './strategyDiscovery/breakoutContextResearch.js'
 import { runRegularSessionBreakoutResearch, compareToBatchA } from './strategyDiscovery/regularSessionBreakout.js'
@@ -375,12 +375,6 @@ function BreakoutContextResearchSection({ datasets }) {
         optimized, no context bucket is selected or declared a winner, and nothing here changes the production scanner, paper
         trading, the Render worker, or the API.
       </p>
-      <div className="robustness-section">
-        <MetricsGlossary title="What does this mean?" intro="Plain-English explanations for the terms used in Batch B context research." definitions={BATCH_B_DEFINITIONS} />
-      </div>
-      <div className="robustness-section">
-        <HowToReadResults title="How to read this" items={BATCH_B_HOW_TO_READ} />
-      </div>
       {!batchB.available ? (
         <div className="robustness-error">
           Batch B is waiting on real Alpaca historical data for {batchB.missingSymbols?.join(', ') ?? 'SPY, QQQ, IWM'}. This lab
@@ -388,6 +382,13 @@ function BreakoutContextResearchSection({ datasets }) {
         </div>
       ) : (
         <>
+          <ResearchFirstAnswer
+            question="Which market/context conditions were associated with outcomes of the same frozen Momentum Breakout signals?"
+            sample={`${batchB.totalQualifyingSignals} qualifying signals in this sample; context buckets have different counts.`}
+            takeaway={takeawayText}
+            limitation="These are historical associations, not probabilities, guarantees, or a selected context rule."
+          />
+          <LearningDetails label="More details">
           <div className="robustness-section">
             <h3>Frozen Batch A Momentum Breakout definition (reused unchanged)</h3>
             <div className="robustness-table-wrap">
@@ -404,9 +405,15 @@ function BreakoutContextResearchSection({ datasets }) {
           </div>
           <div className="robustness-section"><ReproducibilityInfo batch={batchB} label="Batch B" /></div>
           {batchB.dimensions.map((dimension) => <DimensionSection key={dimension.key} dimension={dimension} />)}
-          <div className="robustness-section"><PlainEnglishTakeaway>{takeawayText}</PlainEnglishTakeaway></div>
+          </LearningDetails>
         </>
       )}
+      <LearningDetails label="What does this mean?">
+        <MetricsGlossary title="Batch B terms" intro="Plain-English explanations for context research." definitions={BATCH_B_DEFINITIONS} />
+      </LearningDetails>
+      <LearningDetails label="How was this tested?">
+        <HowToReadResults title="Batch B method" items={BATCH_B_HOW_TO_READ} />
+      </LearningDetails>
       <p className="research-note">
         Descriptive, exploratory research only. This module does not change the production scanner, its scoring, paper trading, the
         Render worker, or the API, and it does not implement automatic strategy optimization.
@@ -489,12 +496,6 @@ function RegularSessionBreakoutSection({ datasets }) {
         is not altered by this page. No threshold is optimized, no session rule is searched for better results, and nothing here
         changes the production scanner, paper trading, the Render worker, or the API.
       </p>
-      <div className="robustness-section">
-        <MetricsGlossary title="What does this mean?" intro="Plain-English explanations for the terms used in Batch C." definitions={BATCH_C_DEFINITIONS} />
-      </div>
-      <div className="robustness-section">
-        <HowToReadResults title="How to read this" items={BATCH_C_HOW_TO_READ} />
-      </div>
       {!batchC.available ? (
         <div className="robustness-error">
           Batch C is waiting on real Alpaca historical data for {batchC.missingSymbols?.join(', ') ?? 'SPY, QQQ, IWM'}. This lab
@@ -502,6 +503,13 @@ function RegularSessionBreakoutSection({ datasets }) {
         </div>
       ) : (
         <>
+          <ResearchFirstAnswer
+            question="How did the same frozen breakout rules behave when only fully regular-session bars were used?"
+            sample={`${batchC.totalQualifyingSignals} Batch C signals; the comparison also shows Batch A's full-session count.`}
+            takeaway={takeawayText}
+            limitation="This compares historical data universes with identical rules; it does not show either one is better."
+          />
+          <LearningDetails label="More details">
           <div className="robustness-section">
             <h3>Session convention</h3>
             <div className="robustness-table-wrap">
@@ -587,9 +595,15 @@ function RegularSessionBreakoutSection({ datasets }) {
             </>
           )}
 
-          <div className="robustness-section"><PlainEnglishTakeaway>{takeawayText}</PlainEnglishTakeaway></div>
+          </LearningDetails>
         </>
       )}
+      <LearningDetails label="What does this mean?">
+        <MetricsGlossary title="Batch C terms" intro="Plain-English explanations for the regular-session comparison." definitions={BATCH_C_DEFINITIONS} />
+      </LearningDetails>
+      <LearningDetails label="How was this tested?">
+        <HowToReadResults title="Batch C method" items={BATCH_C_HOW_TO_READ} />
+      </LearningDetails>
       <p className="research-note">
         Descriptive, exploratory research only. Batch A remains the original full-session experiment, preserved unchanged. This
         module does not change the production scanner, its scoring, paper trading, the Render worker, or the API.
@@ -607,6 +621,12 @@ export function StrategyDiscoveryLab({ datasets = [] }) {
   const dataUnavailableReason = batch.available
     ? null
     : `waiting for real Alpaca historical data for ${batch.missingSymbols?.join(', ') ?? 'SPY, QQQ, IWM'}`
+  const batchASampleCounts = (batch.experiments ?? []).map((experiment) => experiment.summary.overall.occurrenceCount).filter((count) => count > 0)
+  const batchASample = !batch.available
+    ? 'No Batch A sample is available until real historical data loads.'
+    : batchASampleCounts.length
+      ? `${batch.experiments.length} implemented families; per-family occurrences range from ${Math.min(...batchASampleCounts)} to ${Math.max(...batchASampleCounts)}.`
+      : 'Four implemented families; no qualifying occurrences in this sample.'
 
   const takeawayText = useMemo(() => {
     if (!batch.available) {
@@ -643,45 +663,40 @@ export function StrategyDiscoveryLab({ datasets = [] }) {
         here modifies the existing scanner, its scoring, paper trading, the Render worker, or the API. No family is claimed to be
         profitable, validated, predictive, or superior to the existing scanner, and no family is ranked against another.
       </p>
-      <div className="robustness-section">
-        <MetricsGlossary
-          title="What does this mean?"
-          intro="Plain-English explanations for the terms used in strategy discovery, ahead of any family actually being backtested."
-          definitions={STRATEGY_DISCOVERY_DEFINITIONS}
-        />
-      </div>
-      <div className="robustness-section">
-        <HowToReadResults title="Strategy discovery vs. strategy validation" items={STRATEGY_DISCOVERY_HOW_TO_READ} />
-      </div>
-
-      <div className="robustness-section">
-        <h3>Candidate strategy families</h3>
-        <p className="robustness-muted">
-          Eight candidate setup families are catalogued below. Four (Momentum/Breakout, Mean Reversion, Market Structure, Volatility
-          Expansion/Contraction) are implemented in Batch A and show real results once real Alpaca historical data is available; the
-          rest are hypotheses only. None has been optimized, none is ranked against another, and no automatic strategy optimization
-          is implemented here.
-        </p>
-      </div>
+      <ResearchFirstAnswer
+        question="How do the predefined setup-family ideas behave on historical data before any could be considered for later validation?"
+        sample={batchASample}
+        takeaway={takeawayText}
+        limitation="Discovery is not validation. Four families are implemented in Batch A; the remaining four are hypotheses only. No family is ranked or promoted."
+      />
       {!batch.available && (
         <div className="robustness-error">
           Batch A experiments are waiting on real Alpaca historical data for {batch.missingSymbols?.join(', ') ?? 'SPY, QQQ, IWM'}.
           This lab never substitutes demo data.
         </div>
       )}
-      {STRATEGY_FAMILIES.map((family) => (
-        <FamilyCard
-          key={family.key}
-          family={family}
-          result={family.experimentId ? resultsByExperimentId[family.experimentId] : undefined}
-          dataUnavailableReason={dataUnavailableReason}
-        />
-      ))}
-      {batch.available && <ReproducibilityInfo batch={batch} />}
+      <LearningDetails label="More details">
+        <div className="robustness-section">
+          <h3>Candidate strategy families</h3>
+          <p className="robustness-muted">Eight hypotheses are catalogued. Four have Batch A implementations; four remain not yet run.</p>
+        </div>
+        {STRATEGY_FAMILIES.map((family) => (
+          <FamilyCard
+            key={family.key}
+            family={family}
+            result={family.experimentId ? resultsByExperimentId[family.experimentId] : undefined}
+            dataUnavailableReason={dataUnavailableReason}
+          />
+        ))}
+        {batch.available && <ReproducibilityInfo batch={batch} />}
+      </LearningDetails>
 
-      <div className="robustness-section">
-        <PlainEnglishTakeaway>{takeawayText}</PlainEnglishTakeaway>
-      </div>
+      <LearningDetails label="What does this mean?">
+        <MetricsGlossary title="Strategy Discovery terms" intro="Plain-English explanations for discovery and validation." definitions={STRATEGY_DISCOVERY_DEFINITIONS} />
+      </LearningDetails>
+      <LearningDetails label="How was this tested?">
+        <HowToReadResults title="Strategy discovery vs. strategy validation" items={STRATEGY_DISCOVERY_HOW_TO_READ} />
+      </LearningDetails>
 
       <p className="research-note">
         Exploratory research only. This module does not change the production scanner, its scoring, paper trading, the Render

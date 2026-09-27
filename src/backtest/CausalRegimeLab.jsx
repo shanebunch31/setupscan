@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import { runCausalRegimeResearch } from './causalRegimeBacktest.js'
-import { HowToReadResults, MetricsGlossary, PlainEnglishTakeaway } from './MetricsGlossary.jsx'
+import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
 import './robustness.css'
 
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -146,12 +146,17 @@ export function CausalRegimeLab({ datasets }) {
         SPY/QQQ/IWM data. All regime classifications are fixed and predefined — none are searched or optimized. Descriptive research
         only — does not change production scoring, paper trading, the Render worker, or Supabase. No winner is auto-selected.
       </p>
-      <div className="robustness-section"><MetricsGlossary title="What does this mean?" intro="Plain-English explanations for the terms used in this causal market-regime research." definitions={CAUSAL_REGIME_DEFINITIONS} /></div>
-      <div className="robustness-section"><HowToReadResults title="How to read this test" items={CAUSAL_REGIME_HOW_TO_READ} /></div>
       {!hasAllSymbols ? (
         <div className="robustness-error">Waiting for real Alpaca historical data for SPY, QQQ, and IWM. This experiment never substitutes demo data.</div>
       ) : (
         <>
+          <ResearchFirstAnswer
+            question="How did the frozen baseline vary across trend, volatility, and breadth labels computed at signal time?"
+            sample={`${research.combinedBaseline.overall.tradeCount} combined baseline trades across the synchronized sample; regime slices have different counts.`}
+            takeaway={takeawayText}
+            limitation="These labels use information available at the time; this analysis does not prove a condition caused an outcome."
+          />
+          <LearningDetails label="More details">
           <RegimeGroupTable title="Baseline by trend regime" groups={research.trendGroups} smallSampleThreshold={research.options.smallSampleThreshold} />
           <RegimeGroupTable title="Baseline by volatility regime" groups={research.volatilityGroups} smallSampleThreshold={research.options.smallSampleThreshold} />
           <RegimeGroupTable title="Baseline by breadth regime" groups={research.breadthGroups} smallSampleThreshold={research.options.smallSampleThreshold} />
@@ -174,15 +179,16 @@ export function CausalRegimeLab({ datasets }) {
             </div>
           </div>
 
-          <div className="robustness-section"><PlainEnglishTakeaway>{takeawayText}</PlainEnglishTakeaway></div>
-
-          <p className="research-note">
-            Descriptive research only, on historical, causally-computed regime classifications. Regime-to-regime comparisons do not
-            guarantee future performance, and results here do not automatically change production scoring, thresholds, or trade
-            construction.
-          </p>
+          </LearningDetails>
         </>
       )}
+      <LearningDetails label="What does this mean?">
+        <MetricsGlossary title="Causal Market-Regime terms" intro="Plain-English explanations for terms used in this test." definitions={CAUSAL_REGIME_DEFINITIONS} />
+      </LearningDetails>
+      <LearningDetails label="How was this tested?">
+        <HowToReadResults title="How to read this test" items={CAUSAL_REGIME_HOW_TO_READ} />
+      </LearningDetails>
+      <p className="research-note">Descriptive historical research only; regime groups do not prove cause or guarantee future performance.</p>
     </section>
   )
 }

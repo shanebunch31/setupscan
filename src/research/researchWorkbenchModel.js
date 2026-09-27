@@ -1,5 +1,6 @@
 import { listResearchExperiments } from './registry.js'
-import { runResearch } from './runResearch.js'
+import { normalizeResearchInvestigationInput } from './researchInvestigation.js'
+import { executeResearchRunInWorker } from './researchRunWorkerClient.js'
 
 const experimentIds = new Set(listResearchExperiments().map(({ id }) => id))
 
@@ -27,6 +28,26 @@ export function createWorkbenchRunRequest(form) {
   return { symbols, timeframe, requestedStart, requestedEnd, requestedExperiments }
 }
 
-export function executeWorkbenchRun(request, execute = runResearch) {
+export function executeWorkbenchRun(request, execute = executeResearchRunInWorker) {
   return execute(request)
+}
+
+export function setWorkbenchRunFailure(error, setFormError, setRunState) {
+  setFormError(error.message)
+  setRunState((current) => current === 'running' ? 'failed' : current)
+}
+
+export function createWorkbenchInvestigationRequest(question, requestedExperiments) {
+  return normalizeResearchInvestigationInput({ question, requestedExperiments })
+}
+
+export function createInvestigationRunRequest(form, investigation) {
+  if (!investigation || typeof investigation !== 'object') {
+    throw new Error('Select an investigation before running its plan.')
+  }
+  const plan = normalizeResearchInvestigationInput({
+    question: investigation.question,
+    requestedExperiments: investigation.requestedExperiments,
+  })
+  return createWorkbenchRunRequest({ ...form, requestedExperiments: plan.requestedExperiments })
 }

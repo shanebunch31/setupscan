@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import { runFrozenScoreHoldoutResearch, assessScoreMonotonicity } from './frozenScoreHoldoutBacktest.js'
-import { HowToReadResults, MetricsGlossary, PlainEnglishTakeaway } from './MetricsGlossary.jsx'
+import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
 import './robustness.css'
 
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -138,12 +138,17 @@ export function FrozenScoreHoldoutLab({ datasets }) {
         or trade construction rules were changed or optimized for this test. Descriptive research only — does not change production
         scoring, paper trading, the Render worker, or Supabase. No winner is auto-selected.
       </p>
-      <div className="robustness-section"><MetricsGlossary title="What does this mean?" intro="Plain-English explanations for the terms used in this frozen-score holdout research." definitions={FROZEN_SCORE_DEFINITIONS} /></div>
-      <div className="robustness-section"><HowToReadResults title="How to read this test" items={FROZEN_SCORE_HOW_TO_READ} /></div>
       {!hasAllSymbols ? (
         <div className="robustness-error">Waiting for real Alpaca historical data for SPY, QQQ, and IWM. This experiment never substitutes demo data.</div>
       ) : (
         <>
+          <ResearchFirstAnswer
+            question="Did the existing frozen score rule show similar results in its separate development and holdout periods?"
+            sample={`${research.developmentBaseline.overall.tradeCount} development trades and ${research.holdoutBaseline.overall.tradeCount} holdout trades.`}
+            takeaway={takeawayText}
+            limitation="Both periods are historical. Holdout results are a check, not proof of future performance."
+          />
+          <LearningDetails label="More details">
           <div className="robustness-section">
             <h3>Development vs. holdout windows</h3>
             <div className="robustness-table-wrap">
@@ -172,14 +177,16 @@ export function FrozenScoreHoldoutLab({ datasets }) {
             holdoutSummary={research.holdoutRvConfirmed}
           />
 
-          <div className="robustness-section"><PlainEnglishTakeaway>{takeawayText}</PlainEnglishTakeaway></div>
-
-          <p className="research-note">
-            Descriptive research only, on historical data. Splitting into development and holdout windows does not prove future
-            performance, and results here do not automatically change production scoring, thresholds, or trade construction.
-          </p>
+          </LearningDetails>
         </>
       )}
+      <LearningDetails label="What does this mean?">
+        <MetricsGlossary title="Frozen Score Holdout terms" intro="Plain-English explanations for terms used in this test." definitions={FROZEN_SCORE_DEFINITIONS} />
+      </LearningDetails>
+      <LearningDetails label="How was this tested?">
+        <HowToReadResults title="How to read this test" items={FROZEN_SCORE_HOW_TO_READ} />
+      </LearningDetails>
+      <p className="research-note">Descriptive research only, on historical data. The holdout does not prove future performance or change production scoring.</p>
     </section>
   )
 }

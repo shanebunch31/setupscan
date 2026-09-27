@@ -1,8 +1,12 @@
 import React from 'react'
+import { TermHelp } from '../TermHelp.js'
+
+export { TermHelp }
 
 // Reusable plain-English definitions for the metrics shown across the research labs.
 // Intended as the first building block toward a future Learn/Education page.
 export const METRIC_DEFINITIONS = [
+  { term: 'R (risk unit)', description: '1R is one unit of planned risk. Results are shown as multiples of that unit; its dollar value depends on the model.' },
   { term: 'Win rate', description: 'The share of trades that closed as winners. On its own it doesn’t say how big the wins or losses were.' },
   { term: 'Profit factor', description: 'Total profit from winners divided by total loss from losers. Above 1 means winners outweighed losers over this sample.' },
   { term: 'Expectancy', description: 'The average result per trade, in R-multiples. Positive expectancy means trades made money on average before real-world costs and slippage.' },
@@ -54,6 +58,29 @@ export function PlainEnglishTakeaway({ title = 'Plain-English takeaway', childre
       <h3>{title}</h3>
       <p className="plain-english-takeaway-text">{children}</p>
     </div>
+  )
+}
+
+export function ResearchFirstAnswer({ question, sample, takeaway, limitation }) {
+  return (
+    <section className="research-first-answer">
+      <div>
+        <h3>What we’re testing</h3>
+        <p>{question}</p>
+      </div>
+      {sample ? <p className="research-first-answer-sample"><strong>Evidence available:</strong> {sample}</p> : null}
+      {takeaway ? <PlainEnglishTakeaway title="What this means">{takeaway}</PlainEnglishTakeaway> : null}
+      {limitation ? <p className="research-first-answer-limitation">{limitation}</p> : null}
+    </section>
+  )
+}
+
+export function LearningDetails({ label = 'More details', children }) {
+  return (
+    <details className="research-learning-details">
+      <summary>{label}</summary>
+      {children}
+    </details>
   )
 }
 

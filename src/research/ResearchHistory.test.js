@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { test } from 'node:test'
-import { ResearchHistoryPagination, ResearchHistoryTable } from './ResearchHistory.js'
+import { ResearchHistory, ResearchHistoryPagination, ResearchHistoryTable } from './ResearchHistory.js'
 import {
   createResearchHistoryActions,
   createResearchHistoryPage,
@@ -125,8 +125,14 @@ test('history renders persisted run rows without ranking or scoring', () => {
   for (const text of ['run-history-1', '2026-09-20T12:30:00.000Z', 'partial', 'SPY, QQQ', '1Hour', 'dataset-history-1', 'robustness, relative-value']) {
     assert.ok(html.includes(text), `expected history row to include ${text}`)
   }
+  assert.match(html, /historical market-data set used by the run/)
   assert.match(html, /View details for run-history-1/)
   assert.doesNotMatch(html, /rank|score|recommendation/i)
+})
+
+test('History explains what a Research Run represents', () => {
+  const html = renderToStaticMarkup(React.createElement(ResearchHistory))
+  assert.match(html, /A Research Run is one saved execution of selected experiments/)
 })
 
 test('history pagination control disables Next for a terminal 20-row page and enables it with lookahead', () => {

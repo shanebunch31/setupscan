@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import { runYearlyRegimeResearch } from './yearlyRegimeBacktest.js'
-import { HowToReadResults, MetricsGlossary, PlainEnglishTakeaway } from './MetricsGlossary.jsx'
+import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
 import './robustness.css'
 
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -129,12 +129,17 @@ export function YearlyRegimeLab({ datasets }) {
         weights, thresholds, or trade construction rules were changed for this test. Descriptive research only — does not change
         production scoring, paper trading, the Render worker, or Supabase. No winner is auto-selected.
       </p>
-      <div className="robustness-section"><MetricsGlossary title="What does this mean?" intro="Plain-English explanations for the terms used in this yearly/regime research." definitions={YEARLY_REGIME_DEFINITIONS} /></div>
-      <div className="robustness-section"><HowToReadResults title="How to read this test" items={YEARLY_REGIME_HOW_TO_READ} /></div>
       {!hasAllSymbols ? (
         <div className="robustness-error">Waiting for real Alpaca historical data for SPY, QQQ, and IWM. This experiment never substitutes demo data.</div>
       ) : (
         <>
+          <ResearchFirstAnswer
+            question="Did the frozen baseline behave consistently across calendar years and descriptive market conditions?"
+            sample={`${research.years.filter((year) => year.baseline.overall.tradeCount > 0).length} years with baseline trades; ${research.combinedBaseline.overall.tradeCount} combined baseline trades.`}
+            takeaway={takeawayText}
+            limitation="Year and regime groupings describe this historical sample; they do not forecast future conditions."
+          />
+          <LearningDetails label="More details">
           <YearlyVariantTable title="Baseline (75+ bullish) by year" years={research.years} variantKey="baseline" />
           <YearlyVariantTable title="RV-confirmed (75+ AND relative-value confirmation) by year" years={research.years} variantKey="rvConfirmed" />
           <YearRegimeProxy years={research.years} />
@@ -155,14 +160,16 @@ export function YearlyRegimeLab({ datasets }) {
             </div>
           </div>
 
-          <div className="robustness-section"><PlainEnglishTakeaway>{takeawayText}</PlainEnglishTakeaway></div>
-
-          <p className="research-note">
-            Descriptive research only, on historical data. Year-to-year and regime-to-regime comparisons do not guarantee future
-            performance, and results here do not automatically change production scoring, thresholds, or trade construction.
-          </p>
+          </LearningDetails>
         </>
       )}
+      <LearningDetails label="What does this mean?">
+        <MetricsGlossary title="Yearly / Regime terms" intro="Plain-English explanations for terms used in this test." definitions={YEARLY_REGIME_DEFINITIONS} />
+      </LearningDetails>
+      <LearningDetails label="How was this tested?">
+        <HowToReadResults title="How to read this test" items={YEARLY_REGIME_HOW_TO_READ} />
+      </LearningDetails>
+      <p className="research-note">Descriptive historical research only; results do not change production scoring or predict future performance.</p>
     </section>
   )
 }

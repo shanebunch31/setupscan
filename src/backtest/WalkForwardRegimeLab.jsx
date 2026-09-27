@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import { runWalkForwardRegimeResearch } from './walkForwardRegimeBacktest.js'
-import { HowToReadResults, MetricsGlossary, PlainEnglishTakeaway } from './MetricsGlossary.jsx'
+import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
 import './robustness.css'
 
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -158,12 +158,17 @@ export function WalkForwardRegimeLab({ datasets }) {
         alone. Descriptive research only — does not change production scoring, paper trading, the Render worker, or Supabase. No
         winner is auto-selected.
       </p>
-      <div className="robustness-section"><MetricsGlossary title="What does this mean?" intro="Plain-English explanations for the terms used in this walk-forward research." definitions={WALK_FORWARD_DEFINITIONS} /></div>
-      <div className="robustness-section"><HowToReadResults title="How to read this test" items={WALK_FORWARD_HOW_TO_READ} /></div>
       {!hasAllSymbols ? (
         <div className="robustness-error">Waiting for real Alpaca historical data for SPY, QQQ, and IWM. This experiment never substitutes demo data.</div>
       ) : (
         <>
+          <ResearchFirstAnswer
+            question="Did the frozen baseline show similar results in sequential test windows, with each volatility boundary set using earlier data?"
+            sample={`${research.combinedBaseline.overall.tradeCount} baseline trades across the walk-forward test periods.`}
+            takeaway={takeawayText}
+            limitation="Sequential historical tests reduce look-ahead in classification; they do not prove future performance."
+          />
+          <LearningDetails label="More details">
           <WindowsOverview windows={research.windows} />
           <WindowBaselineTable windows={research.windows} />
           <WindowVolatilityGroups windows={research.windows} smallSampleThreshold={research.options.smallSampleThreshold} />
@@ -183,14 +188,16 @@ export function WalkForwardRegimeLab({ datasets }) {
             </div>
           </div>
 
-          <div className="robustness-section"><PlainEnglishTakeaway>{takeawayText}</PlainEnglishTakeaway></div>
-
-          <p className="research-note">
-            Descriptive research only, on historical data evaluated sequentially. Walk-forward results do not guarantee future
-            performance, and results here do not automatically change production scoring, thresholds, or trade construction.
-          </p>
+          </LearningDetails>
         </>
       )}
+      <LearningDetails label="What does this mean?">
+        <MetricsGlossary title="Walk-Forward terms" intro="Plain-English explanations for terms used in this test." definitions={WALK_FORWARD_DEFINITIONS} />
+      </LearningDetails>
+      <LearningDetails label="How was this tested?">
+        <HowToReadResults title="How to read this test" items={WALK_FORWARD_HOW_TO_READ} />
+      </LearningDetails>
+      <p className="research-note">Descriptive historical research only; walk-forward results do not guarantee future performance.</p>
     </section>
   )
 }

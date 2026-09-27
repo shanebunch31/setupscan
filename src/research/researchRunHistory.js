@@ -9,10 +9,19 @@ async function requestJson(path, options) {
     try {
       payload = parseResearchJson(text)
     } catch {
-      throw new Error('Research Run History returned invalid JSON')
+      const contentType = response.headers?.get?.('content-type') ?? ''
+      const mediaType = contentType.split(';', 1)[0].trim().toLowerCase()
+      const isJson = mediaType === 'application/json' || mediaType.endsWith('+json')
+      const description = isJson ? 'malformed JSON' : 'a non-JSON response'
+      const status = Number.isInteger(response.status) ? `HTTP ${response.status}` : 'an unknown HTTP status'
+      const mediaTypeLabel = mediaType ? `; Content-Type ${mediaType}` : ''
+      throw new Error(`Research Run History returned ${description} (${status}${mediaTypeLabel})`)
     }
   }
-  if (!response.ok) throw new Error(payload?.error ?? 'Research Run History request failed')
+  if (!response.ok) {
+    const status = Number.isInteger(response.status) ? ` (HTTP ${response.status})` : ''
+    throw new Error(payload?.error ?? `Research Run History request failed${status}`)
+  }
   return payload
 }
 

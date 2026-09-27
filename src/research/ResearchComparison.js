@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { LoaderCircle, Scale } from 'lucide-react'
 import { createResearchComparisonActions } from './researchComparisonModel.js'
 import { compareResearchRuns } from './researchRunHistory.js'
+import { TermHelp } from '../TermHelp.js'
 
 const h = React.createElement
 
@@ -26,6 +27,17 @@ function runDetail(run) {
   )
 }
 
+export function selectDistinctResearchRun(current, side, runId, preventDuplicateSelection = false) {
+  const selectedRunIdA = current.selectedRunIdA ?? ''
+  const selectedRunIdB = current.selectedRunIdB ?? ''
+  if (preventDuplicateSelection && runId && runId === (side === 'A' ? selectedRunIdB : selectedRunIdA)) {
+    return { selectedRunIdA, selectedRunIdB }
+  }
+  return side === 'A'
+    ? { selectedRunIdA: runId, selectedRunIdB }
+    : { selectedRunIdA, selectedRunIdB: runId }
+}
+
 function displayValue(value) {
   if (Array.isArray(value)) {
     return value.filter((item) => ['string', 'number', 'boolean'].includes(typeof item)).slice(0, 8).map(String).join(', ')
@@ -46,10 +58,16 @@ function EvidenceSummary({ reference, side }) {
     .filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
     .slice(0, 8)
   return h('section', { className: 'research-comparison-evidence-side' },
-    h('h5', null, `Run ${side}`),
+    h('h5', null, `Run ${side} · ${evidence.strategyId ?? 'Unknown strategy'} · ${evidence.experimentId ?? 'Experiment'}`),
     reference?.evidenceId ? h('p', { className: 'research-comparison-evidence-id' }, reference.evidenceId) : null,
-    h('dl', { className: 'research-comparison-evidence-meta' }, metadata.map(([label, value]) => h('div', { key: label }, h('dt', null, label), h('dd', null, displayValue(value))))),
-    metrics.length ? h('ul', { className: 'research-comparison-metrics' }, metrics.map(([key, value]) => h('li', { key }, `${key}: ${String(value)}`))) : null,
+    h('details', { className: 'research-comparison-evidence-details' },
+      h('summary', null, 'More evidence details'),
+      h('dl', { className: 'research-comparison-evidence-meta' }, metadata.map(([label, value]) => h('div', { key: label },
+        h('dt', null, label, label === 'Out-of-sample role' ? h(TermHelp, { term: 'Out-of-sample', explanation: 'Testing on historical data the rules were not tuned on; it is a check, not proof of future performance.' }) : null),
+        h('dd', null, displayValue(value)),
+      ))),
+      metrics.length ? h('ul', { className: 'research-comparison-metrics' }, metrics.map(([key, value]) => h('li', { key }, `${key}: ${String(value)}`))) : null,
+    ),
   )
 }
 
@@ -77,7 +95,7 @@ function MatchedEvidence({ comparison }) {
   return h('li', { className: 'research-comparison-pair' },
     h('div', { className: 'research-comparison-pair-heading' },
       h('strong', null, `${comparison.evidenceA?.evidence?.strategyId ?? 'Unknown strategy'} · ${comparison.evidenceA?.evidence?.metricsKey ?? 'Evidence'}`),
-      h('span', null, `Compatibility: ${compatibility.compatible === true ? 'compatible' : compatibility.compatible === false ? 'hard conflict reported' : 'unknown'}`),
+      h('span', null, `Compatibility: ${compatibility.compatible === true ? 'compatible' : compatibility.compatible === false ? 'hard conflict reported' : 'unknown'}`, h(TermHelp, { term: 'Compatibility', explanation: 'Whether the available information allows two results to be compared directly.' })),
     ),
     h('div', { className: 'research-comparison-evidence-grid' },
       h(EvidenceSummary, { reference: comparison.evidenceA, side: 'A' }),
@@ -90,7 +108,7 @@ function MatchedEvidence({ comparison }) {
     ),
     familyAnnotations.length ? h('div', { className: 'research-comparison-family-note' },
       familyAnnotations.map((family) => h('p', { key: family.id }, h('strong', null, `Shared evidence family: ${family.id}`), family.note ? ` · ${family.note}` : null)),
-      comparison.nonIndependentEvidence ? h('p', null, 'Non-independence annotation: these evidence entries share a family.') : null,
+      comparison.nonIndependentEvidence ? h('p', null, 'Non-independence annotation: these related results may reuse data, trades, or test windows; they are not separate confirmations.') : null,
     ) : null,
   )
 }
@@ -113,11 +131,12 @@ export function ResearchComparisonResult({ result }) {
   const provenance = result.provenance ?? {}
   return h('section', { className: 'research-comparison-result', 'aria-label': 'Comparison result' },
     h('header', { className: 'research-comparison-result-heading' },
-      h('h3', null, 'Comparison evidence'),
+      h('h3', null, 'Comparison evidence', h(TermHelp, { term: 'Evidence', explanation: 'A measured result from an experiment and sample. It is not a conclusion by itself.' })),
       h('p', null, `${result.runA?.runId ?? 'Unknown run'} ↔ ${result.runB?.runId ?? 'Unknown run'}`),
     ),
     h('section', { className: 'research-comparison-provenance' },
-      h('h4', null, 'Dataset and provenance'),
+      h('h4', null, 'Dataset and provenance', h(TermHelp, { term: 'Provenance', explanation: 'Details showing where the run and its data came from.' })),
+      h('p', { className: 'research-comparison-muted' }, 'Dataset: the historical market-data pull used by each Research Run. A Dataset ID is an identity key; it does not prove every raw candle is identical.'),
       h('p', null, `Run A dataset: ${provenance.datasetIdA ?? result.runA?.datasetId ?? 'Unknown'}`),
       h('p', null, `Run B dataset: ${provenance.datasetIdB ?? result.runB?.datasetId ?? 'Unknown'}`),
       provenance.datasetIdsEqual === false ? h('p', null, 'Dataset differs between the selected runs.') : null,
@@ -126,7 +145,7 @@ export function ResearchComparisonResult({ result }) {
       ...[['Run A', result.runA?.codeRevision], ['Run B', result.runB?.codeRevision]].map(([label, revision]) => revision ? h('p', { key: `${label}-revision` }, `${label} code revision: ${revision.status ?? 'unknown'}${revision.reason ? ` · ${revision.reason}` : ''}`) : null),
     ),
     h('section', { className: 'research-comparison-matched' },
-      h('h4', null, 'Matched evidence'),
+      h('h4', null, 'Matched evidence', h(TermHelp, { term: 'Matched evidence', explanation: 'Results paired by experiment and evidence-partition identity; a match does not mean the results agree.' })),
       comparisons.length
         ? h('ul', null, comparisons.map((comparison) => h(MatchedEvidence, { key: comparison.id, comparison })))
         : h('p', { className: 'research-comparison-muted' }, 'No comparable evidence found.'),
@@ -138,7 +157,7 @@ export function ResearchComparisonResult({ result }) {
         : h('p', { className: 'research-comparison-muted' }, 'No unmatched evidence reported.'),
     ),
     h('section', { className: 'research-comparison-notes' },
-      h('h4', null, 'Compatibility information'),
+      h('h4', null, 'Compatibility information', h(TermHelp, { term: 'Compatibility', explanation: 'Whether the available information allows two results to be compared directly.' })),
       notes.length
         ? h('ul', null, notes.map((note, index) => h('li', { key: `${note.type ?? 'note'}-${index}` },
           h('strong', null, note.type === 'dataset-identity-differs' ? 'Dataset differs' : note.type === 'shared-evidence-families' ? 'Shared evidence family' : note.type === 'run-code-revision-unknown' || note.type === 'requested-at-unknown' ? 'Reproducibility limitation' : note.type ?? 'Compatibility note'),
@@ -192,7 +211,7 @@ export function ResearchComparisonView({
   )
 }
 
-export function ResearchComparison({ runs = [], compareRuns = compareResearchRuns }) {
+export function ResearchComparison({ runs = [], compareRuns = compareResearchRuns, preventDuplicateSelection = false }) {
   const [selectedRunIdA, setSelectedRunIdA] = useState('')
   const [selectedRunIdB, setSelectedRunIdB] = useState('')
   const [loading, setLoading] = useState(false)
@@ -201,8 +220,9 @@ export function ResearchComparison({ runs = [], compareRuns = compareResearchRun
   const actions = createResearchComparisonActions({ compareRuns })
 
   function changeSelection(side, runId) {
-    if (side === 'A') setSelectedRunIdA(runId)
-    else setSelectedRunIdB(runId)
+    const selection = selectDistinctResearchRun({ selectedRunIdA, selectedRunIdB }, side, runId, preventDuplicateSelection)
+    setSelectedRunIdA(selection.selectedRunIdA)
+    setSelectedRunIdB(selection.selectedRunIdB)
     setResult(null)
     setError(null)
   }

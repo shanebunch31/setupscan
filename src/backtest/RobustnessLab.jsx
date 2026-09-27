@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 import { enrichHistoricalCandles } from '../data/marketData.js'
 import { getRobustnessWarnings, runMarketConditionResearch, runThresholdResearch } from './robustness.js'
 import { StrategyComparisonLab } from './StrategyComparisonLab.jsx'
-import { HowToReadResults, MetricsGlossary } from './MetricsGlossary.jsx'
+import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
 import './robustness.css'
 
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -43,6 +43,7 @@ export function StrategyRobustnessLab({ datasets }) {
   const periodResults = useMemo(() => spyCandles.length ? runMarketConditionResearch(spyCandles) : [], [spyCandles])
   const warnings = useMemo(() => getRobustnessWarnings(thresholdResults), [thresholdResults])
   const baseline = thresholdResults[0]
+  const baselineTradeCount = baseline?.metrics.totalTrades ?? 0
   const symbolRows = datasets.map((dataset) => {
     if (dataset.status !== 'AVAILABLE') return { symbol: dataset.symbol, unavailable: true }
     const candles = enrichHistoricalCandles(dataset.data.candles)
@@ -50,5 +51,33 @@ export function StrategyRobustnessLab({ datasets }) {
     return { symbol: dataset.symbol, unavailable: false, result }
   })
 
-  return <section className="robustness-lab panel"><div className="panel-heading compact"><div><p className="eyebrow">RESEARCH / ROBUSTNESS</p><h2>Strategy Robustness Lab</h2></div><span className="coming-soon">NOT A VALIDATED TRADING EDGE</span></div><p className="robustness-disclaimer">Research / Robustness — Not a validated trading edge. Real Alpaca historical data only; unavailable symbols are not replaced with demo data.</p><div className="robustness-section"><MetricsGlossary /></div><ResearchSection title="Control vs Trend/Momentum · research only"><StrategyComparisonLab datasets={datasets} /></ResearchSection>{!availableSpy ? <div className="robustness-error">SPY robustness data is unavailable, so no robustness backtest was run.</div> : <><ResearchSection title="Score threshold comparison · existing rules unchanged"><ThresholdTable results={thresholdResults} /></ResearchSection><ResearchSection title="Cumulative R by threshold"><div className="robustness-charts">{thresholdResults.map((result) => <CumulativeRChart key={result.minimumScore} result={result} />)}</div></ResearchSection><ResearchSection title="Direction · current strategy is long-only"><DirectionTable result={baseline} /><p className="robustness-muted">Short logic has not been implemented: qualifying signals are bullish-only and trade construction uses a long entry, lower stop, and higher target.</p></ResearchSection><ResearchSection title="Market conditions · chronological SPY periods"><div className="robustness-table-wrap"><table className="robustness-table"><thead><tr><th>Period</th><th>Date range</th><th>Candles</th><th>Trades</th><th>Win rate</th><th>Profit factor</th><th>Expectancy</th><th>Average R</th><th>Max DD</th></tr></thead><tbody>{periodResults.map((period) => <tr key={period.label}><td>{period.label}</td><td>{formatDate(period.start)} – {formatDate(period.end)}</td><td>{period.candleCount}</td><td>{period.metrics.totalTrades}</td><td>{formatPercent(period.metrics.winRate)}</td><td>{period.metrics.profitFactor === Infinity ? '∞' : period.metrics.profitFactor.toFixed(2)}</td><td>{formatR(period.metrics.expectancy)}</td><td>{formatR(period.metrics.averageR)}</td><td>{formatR(period.metrics.maximumDrawdown)}</td></tr>)}</tbody></table></div></ResearchSection><ResearchSection title="Symbol comparison · 75+ baseline"><div className="robustness-table-wrap"><table className="robustness-table"><thead><tr><th>Symbol</th><th>Provider</th><th>Date range</th><th>Candles</th><th>Trades</th><th>Win rate</th><th>Profit factor</th><th>Expectancy</th><th>Average R</th></tr></thead><tbody>{symbolRows.map((row) => row.unavailable ? <tr key={row.symbol}><td>{row.symbol}</td><td colSpan="8" className="unavailable">UNAVAILABLE · no demo substitution</td></tr> : <tr key={row.symbol}><td>{row.symbol}</td><td>{row.result.candles ? 'ALPACA HISTORICAL' : '—'}</td><td>{formatDate(row.result.candles?.[0]?.timestamp)} – {formatDate(row.result.candles?.at(-1)?.timestamp)}</td><td>{row.result.candles?.length ?? 0}</td><td>{row.result.metrics.totalTrades}</td><td>{formatPercent(row.result.metrics.winRate)}</td><td>{row.result.metrics.profitFactor === Infinity ? '∞' : row.result.metrics.profitFactor.toFixed(2)}</td><td>{formatR(row.result.metrics.expectancy)}</td><td>{formatR(row.result.metrics.averageR)}</td></tr>)}</tbody></table></div></ResearchSection><ResearchSection title="Robustness warnings"><div className="robustness-warnings"><div>Threshold selection warning: no threshold selector is implemented; this lab does not choose a winner.</div>{warnings.length ? warnings.map((warning) => <div key={warning}>{warning}</div>) : <div>No heuristic warnings triggered for the available results.</div>}{symbolRows.filter((row) => row.unavailable).map((row) => <div key={row.symbol}>{row.symbol} data is unavailable and was excluded from robustness results.</div>)}</div></ResearchSection></>}<div className="robustness-section"><HowToReadResults /></div></section>
+  return (
+    <section className="robustness-lab panel">
+      <div className="panel-heading compact">
+        <div><p className="eyebrow">RESEARCH / ROBUSTNESS</p><h2>Strategy Robustness Lab</h2></div>
+        <span className="coming-soon">NOT A VALIDATED TRADING EDGE</span>
+      </div>
+      <p className="robustness-disclaimer">Research / Robustness tests how the existing rules vary across score cutoffs and historical time periods. Real Alpaca historical data only; unavailable symbols are not replaced with demo data.</p>
+      <ResearchFirstAnswer
+        question="How sensitive are the existing SetupScan rules to score cutoff and chronological market periods?"
+        sample={availableSpy ? `${baselineTradeCount} SPY trades at the baseline 75+ cutoff; ${symbolRows.filter((row) => row.unavailable).length} watchlist symbols unavailable.` : 'SPY data unavailable; no robustness sample was run.'}
+        takeaway={availableSpy ? 'Compare the historical trade counts and metrics across the displayed thresholds and periods. No threshold is selected as a winner.' : null}
+        limitation="Descriptive historical results, not a validated trading edge. Unavailable symbols are excluded."
+      />
+      {!availableSpy ? <div className="robustness-error">SPY robustness data is unavailable, so no robustness backtest was run.</div> : null}
+      {availableSpy ? (
+        <LearningDetails label="More details">
+          <ResearchSection title="Control vs Trend/Momentum · research only"><StrategyComparisonLab datasets={datasets} /></ResearchSection>
+          <ResearchSection title="Score threshold comparison · existing rules unchanged"><ThresholdTable results={thresholdResults} /></ResearchSection>
+          <ResearchSection title="Cumulative R by threshold"><div className="robustness-charts">{thresholdResults.map((result) => <CumulativeRChart key={result.minimumScore} result={result} />)}</div></ResearchSection>
+          <ResearchSection title="Direction · current strategy is long-only"><DirectionTable result={baseline} /><p className="robustness-muted">Short logic has not been implemented: qualifying signals are bullish-only and trade construction uses a long entry, lower stop, and higher target.</p></ResearchSection>
+          <ResearchSection title="Market conditions · chronological SPY periods"><div className="robustness-table-wrap"><table className="robustness-table"><thead><tr><th>Period</th><th>Date range</th><th>Candles</th><th>Trades</th><th>Win rate</th><th>Profit factor</th><th>Expectancy</th><th>Average R</th><th>Max DD</th></tr></thead><tbody>{periodResults.map((period) => <tr key={period.label}><td>{period.label}</td><td>{formatDate(period.start)} – {formatDate(period.end)}</td><td>{period.candleCount}</td><td>{period.metrics.totalTrades}</td><td>{formatPercent(period.metrics.winRate)}</td><td>{period.metrics.profitFactor === Infinity ? '∞' : period.metrics.profitFactor.toFixed(2)}</td><td>{formatR(period.metrics.expectancy)}</td><td>{formatR(period.metrics.averageR)}</td><td>{formatR(period.metrics.maximumDrawdown)}</td></tr>)}</tbody></table></div></ResearchSection>
+          <ResearchSection title="Symbol comparison · 75+ baseline"><div className="robustness-table-wrap"><table className="robustness-table"><thead><tr><th>Symbol</th><th>Provider</th><th>Date range</th><th>Candles</th><th>Trades</th><th>Win rate</th><th>Profit factor</th><th>Expectancy</th><th>Average R</th></tr></thead><tbody>{symbolRows.map((row) => row.unavailable ? <tr key={row.symbol}><td>{row.symbol}</td><td colSpan="8" className="unavailable">UNAVAILABLE · no demo substitution</td></tr> : <tr key={row.symbol}><td>{row.symbol}</td><td>{row.result.candles ? 'ALPACA HISTORICAL' : '—'}</td><td>{formatDate(row.result.candles?.[0]?.timestamp)} – {formatDate(row.result.candles?.at(-1)?.timestamp)}</td><td>{row.result.candles?.length ?? 0}</td><td>{row.result.metrics.totalTrades}</td><td>{formatPercent(row.result.metrics.winRate)}</td><td>{row.result.metrics.profitFactor === Infinity ? '∞' : row.result.metrics.profitFactor.toFixed(2)}</td><td>{formatR(row.result.metrics.expectancy)}</td><td>{formatR(row.result.metrics.averageR)}</td></tr>)}</tbody></table></div></ResearchSection>
+          <ResearchSection title="Robustness warnings"><div className="robustness-warnings"><div>Threshold selection warning: no threshold selector is implemented; this lab does not choose a winner.</div>{warnings.length ? warnings.map((warning) => <div key={warning}>{warning}</div>) : <div>No heuristic warnings triggered for the available results.</div>}{symbolRows.filter((row) => row.unavailable).map((row) => <div key={row.symbol}>{row.symbol} data is unavailable and was excluded from robustness results.</div>)}</div></ResearchSection>
+        </LearningDetails>
+      ) : null}
+      <LearningDetails label="What does this mean?"><MetricsGlossary /></LearningDetails>
+      <LearningDetails label="How was this tested?"><HowToReadResults /></LearningDetails>
+    </section>
+  )
 }

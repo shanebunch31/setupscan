@@ -2,6 +2,7 @@ import dotenv from 'dotenv'
 import http from 'node:http'
 import { fetchAlpacaHistoricalBars } from './alpacaProxy.js'
 import { createPaperService } from './paperService.js'
+import { createResearchInvestigationApi } from './researchInvestigationApi.js'
 import { createResearchRunApi } from './researchRunApi.js'
 import { createResearchRunStore } from './researchRunStore.js'
 
@@ -11,6 +12,7 @@ const port = Number(process.env.PORT || 3001)
 const paperService = createPaperService()
 const researchRunStore = process.env.DATABASE_URL ? createResearchRunStore() : null
 const researchRunApi = createResearchRunApi({ store: researchRunStore })
+const researchInvestigationApi = createResearchInvestigationApi({ store: researchRunStore })
 const ALLOWED_ORIGIN = 'https://setupscan.vercel.app'
 
 function setCorsHeaders(response) {
@@ -52,6 +54,10 @@ const server = http.createServer(async (request, response) => {
   }
   if (url.pathname === '/api/research-runs' || url.pathname.startsWith('/api/research-runs/')) {
     await researchRunApi(request, response, url)
+    return
+  }
+  if (url.pathname === '/api/research-investigations' || url.pathname.startsWith('/api/research-investigations/')) {
+    await researchInvestigationApi(request, response, url)
     return
   }
   if (url.pathname !== '/api/historical') {

@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import { runSignalQualityResearch, assessScoreMonotonicity } from './signalQualityBacktest.js'
-import { HowToReadResults, MetricsGlossary, PlainEnglishTakeaway } from './MetricsGlossary.jsx'
+import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
 import './robustness.css'
 
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -101,11 +101,17 @@ export function SignalQualityResearchLab({ datasets }) {
         does not change production scoring, paper trading, the Render worker, or Supabase. No parameters were optimized and no
         winner is auto-selected.
       </p>
-      <div className="robustness-section"><MetricsGlossary title="What does this mean?" intro="Plain-English explanations for the terms used in this signal-quality research." definitions={SIGNAL_QUALITY_DEFINITIONS} /></div>
       {!hasAllSymbols ? (
         <div className="robustness-error">Waiting for real Alpaca historical data for SPY, QQQ, and IWM. This experiment never substitutes demo data.</div>
       ) : (
         <>
+          <ResearchFirstAnswer
+            question="Did the existing setup score and its components relate to later outcomes in this historical sample?"
+            sample={`${research.scoreBuckets.reduce((total, bucket) => total + bucket.overall.tradeCount, 0)} baseline trades across the displayed score buckets.`}
+            takeaway={takeawayText}
+            limitation="The score/outcome comparison is descriptive; correlation does not prove cause or predict the next trade."
+          />
+          <LearningDetails label="More details">
           <div className="robustness-section">
             <h3>Score buckets — trade count, win rate, profit factor, expectancy, average/median R, loss rate</h3>
             <div className="robustness-table-wrap">
@@ -167,10 +173,15 @@ export function SignalQualityResearchLab({ datasets }) {
             </p>
           </div>
 
-          <div className="robustness-section"><PlainEnglishTakeaway>{takeawayText}</PlainEnglishTakeaway></div>
+          </LearningDetails>
         </>
       )}
-      <div className="robustness-section"><HowToReadResults title="How to read this test" items={SIGNAL_QUALITY_HOW_TO_READ} /></div>
+      <LearningDetails label="What does this mean?">
+        <MetricsGlossary title="Signal Quality terms" intro="Plain-English explanations for terms used in this test." definitions={SIGNAL_QUALITY_DEFINITIONS} />
+      </LearningDetails>
+      <LearningDetails label="How was this tested?">
+        <HowToReadResults title="How to read this test" items={SIGNAL_QUALITY_HOW_TO_READ} />
+      </LearningDetails>
     </section>
   )
 }

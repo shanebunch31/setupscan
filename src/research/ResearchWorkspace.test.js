@@ -44,6 +44,8 @@ test('research workspace offers the four nested destinations and routes nav clic
   const html = renderToStaticMarkup(tree)
   for (const label of ['Research Workbench', 'Run History', 'Compare Runs', 'Labs']) assert.ok(html.includes(label))
   assert.match(html, /Research Workbench/)
+  assert.match(html, /Labs explore different tests/)
+  assert.match(html, /History reviews saved runs/)
 
   const historyButton = findElement(tree, (element) => element.type === 'button' && elementText(element).trim() === 'Run History')
   const labsButton = findElement(tree, (element) => element.type === 'button' && elementText(element).trim() === 'Labs')

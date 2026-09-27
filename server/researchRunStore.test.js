@@ -7,7 +7,12 @@ import { stringifyResearchJson } from '../src/research/researchRunSerialization.
 import { createResearchRunStore, RESEARCH_PERSISTENCE_SCHEMA_VERSION } from './researchRunStore.js'
 
 function cloneState(state) {
-  return { runs: new Map(state.runs), experiments: new Map([...state.experiments].map(([key, rows]) => [key, [...rows]])) }
+  return {
+    runs: new Map(state.runs),
+    experiments: new Map([...state.experiments].map(([key, rows]) => [key, [...rows]])),
+    investigations: new Map([...state.investigations].map(([key, row]) => [key, { ...row }])),
+    investigationRuns: state.investigationRuns.map((row) => ({ ...row })),
+  }
 }
 
 function rowKey(runId, experimentId) {
@@ -16,7 +21,7 @@ function rowKey(runId, experimentId) {
 
 class MemoryResearchPool {
   constructor() {
-    this.state = { runs: new Map(), experiments: new Map() }
+    this.state = { runs: new Map(), experiments: new Map(), investigations: new Map(), investigationRuns: [] }
     this.failExperimentId = null
     this.committedTransactions = 0
     this.rolledBackTransactions = 0
@@ -87,6 +92,83 @@ class MemoryResearchPool {
         synthesis: JSON.parse(synthesis),
         persistence_schema_version: schemaVersion,
       })
+      return { rows: [] }
+    }
+    if (text.startsWith('INSERT INTO research_investigations')) {
+      const [investigationId, question, requestedExperiments, schemaVersion] = values
+      if (state.investigations.has(investigationId)) {
+        const error = new Error('duplicate investigation')
+        error.code = '23505'
+        error.constraint = 'research_investigations_pkey'
+        throw error
+      }
+      const now = new Date().toISOString()
+      const row = {
+        investigation_id: investigationId,
+        question,
+        status: 'active',
+        requested_experiments: requestedExperiments,
+        created_at: now,
+        updated_at: now,
+        persistence_schema_version: schemaVersion,
+      }
+      state.investigations.set(investigationId, row)
+      return { rows: [{ ...row }] }
+    }
+    if (text.startsWith('SELECT investigation_id FROM research_investigations')) {
+      const row = state.investigations.get(values[0])
+      return { rows: row ? [{ investigation_id: row.investigation_id }] : [] }
+    }
+    if (text.includes('FROM research_investigations WHERE investigation_id = $1') && text.includes('SELECT investigation_id, question')) {
+      const row = state.investigations.get(values[0])
+      return { rows: row ? [{ ...row }] : [] }
+    }
+    if (text.includes('FROM research_investigations ORDER BY created_at DESC')) {
+      const [limit, offset] = values
+      const rows = [...state.investigations.values()]
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || b.investigation_id.localeCompare(a.investigation_id))
+      return { rows: rows.slice(offset, offset + limit).map((row) => ({ ...row })) }
+    }
+    if (text.startsWith('SELECT run_id FROM research_investigation_runs WHERE investigation_id = $1 AND run_id = $2')) {
+      const row = state.investigationRuns.find((entry) => entry.investigation_id === values[0] && entry.run_id === values[1])
+      return { rows: row ? [{ run_id: row.run_id }] : [] }
+    }
+    if (text.startsWith('SELECT COALESCE(MAX(position), -1) + 1 AS next_position')) {
+      const positions = state.investigationRuns.filter((row) => row.investigation_id === values[0]).map((row) => row.position)
+      return { rows: [{ next_position: positions.length ? Math.max(...positions) + 1 : 0 }] }
+    }
+    if (text.includes('FROM research_investigation_runs') && text.includes('WHERE investigation_id = $1 ORDER BY position')) {
+      return {
+        rows: state.investigationRuns
+          .filter((row) => row.investigation_id === values[0])
+          .sort((a, b) => a.position - b.position)
+          .map(({ run_id }) => ({ run_id })),
+      }
+    }
+    if (text.includes('FROM research_investigation_runs') && text.includes('WHERE investigation_id = ANY($1::text[])')) {
+      const investigationIds = new Set(values[0])
+      return {
+        rows: state.investigationRuns
+          .filter((row) => investigationIds.has(row.investigation_id))
+          .sort((a, b) => a.investigation_id.localeCompare(b.investigation_id) || a.position - b.position)
+          .map(({ investigation_id, run_id }) => ({ investigation_id, run_id })),
+      }
+    }
+    if (text.startsWith('INSERT INTO research_investigation_runs')) {
+      const [investigationId, runId, position] = values
+      if (!state.investigations.has(investigationId) || !state.runs.has(runId)) throw new Error('foreign key violation')
+      if (state.investigationRuns.some((row) => row.investigation_id === investigationId && (row.run_id === runId || row.position === position))) {
+        const error = new Error('duplicate investigation run')
+        error.code = '23505'
+        error.constraint = 'research_investigation_runs_pkey'
+        throw error
+      }
+      state.investigationRuns.push({ investigation_id: investigationId, run_id: runId, position, created_at: new Date().toISOString() })
+      return { rows: [] }
+    }
+    if (text.startsWith('UPDATE research_investigations SET updated_at')) {
+      const row = state.investigations.get(values[0])
+      if (row) row.updated_at = new Date().toISOString()
       return { rows: [] }
     }
     if (text.startsWith('INSERT INTO research_run_experiments')) {
@@ -487,4 +569,72 @@ test('schema creates only research-specific tables and contains no raw candle da
   assert.ok(!pool.schemaSql.includes('native_output'))
   assert.match(pool.schemaSql, /CREATE TABLE IF NOT EXISTS research_runs/)
   assert.match(pool.schemaSql, /CREATE TABLE IF NOT EXISTS research_run_experiments/)
+  assert.match(pool.schemaSql, /CREATE TABLE IF NOT EXISTS research_investigations/)
+  assert.match(pool.schemaSql, /CREATE TABLE IF NOT EXISTS research_investigation_runs/)
+})
+
+test('creates, retrieves, and lists investigation metadata with ordered run references only', async () => {
+  const pool = new MemoryResearchPool()
+  const store = createResearchRunStore({ pool })
+  const run = makeRunResult({ runId: 'run-for-investigation' })
+  await store.saveResearchRun(run)
+  const created = await store.createResearchInvestigation({
+    question: '  Does the baseline persist across regimes? ',
+    requestedExperiments: ['walk-forward-regime', 'yearly-regime'],
+  })
+  assert.match(created.investigationId, /^investigation_[0-9a-f-]{36}$/)
+  assert.equal(created.question, 'Does the baseline persist across regimes?')
+  assert.equal(created.status, 'active')
+  assert.deepEqual(created.requestedExperiments, ['walk-forward-regime', 'yearly-regime'])
+  assert.deepEqual(created.runIds, [])
+  assert.ok(created.createdAt)
+  assert.ok(created.updatedAt)
+
+  await store.attachResearchRunToInvestigation(created.investigationId, run.runContext.runId)
+  const retrieved = await store.getResearchInvestigation(created.investigationId)
+  const reloaded = await createResearchRunStore({ pool }).getResearchInvestigation(created.investigationId)
+  assert.deepEqual(retrieved.runIds, ['run-for-investigation'])
+  assert.deepEqual(reloaded, retrieved)
+  assert.deepEqual(await store.listResearchInvestigations(), [retrieved])
+  assert.equal('records' in retrieved, false)
+  assert.equal('synthesis' in retrieved, false)
+  assert.equal('nativePayload' in retrieved, false)
+  assert.deepEqual(pool.state.investigationRuns, [{
+    investigation_id: created.investigationId,
+    run_id: 'run-for-investigation',
+    position: 0,
+    created_at: pool.state.investigationRuns[0].created_at,
+  }])
+  assert.equal(pool.state.runs.get('run-for-investigation').synthesis.schemaVersion, 1)
+  assert.equal(await store.getResearchInvestigation('missing-investigation'), null)
+})
+
+test('investigation attachment requires an existing run, preserves order, and rejects duplicates', async () => {
+  const store = createResearchRunStore({ pool: new MemoryResearchPool() })
+  const firstRun = makeRunResult({ runId: 'run-first' })
+  const secondRun = makeRunResult({ runId: 'run-second' })
+  await store.saveResearchRun(firstRun)
+  await store.saveResearchRun(secondRun)
+  const secondRunBeforeAttachment = await store.getResearchRun(secondRun.runContext.runId)
+  const investigation = await store.createResearchInvestigation({ question: 'Compare two saved runs' })
+
+  await assert.rejects(store.attachResearchRunToInvestigation(investigation.investigationId, 'run-missing'), { code: 'RESEARCH_RUN_NOT_FOUND' })
+  await store.attachResearchRunToInvestigation(investigation.investigationId, 'run-second')
+  await store.attachResearchRunToInvestigation(investigation.investigationId, 'run-first')
+  await assert.rejects(store.attachResearchRunToInvestigation(investigation.investigationId, 'run-second'), { code: 'RESEARCH_INVESTIGATION_RUN_EXISTS' })
+  await assert.rejects(store.attachResearchRunToInvestigation('missing-investigation', 'run-first'), { code: 'RESEARCH_INVESTIGATION_NOT_FOUND' })
+  assert.deepEqual(await store.getResearchRun(secondRun.runContext.runId), secondRunBeforeAttachment)
+  assert.deepEqual((await store.getResearchInvestigation(investigation.investigationId)).runIds, ['run-second', 'run-first'])
+})
+
+test('investigation list validates pagination and persists only registered plan metadata', async () => {
+  const store = createResearchRunStore({ pool: new MemoryResearchPool() })
+  await assert.rejects(store.createResearchInvestigation({ question: ' ', requestedExperiments: [] }), { code: 'RESEARCH_INVESTIGATION_INVALID' })
+  await assert.rejects(store.createResearchInvestigation({ question: 'Question', requestedExperiments: ['unknown'] }), { code: 'RESEARCH_INVESTIGATION_INVALID' })
+  await assert.rejects(store.listResearchInvestigations({ limit: 101 }), { code: 'RESEARCH_INVESTIGATION_INVALID' })
+  await assert.rejects(store.listResearchInvestigations({ offset: -1 }), { code: 'RESEARCH_INVESTIGATION_INVALID' })
+  const emptyPlan = await store.createResearchInvestigation({ question: 'Question', requestedExperiments: [] })
+  assert.deepEqual(emptyPlan.requestedExperiments, [])
+  const row = store.pool.state.investigations.get(emptyPlan.investigationId)
+  assert.deepEqual(row.requested_experiments, [])
 })

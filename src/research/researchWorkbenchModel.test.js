@@ -3,8 +3,11 @@ import { test } from 'node:test'
 import { listResearchExperiments } from './registry.js'
 import { runResearch } from './runResearch.js'
 import {
+  createInvestigationRunRequest,
+  createWorkbenchInvestigationRequest,
   createWorkbenchRunRequest,
   executeWorkbenchRun,
+  setWorkbenchRunFailure,
 } from './researchWorkbenchModel.js'
 
 test('run request normalizes symbols and uses registered experiments including an explicit empty list', () => {
@@ -45,4 +48,46 @@ test('Workbench execution delegates the request to runResearch rather than nativ
   const emptyRun = await runResearch(request)
   assert.equal(emptyRun.status, 'completed')
   assert.deepEqual(emptyRun.runContext.requestedExperiments, [])
+})
+
+test('Worker failures clear the running state and surface their message', () => {
+  let status = 'running'
+  let formError = null
+  setWorkbenchRunFailure(
+    new Error('Research Worker failed: experiment dispatch failed.'),
+    (message) => { formError = message },
+    (update) => { status = update(status) },
+  )
+  assert.equal(status, 'failed')
+  assert.equal(formError, 'Research Worker failed: experiment dispatch failed.')
+})
+
+test('investigation request trims the question and preserves registered plan order', () => {
+  assert.deepEqual(createWorkbenchInvestigationRequest('  Does relative value help?  ', ['relative-value', 'robustness']), {
+    question: 'Does relative value help?',
+    requestedExperiments: ['relative-value', 'robustness'],
+  })
+  assert.deepEqual(createWorkbenchInvestigationRequest('Question', []).requestedExperiments, [])
+  assert.throws(() => createWorkbenchInvestigationRequest('  ', []), /question must not be empty/)
+  assert.throws(() => createWorkbenchInvestigationRequest('x'.repeat(1001), []), /at most 1000/)
+  assert.throws(() => createWorkbenchInvestigationRequest('Question', ['unknown']), /unknown experiment id/)
+})
+
+test('investigation run request uses the selected saved plan with the existing run configuration', () => {
+  assert.deepEqual(createInvestigationRunRequest({
+    symbols: 'spy, QQQ',
+    timeframe: '1Hour',
+    requestedStart: '2025-01-01',
+    requestedExperiments: ['robustness'],
+  }, {
+    question: 'Question',
+    requestedExperiments: ['walk-forward-regime', 'robustness'],
+  }), {
+    symbols: ['SPY', 'QQQ'],
+    timeframe: '1Hour',
+    requestedStart: '2025-01-01',
+    requestedEnd: null,
+    requestedExperiments: ['walk-forward-regime', 'robustness'],
+  })
+  assert.throws(() => createInvestigationRunRequest({}, null), /Select an investigation/)
 })

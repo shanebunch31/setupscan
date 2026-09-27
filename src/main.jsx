@@ -5,14 +5,12 @@ import {
   ArrowUpRight,
   BarChart3,
   Bell,
-  ChevronDown,
   CircleHelp,
   LineChart,
   Menu,
   RefreshCw,
   Settings2,
   ShieldCheck,
-  SlidersHorizontal,
   TrendingDown,
   TrendingUp,
   X,
@@ -35,6 +33,11 @@ import { WalkForwardRegimeLab } from './backtest/WalkForwardRegimeLab.jsx'
 import { VolatilityAwareVariantsLab } from './backtest/VolatilityAwareVariantsLab.jsx'
 import { StrategyDiscoveryLab } from './backtest/StrategyDiscoveryLab.jsx'
 import { PaperTradingPanel } from './paper/PaperTradingPanel.jsx'
+import { MarketStatus } from './MarketStatus.js'
+import { createRefreshTimestamp, formatLastRefresh, formatMarketTime } from './marketTime.js'
+import { filterScannerResults, ScannerFiltersButton, ScannerThresholdFilter, SCANNER_TERM_EXPLANATIONS } from './scannerFilters.js'
+import { METRIC_DEFINITIONS, MetricsGlossary, TermHelp } from './backtest/MetricsGlossary.jsx'
+import { BACKTEST_EXTRA_DEFINITIONS, BACKTEST_LEARNING_INTRO } from './backtest/backtestLearning.js'
 import { listResearchRuns } from './research/researchRunHistory.js'
 import { projectResearchComparisonRuns, ResearchWorkspace } from './research/ResearchWorkspace.js'
 import './styles.css'
@@ -112,7 +115,7 @@ function BreakdownTable({ title, groups }) {
               <th>Profit factor</th>
               <th>Expectancy</th>
               <th>Average R</th>
-              <th>Max DD</th>
+              <th>Max drawdown</th>
             </tr>
           </thead>
           <tbody>
@@ -153,6 +156,7 @@ function BacktestBreakdown({ backtest }) {
           rate · {formatBreakdownR(breakdown.overall.averageR)} average R
         </span>
       </div>
+      <p className="backtest-learning-intro">{BACKTEST_LEARNING_INTRO}</p>
       <BreakdownTable title="Overall comparison" groups={overall} />
       <BreakdownTable title="Setup score" groups={breakdown.scoreBuckets} />
       <BreakdownTable title="Setup type" groups={breakdown.setupTypes} />
@@ -170,6 +174,7 @@ function BacktestBreakdown({ backtest }) {
 }
 
 const comparisonThresholds = [75, 80, 85, 90, 95]
+const BACKTEST_GLOSSARY_DEFINITIONS = [...METRIC_DEFINITIONS, ...BACKTEST_EXTRA_DEFINITIONS]
 
 function ThresholdComparison({ candles }) {
   const comparisons = useMemo(
@@ -208,8 +213,8 @@ function ThresholdComparison({ candles }) {
               <th>Profit factor</th>
               <th>Expectancy</th>
               <th>Average R</th>
-              <th>Max DD</th>
-              <th>Avg hold</th>
+              <th>Max drawdown</th>
+              <th>Average hold (minutes)</th>
               <th>In-sample</th>
               <th>Out-of-sample</th>
             </tr>
@@ -259,7 +264,9 @@ function BacktestDiagnostics({ backtest, data, error }) {
     ['Calculated expectancy', formatR(metrics.calculatedExpectancy)],
   ]
   return (
-    <section className="calculation-checks panel">
+    <details className="backtest-calculation-details">
+      <summary>Show calculation details</summary>
+      <section className="calculation-checks panel">
       <div className="panel-heading compact">
         <div>
           <p className="eyebrow">BACKTEST LAB · CALCULATION CHECKS</p>
@@ -276,35 +283,24 @@ function BacktestDiagnostics({ backtest, data, error }) {
           </div>
         ))}
       </div>
-    </section>
-  )
-  return (
-    <>
-      <section className="calculation-checks panel">
-        <div className="panel-heading compact">
-          <div>
-            <p className="eyebrow">BACKTEST LAB · CALCULATION CHECKS</p>
-            <h2>Historical research data</h2>
-            {error && <p className="data-error">{error}</p>}
-          </div>
-          <span className="coming-soon">{data?.provider ?? 'LOADING'}</span>
-        </div>
-        <div className="check-grid">
-          {checks.map(([label, value]) => (
-            <div key={label}>
-              <span>{label}</span>
-              <strong>{value}</strong>
-            </div>
-          ))}
-        </div>
       </section>
-      <BacktestBreakdown backtest={backtest} />
-      <ThresholdComparison candles={backtest.candles} />
-    </>
+    </details>
   )
 }
 
-function NavBar({ view, onNavigate, navOpen, onToggleNav }) {
+function BacktestDataSummary({ data, error }) {
+  const provider = data?.provider ?? 'Data loading'
+     const status = data?.complete === false ? 'Incomplete' : data?.complete === true ? 'Complete' : error ? 'Unavailable' : 'Loading'
+  return (
+    <div className="backtest-data-context" aria-label="Historical data context">
+      <p>{provider} · {data?.symbol ?? 'SPY'} · {data?.timeframe ?? '1Hour'} · {formatDate(data?.start)} – {formatDate(data?.end)} · {data?.candleCount ?? 0} candles · {status}</p>
+      {error ? <p className="data-error" role="alert">{error}</p> : null}
+      {data?.complete === false ? <p className="data-error" role="alert">Historical data is incomplete; interpret these results with caution.</p> : null}
+    </div>
+  )
+}
+
+function NavBar({ view, onNavigate, navOpen, onToggleNav, currentTime }) {
   return (
     <header className="topbar">
       <div className="brand">
@@ -327,9 +323,7 @@ function NavBar({ view, onNavigate, navOpen, onToggleNav }) {
           </button>
         ))}
       </nav>
-      <div className="market-status">
-        <span className="status-dot" /> Market open <span className="market-time">09:41 ET</span>
-      </div>
+      <MarketStatus now={currentTime} />
       <button className="icon-button" aria-label="Notifications">
         <Bell size={18} />
       </button>
@@ -368,9 +362,11 @@ function App() {
   const [comparisonRunsLoading, setComparisonRunsLoading] = useState(false)
   const [comparisonRunsError, setComparisonRunsError] = useState(null)
   const [threshold, setThreshold] = useState(65)
+  const [scannerFiltersOpen, setScannerFiltersOpen] = useState(false)
   const [selectedSymbol, setSelectedSymbol] = useState('SPY')
   const [watchlistOpen, setWatchlistOpen] = useState(false)
-  const [lastUpdated, setLastUpdated] = useState('09:41:12 ET')
+  const [lastUpdated, setLastUpdated] = useState(null)
+  const [currentTime, setCurrentTime] = useState(() => new Date())
   const [historicalData, setHistoricalData] = useState(null)
   const [historicalStatus, setHistoricalStatus] = useState('LOADING HISTORICAL')
   const [historicalError, setHistoricalError] = useState(null)
@@ -404,6 +400,11 @@ function App() {
   const [scanSnapshot, setScanSnapshot] = useState([])
   const [scanUnavailable, setScanUnavailable] = useState([])
   const [scanLoading, setScanLoading] = useState(true)
+  useEffect(() => {
+    const clock = setInterval(() => setCurrentTime(new Date()), 15000)
+    return () => clearInterval(clock)
+  }, [])
+
   useEffect(() => {
     let active = true
     setScanLoading(true)
@@ -450,8 +451,6 @@ function App() {
     }
   }, [scanRange])
   const results = useMemo(() => scanSetups(scanSnapshot), [scanSnapshot])
-  const selected = results.find((item) => item.symbol === selectedSymbol) ?? results[0]
-  const qualified = results.filter((item) => item.score >= threshold)
   useEffect(() => {
     let active = true
     fetchHistoricalMarketData('SPY', '1Hour', historicalRange)
@@ -547,10 +546,10 @@ function App() {
   const averageScore = results.length
     ? Math.round(results.reduce((total, item) => total + item.score, 0) / results.length)
     : 0
-  const refreshData = () =>
-    setLastUpdated(
-      `${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} ET`,
-    )
+  const qualified = filterScannerResults(results, threshold)
+  const visibleResults = qualified
+  const selected = visibleResults.find((item) => item.symbol === selectedSymbol) ?? visibleResults[0]
+  const refreshData = () => setLastUpdated(createRefreshTimestamp())
   const handleNavigate = (id) => {
     setView(id)
     setNavOpen(false)
@@ -601,6 +600,7 @@ function App() {
         onNavigate={handleNavigate}
         navOpen={navOpen}
         onToggleNav={() => setNavOpen(!navOpen)}
+        currentTime={currentTime}
       />
       <main className="dashboard">
         {view === 'scan' && (
@@ -633,7 +633,7 @@ function App() {
                     : `${historicalStatus} data · delayed snapshot`}
                 </div>
                 <button className="refresh-button" onClick={refreshData}>
-                  <RefreshCw size={15} /> Refresh <span>{lastUpdated}</span>
+                  <RefreshCw size={15} /> Refresh <span>{formatLastRefresh(lastUpdated)}</span>
                 </button>
               </div>
             </section>
@@ -647,21 +647,21 @@ function App() {
               </div>
               <div className="summary-card highlight">
                 <div className="summary-label">
-                  Qualified setups <ArrowUpRight size={16} />
+                  Qualified setups <TermHelp term="Qualified setups" explanation={SCANNER_TERM_EXPLANATIONS.qualified} /> <ArrowUpRight size={16} />
                 </div>
                 <strong>{qualified.length.toString().padStart(2, '0')}</strong>
-                <span>above {threshold} score threshold</span>
+                  <span>Meets minimum setup score {threshold}</span>
               </div>
               <div className="summary-card">
                 <div className="summary-label">
-                  Market posture <Activity size={16} />
+                  Scanner signal mix <TermHelp term="Signal status" explanation="Score-based setup categories. Bearish does not mean SetupScan recommends a short." /> <Activity size={16} />
                 </div>
-                <strong>{bullishCount > 4 ? 'Constructive' : 'Mixed'}</strong>
-                <span>{bullishCount} bullish signals active</span>
+                <strong>{bullishCount} / {results.length}</strong>
+                <span>Bullish statuses among available symbols</span>
               </div>
               <div className="summary-card">
                 <div className="summary-label">
-                  Average score <LineChart size={16} />
+                  Average setup score <TermHelp term="Average setup score" explanation="The mean score across available symbols in this scan." /> <LineChart size={16} />
                 </div>
                 <strong>{averageScore}</strong>
                 <span>across watchlist</span>
@@ -674,27 +674,26 @@ function App() {
                     <p className="eyebrow">LIVE SCAN</p>
                     <h2>Setup scanner</h2>
                   </div>
-                  <button className="filter-button">
-                    <SlidersHorizontal size={15} /> Filters <ChevronDown size={14} />
-                  </button>
+                  <ScannerFiltersButton open={scannerFiltersOpen} onToggle={() => setScannerFiltersOpen((open) => !open)} />
                 </div>
+                <ScannerThresholdFilter open={scannerFiltersOpen} threshold={threshold} onChange={setThreshold} />
                 <div className="table-wrap">
                   <table>
                     <thead>
                       <tr>
                         <th>Symbol</th>
                         <th>Price</th>
-                        <th>Trend</th>
-                        <th>VWAP</th>
-                        <th>EMA 9 / 21</th>
-                        <th>RSI</th>
-                        <th>Rel. vol.</th>
-                        <th>Score</th>
-                        <th>Status</th>
+                        <th>Trend <TermHelp term="Trend" explanation={SCANNER_TERM_EXPLANATIONS.trend} /></th>
+                        <th>VWAP <TermHelp term="VWAP" explanation={SCANNER_TERM_EXPLANATIONS.vwap} /></th>
+                        <th>EMA 9 / 21 <TermHelp term="EMA 9 / 21" explanation={SCANNER_TERM_EXPLANATIONS.ema} /></th>
+                        <th>RSI <TermHelp term="RSI" explanation={SCANNER_TERM_EXPLANATIONS.rsi} /></th>
+                        <th>Rel. volume <TermHelp term="Relative volume" explanation={SCANNER_TERM_EXPLANATIONS.relativeVolume} /></th>
+                        <th>Setup score <TermHelp term="Setup score" explanation={SCANNER_TERM_EXPLANATIONS.score} /></th>
+                        <th>Signal status <TermHelp term="Signal status" explanation={`${SCANNER_TERM_EXPLANATIONS.signal} ${SCANNER_TERM_EXPLANATIONS.status}`} /></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {results.map((item) => (
+                      {visibleResults.map((item) => (
                         <tr
                           key={item.symbol}
                           className={selectedSymbol === item.symbol ? 'selected-row' : ''}
@@ -741,11 +740,12 @@ function App() {
                           </td>
                         </tr>
                       ))}
+                      {!visibleResults.length ? <tr><td colSpan="9">No scanner results meet this minimum score.</td></tr> : null}
                     </tbody>
                   </table>
                 </div>
                 <div className="mobile-list">
-                  {results.map((item) => (
+                  {visibleResults.map((item) => (
                     <button
                       className={`mobile-row ${selectedSymbol === item.symbol ? 'selected-row' : ''}`}
                       key={item.symbol}
@@ -766,14 +766,16 @@ function App() {
                       </div>
                     </button>
                   ))}
+                  {!visibleResults.length ? <p className="empty-state">No scanner results meet this minimum score.</p> : null}
                 </div>
               </section>
               <aside className="side-column">
                 <section className="qualified-panel panel">
                   <div className="panel-heading compact">
                     <div>
-                      <p className="eyebrow">THRESHOLD ≥ {threshold}</p>
+                      <p className="eyebrow">MINIMUM SETUP SCORE ≥ {threshold}</p>
                       <h2>Qualified setups</h2>
+                      <p className="qualified-explanation">Meets the selected score cutoff; not a recommendation.</p>
                     </div>
                     <span className="count-badge">{qualified.length}</span>
                   </div>
@@ -786,7 +788,7 @@ function App() {
                       >
                         <div>
                           <strong>{item.symbol}</strong>
-                          <span>{item.setupType}</span>
+                          <span>{item.setupType} <TermHelp term="Setup type" explanation={SCANNER_TERM_EXPLANATIONS.setupType} /></span>
                         </div>
                         <div className="qualified-score">
                           {item.score}
@@ -798,19 +800,6 @@ function App() {
                   ) : (
                     <div className="empty-state">No setups meet this threshold yet.</div>
                   )}
-                  <div className="threshold-control">
-                    <div>
-                      <span>Minimum score</span>
-                      <strong>{threshold}</strong>
-                    </div>
-                    <input
-                      type="range"
-                      min="40"
-                      max="90"
-                      value={threshold}
-                      onChange={(event) => setThreshold(Number(event.target.value))}
-                    />
-                  </div>
                 </section>
                 <section className="watchlist-panel panel">
                   <div className="panel-heading compact">
@@ -855,7 +844,7 @@ function App() {
                     <div>
                       <p className="eyebrow">SETUP BREAKDOWN</p>
                       <h2>
-                        Why {selected.symbol} scored {selected.score}
+                        Why {selected.symbol} received setup score {selected.score} <TermHelp term="Signal" explanation={SCANNER_TERM_EXPLANATIONS.signal} />
                       </h2>
                     </div>
                     <TrendBadge trend={selected.trend} />
@@ -909,11 +898,6 @@ function App() {
         {view === 'paper' && <PaperTradingPanel />}
         {view === 'backtest' && (
           <>
-            <BacktestDiagnostics
-              backtest={backtest}
-              data={historicalData}
-              error={historicalError}
-            />
             <section className="detail-grid single-column">
               <section className="backtest-panel panel">
                 <div className="panel-heading compact">
@@ -923,6 +907,8 @@ function App() {
                   </div>
                   <span className="coming-soon">{backtest.trades.length} TRADES</span>
                 </div>
+                <BacktestDataSummary data={historicalData} error={historicalError} />
+                <p className="backtest-learning-intro">Historical results describe this sample; they do not predict future performance.</p>
                 <div className="backtest-stats">
                   <div>
                     <span>Win rate</span>
@@ -965,9 +951,11 @@ function App() {
                     </strong>
                   </div>
                 </div>
-                <div className="trade-ledger">
+                <details className="backtest-recent-details">
+                  <summary>Recent signals</summary>
+                  <div className="trade-ledger">
                   <div className="ledger-heading">
-                    <span>Recent signals</span>
+                    <span>Latest sample trades</span>
                     <span>Outcome / R</span>
                   </div>
                   {backtest.trades
@@ -994,9 +982,20 @@ function App() {
                         </strong>
                       </div>
                     ))}
-                </div>
+                  </div>
+                </details>
               </section>
             </section>
+            <details className="backtest-more-details">
+              <summary>More details</summary>
+              <BacktestBreakdown backtest={backtest} />
+              <ThresholdComparison candles={backtest.candles} />
+            </details>
+            <BacktestDiagnostics backtest={backtest} data={historicalData} error={historicalError} />
+            <details className="backtest-terms-disclosure">
+              <summary>What do these terms mean?</summary>
+              <MetricsGlossary title="Backtest terms" intro="Short explanations for the metrics used on this page." definitions={BACKTEST_GLOSSARY_DEFINITIONS} />
+            </details>
           </>
         )}
         {view === 'research' && (
