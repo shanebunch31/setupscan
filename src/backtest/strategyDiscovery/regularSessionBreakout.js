@@ -11,6 +11,7 @@
 import { buildOccurrence, summarizeOccurrences } from './discoveryMetrics.js'
 import { momentumBreakoutMeta, findMomentumBreakoutSignals } from './momentumBreakout.js'
 import { synchronizeCandleSeries } from '../relativeValue.js'
+import { HISTORICAL_ADJUSTMENT_MODE } from '../../data/historicalDataContract.js'
 
 export const strategyDiscoveryUniverse = ['SPY', 'QQQ', 'IWM']
 export const strategyDiscoveryTimeframe = '1Hour'
@@ -79,6 +80,7 @@ export function runRegularSessionBreakoutResearch(datasets) {
     datasetInfo.push({
       symbol,
       provider: 'ALPACA HISTORICAL',
+      adjustmentMode: HISTORICAL_ADJUSTMENT_MODE,
       rawCandleCount: rawCandles.length,
       regularSessionCandleCount: regularSessionCandles.length,
       start: rawCandles[0]?.timestamp ?? null,

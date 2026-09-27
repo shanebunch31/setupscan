@@ -17,6 +17,7 @@ function runContext(overrides = {}) {
     requestedEnd: '2026-09-26T00:00:00Z',
     requestedExperiments: ['robustness'],
     emaContractVersion: EMA_CONTRACT_VERSION,
+    adjustmentMode: 'split',
     ...overrides,
   }
 }
@@ -25,6 +26,7 @@ function dataset(overrides = {}) {
   return {
     datasetId: 'dataset-bridge-test',
     provider: 'ALPACA HISTORICAL',
+    adjustmentMode: 'split',
     timeframe: '1Hour',
     requestedStart: '2022-01-01T00:00:00Z',
     requestedEnd: '2026-09-26T00:00:00Z',
@@ -77,6 +79,7 @@ test('succeeded execution selects the registry adapter and supplies run/dataset 
     datasetId: data.datasetId,
     requestedAt: context.requestedAt,
     emaContractVersion: context.emaContractVersion,
+    adjustmentMode: context.adjustmentMode,
   })
 })
 
@@ -186,7 +189,7 @@ test('Strategy Discovery native provenance survives orchestration provenance ove
     available: true,
     universe: ['SPY', 'QQQ', 'IWM'],
     timeframe: '1Hour',
-    datasetInfo: [{ symbol: 'SPY', provider: 'ALPACA HISTORICAL', candleCount: 5 }],
+    datasetInfo: [{ symbol: 'SPY', provider: 'ALPACA HISTORICAL', adjustmentMode: 'split', candleCount: 5 }],
     generatedAt: 'native-generated-at',
     gitCommit: 'native-commit',
     experiments: [],
@@ -203,6 +206,7 @@ test('Strategy Discovery native provenance survives orchestration provenance ove
     datasetId: 'dataset-bridge-test',
     requestedAt: '2026-09-26T00:00:00.000Z',
     emaContractVersion: EMA_CONTRACT_VERSION,
+    adjustmentMode: 'split',
   })
   assert.equal(record.nativePayload, nativeOutput)
 })

@@ -88,6 +88,7 @@ function runSummary(synthesis, entries) {
     requestedAt: requestedAtFromEvidence(entries),
     requestedExperiments: synthesis.coverage?.requested ?? [],
     emaContractVersion: synthesis.provenance?.emaContractVersion ?? null,
+    adjustmentMode: synthesis.provenance?.adjustmentMode ?? 'legacy-unknown',
     codeRevision: { status: 'unknown', value: null, reason: 'No run-level code revision is stored.' },
   }
 }

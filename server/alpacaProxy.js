@@ -1,3 +1,5 @@
+import { HISTORICAL_ADJUSTMENT_MODE } from '../src/data/historicalDataContract.js'
+
 const requiredEnvironmentVariables = ['ALPACA_API_KEY', 'ALPACA_API_SECRET']
 const alpacaBarsUrl = 'https://data.alpaca.markets/v2/stocks'
 
@@ -31,7 +33,7 @@ export async function fetchAlpacaHistoricalBars({ symbol = 'SPY', timeframe = '1
   const requestedStart = start ?? null
   const requestedEnd = end ?? null
   do {
-    const params = new URLSearchParams({ timeframe, adjustment: 'raw', feed: 'iex', limit: '10000' })
+    const params = new URLSearchParams({ timeframe, adjustment: HISTORICAL_ADJUSTMENT_MODE, feed: 'iex', limit: '10000' })
     if (start) params.set('start', start)
     if (end) params.set('end', end)
     if (pageToken) params.set('page_token', pageToken)
@@ -59,6 +61,7 @@ export async function fetchAlpacaHistoricalBars({ symbol = 'SPY', timeframe = '1
     provider: 'ALPACA HISTORICAL',
     symbol,
     timeframe,
+    adjustmentMode: HISTORICAL_ADJUSTMENT_MODE,
     start: timestamps[0] ?? start ?? null,
     end: timestamps[timestamps.length - 1] ?? end ?? null,
     candleCount: bars.length,

@@ -4,6 +4,7 @@ import { createDatasetId } from './orchestration.js'
 import { listResearchExperiments } from './registry.js'
 import { createResearchRunComposer } from './researchRunComposition.js'
 import { runResearch } from './runResearch.js'
+import { HISTORICAL_ADJUSTMENT_MODE } from '../data/historicalDataContract.js'
 
 function makeCandles(symbol, count = 220) {
   return Array.from({ length: count }, (_, index) => {
@@ -27,6 +28,7 @@ function makeFetchResult(symbol, overrides = {}) {
     provider: 'ALPACA HISTORICAL',
     symbol,
     timeframe: '1Hour',
+    adjustmentMode: HISTORICAL_ADJUSTMENT_MODE,
     start: candles[0]?.timestamp ?? '2022-01-01T00:00:00Z',
     end: candles.at(-1)?.timestamp ?? '2022-01-01T02:00:00Z',
     requestedStart: '2022-01-01T00:00:00Z',

@@ -22,17 +22,18 @@ function evidence(overrides = {}) {
     timeframe: '1Hour',
     provider: 'ALPACA HISTORICAL',
     emaContractVersion: 'setupscan-ema-sma-recursive-v0',
+    adjustmentMode: 'split',
     requestedDateRange: { start: '2022-01-01T00:00:00Z', end: '2023-01-01T00:00:00Z' },
     ...overrides,
   }
 }
 
-function synthesis({ runId = 'run-a', datasetId = 'dataset-a', emaContractVersion = 'setupscan-ema-sma-recursive-v0', entries = [evidence()], families = [], requested = ['signal-quality'] } = {}) {
+function synthesis({ runId = 'run-a', datasetId = 'dataset-a', emaContractVersion = 'setupscan-ema-sma-recursive-v0', adjustmentMode = 'split', entries = [evidence()], families = [], requested = ['signal-quality'] } = {}) {
   return {
     schemaVersion: 1,
     coverage: { requested, unavailable: [], incomplete: [], evaluated: requested },
     strategyGroups: [{ strategyId: 'setup-scan-baseline', evidence: entries, evidenceFamilies: families }],
-    provenance: { runId, datasetId, emaContractVersion },
+    provenance: { runId, datasetId, emaContractVersion, adjustmentMode },
   }
 }
 
@@ -258,4 +259,34 @@ test('EMA contract changes are surfaced as a compatibility mismatch', () => {
   )
   assert.equal(result.comparisons[0].compatibility.compatible, false)
   assert.ok(result.comparisons[0].compatibility.hardConflicts.some((entry) => entry.field === 'emaContractVersion'))
+})
+
+test('split and legacy-unknown adjustment modes are a hard compatibility conflict', () => {
+  const oldEvidence = evidence({ adjustmentMode: undefined })
+  const result = compareResearchEvidence(
+    synthesis(),
+    synthesis({ runId: 'run-b', datasetId: 'dataset-b', adjustmentMode: 'legacy-unknown', entries: [oldEvidence] }),
+  )
+  assert.equal(result.comparisons.length, 1)
+  assert.equal(result.comparisons[0].compatibility.compatible, false)
+  assert.ok(result.comparisons[0].compatibility.hardConflicts.some((entry) => entry.field === 'adjustmentMode'))
+})
+
+test('different known adjustment modes are a hard compatibility conflict', () => {
+  const result = compareResearchEvidence(
+    synthesis(),
+    synthesis({ runId: 'run-b', datasetId: 'dataset-b', adjustmentMode: 'all', entries: [evidence({ adjustmentMode: 'all' })] }),
+  )
+  assert.equal(result.comparisons[0].compatibility.compatible, false)
+  assert.ok(result.comparisons[0].compatibility.hardConflicts.some((entry) => entry.field === 'adjustmentMode'))
+})
+
+test('two legacy-unknown adjustment modes remain comparable under existing rules', () => {
+  const oldEvidence = evidence({ adjustmentMode: undefined })
+  const result = compareResearchEvidence(
+    synthesis({ adjustmentMode: 'legacy-unknown', entries: [oldEvidence] }),
+    synthesis({ runId: 'run-b', datasetId: 'dataset-b', adjustmentMode: 'legacy-unknown', entries: [oldEvidence] }),
+  )
+  assert.equal(result.comparisons.length, 1)
+  assert.equal(result.comparisons[0].compatibility.hardConflicts.some((entry) => entry.field === 'adjustmentMode'), false)
 })

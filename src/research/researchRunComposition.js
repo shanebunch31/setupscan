@@ -24,6 +24,7 @@ export function createResearchRunComposer({
       ...(executionRunResult.runContext.emaContractVersion
         ? { emaContractVersion: executionRunResult.runContext.emaContractVersion }
         : {}),
+      adjustmentMode: executionRunResult.runContext.adjustmentMode ?? executionRunResult.dataset?.adjustmentMode ?? 'legacy-unknown',
     })
 
     return { ...executionRunResult, records, synthesis }

@@ -55,6 +55,7 @@ test('classifies every qualifying signal into all 8 context dimensions with no s
   const result = runBreakoutContextResearch(datasets)
   assert.equal(result.available, true)
   assert.equal(result.totalQualifyingSignals, 1)
+  assert.ok(result.datasetInfo.every((entry) => entry.adjustmentMode === 'split'))
   assert.equal(result.dimensions.length, 8)
   result.dimensions.forEach((dimension) => {
     const totalAcrossBuckets = dimension.buckets.reduce((sum, bucket) => sum + bucket.summary.overall.occurrenceCount, 0)

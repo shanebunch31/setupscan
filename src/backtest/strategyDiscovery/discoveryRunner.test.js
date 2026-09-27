@@ -33,6 +33,7 @@ test('runs all four Batch A experiments once the full universe is available, wit
     assert.ok(Array.isArray(experiment.summary.costTiers))
   })
   assert.equal(result.datasetInfo.length, 3)
+  assert.ok(result.datasetInfo.every((entry) => entry.adjustmentMode === 'split'))
   assert.equal(result.timeframe, '1Hour')
   assert.deepEqual(result.universe, ['SPY', 'QQQ', 'IWM'])
   assert.ok(result.gitCommit)

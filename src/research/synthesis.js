@@ -94,6 +94,7 @@ function makeEvidence(record, metricsKey, strategyId, ruleSetVariant, metrics, p
     timeframe: record.input?.timeframe ?? null,
     provider: record.input?.provider ?? null,
     emaContractVersion: record.input?.emaContractVersion ?? null,
+    adjustmentMode: record.input?.adjustmentMode ?? record.provenance?.adjustmentMode ?? null,
     requestedDateRange: { start: record.input?.requestedStart ?? null, end: record.input?.requestedEnd ?? null },
   }
 }
@@ -195,6 +196,7 @@ export function compareEvidence(evidenceA, evidenceB) {
   compareKnownField('timeframe', evidenceA.timeframe, evidenceB.timeframe, hardConflicts, unknowns)
   compareKnownField('provider', evidenceA.provider, evidenceB.provider, hardConflicts, unknowns)
   compareKnownField('emaContractVersion', evidenceA.emaContractVersion, evidenceB.emaContractVersion, hardConflicts, unknowns)
+  compareKnownField('adjustmentMode', evidenceA.adjustmentMode ?? 'legacy-unknown', evidenceB.adjustmentMode ?? 'legacy-unknown', hardConflicts, unknowns)
 
   // Out-of-sample role differences (e.g. development vs holdout, in-sample vs out-of-sample) are
   // deliberately NOT a hard conflict here — comparing them side by side to see whether they agree
@@ -401,6 +403,7 @@ export function synthesizeResearch(records = [], context = {}) {
       runId: context.runId ?? null,
       datasetId: context.datasetId ?? null,
       emaContractVersion: context.emaContractVersion ?? null,
+      adjustmentMode: context.adjustmentMode ?? 'legacy-unknown',
     },
   }
 }

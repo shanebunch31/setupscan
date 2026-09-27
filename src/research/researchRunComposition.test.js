@@ -13,6 +13,7 @@ function makeRunContext(requestedExperiments) {
     requestedAt: '2026-09-26T00:00:00.000Z',
     symbols: ['SPY', 'QQQ', 'IWM'],
     timeframe: '1Hour',
+    adjustmentMode: 'split',
     requestedStart: '2022-01-01T00:00:00Z',
     requestedEnd: '2026-09-26T00:00:00Z',
     requestedExperiments,
@@ -257,8 +258,9 @@ test('synthesis receives only the approved context and is called exactly once', 
     runId: 'run-compose-test',
     datasetId: 'dataset-compose-test',
     requestedExperiments: ['robustness'],
+    adjustmentMode: 'split',
   })
-  assert.deepEqual(Object.keys(receivedContext), ['runId', 'datasetId', 'requestedExperiments'])
+  assert.deepEqual(Object.keys(receivedContext), ['runId', 'datasetId', 'requestedExperiments', 'adjustmentMode'])
   assert.deepEqual(composed.synthesis, { done: true })
 })
 

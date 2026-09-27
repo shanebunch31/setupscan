@@ -4,6 +4,7 @@
 import { getResearchExperiment, listResearchExperiments } from './registry.js'
 import { executeResearchExperiment } from './experimentExecutors.js'
 import { EMA_CONTRACT_VERSION, fetchHistoricalMarketData as defaultFetchHistoricalMarketData } from '../data/marketData.js'
+import { HISTORICAL_ADJUSTMENT_MODE, LEGACY_ADJUSTMENT_MODE } from '../data/historicalDataContract.js'
 
 export { executeResearchExperiment }
 
@@ -12,6 +13,7 @@ export { executeResearchExperiment }
  * @property {string} provider
  * @property {string} symbol
  * @property {string} timeframe
+ * @property {string} adjustmentMode
  * @property {string|null} start          Actual first candle timestamp.
  * @property {string|null} end            Actual last candle timestamp.
  * @property {string|null} requestedStart
@@ -27,6 +29,7 @@ export { executeResearchExperiment }
  * @property {string} requestedAt         ISO timestamp of when the run was requested.
  * @property {string[]} symbols
  * @property {string} timeframe
+ * @property {string} adjustmentMode
  * @property {string|null} requestedStart
  * @property {string|null} requestedEnd
  * @property {string[]} requestedExperiments
@@ -45,6 +48,7 @@ export { executeResearchExperiment }
  * @typedef {object} ResearchDataset
  * @property {string} datasetId
  * @property {string} provider
+ * @property {string} adjustmentMode
  * @property {string} timeframe
  * @property {string|null} requestedStart
  * @property {string|null} requestedEnd
@@ -94,9 +98,9 @@ export function createRunId() {
  *   own `start`/`end` field names), and a numeric candleCount.
  * @returns {string} e.g. "dataset_<sha256>".
  */
-export function createDatasetId(fetchResults) {
+export function createDatasetId(fetchResults, defaultAdjustmentMode = LEGACY_ADJUSTMENT_MODE) {
   assertValidFetchResults(fetchResults)
-  const serialized = serializeFetchResultsForFingerprint(fetchResults)
+  const serialized = serializeFetchResultsForFingerprint(fetchResults, defaultAdjustmentMode)
   return `dataset_${sha256Hex(serialized)}`
 }
 
@@ -122,7 +126,7 @@ function assertValidFetchResults(fetchResults) {
 }
 
 /** Sorts by symbol and keeps only the fields that define dataset identity (request/completeness metadata is excluded). */
-function serializeFetchResultsForFingerprint(fetchResults) {
+function serializeFetchResultsForFingerprint(fetchResults, defaultAdjustmentMode) {
   const normalized = fetchResults
     .map((result) => [
       result.provider,
@@ -131,6 +135,7 @@ function serializeFetchResultsForFingerprint(fetchResults) {
       result.calculationStart ?? result.actualStart ?? result.start,
       result.calculationEnd ?? result.actualEnd ?? result.end,
       result.calculationCandleCount ?? result.candleCount,
+      result.adjustmentMode ?? defaultAdjustmentMode,
       (Array.isArray(result.calculationCandles)
         ? result.calculationCandles
         : Array.isArray(result.candles) ? result.candles : []).map((candle) => [
@@ -228,6 +233,7 @@ export function createResearchRunContext(request = {}) {
     requestedEnd,
     requestedExperiments,
     emaContractVersion: EMA_CONTRACT_VERSION,
+    adjustmentMode: HISTORICAL_ADJUSTMENT_MODE,
   }
 }
 
@@ -411,8 +417,11 @@ export async function executeResearchRun(runContext, options = {}) {
   if (nonEmptyFetchResults.length) {
     try {
       dataset = {
-        datasetId: createDatasetId(nonEmptyFetchResults),
+        datasetId: createDatasetId(nonEmptyFetchResults, runContext.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE),
         provider: [...providers][0],
+        adjustmentMode: nonEmptyFetchResults.every((result) => (result.adjustmentMode ?? runContext.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE) === (nonEmptyFetchResults[0].adjustmentMode ?? runContext.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE))
+          ? nonEmptyFetchResults[0].adjustmentMode ?? runContext.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE
+          : 'mixed',
         timeframe: runContext.timeframe,
         requestedStart: runContext.requestedStart,
         requestedEnd: runContext.requestedEnd,

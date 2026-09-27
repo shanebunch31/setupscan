@@ -274,6 +274,13 @@ exactly what data and code produced a given result.
 
 ## 15. Security and Data Integrity
 
+SetupScan's historical research contract uses Alpaca bars with `adjustment=split`, which adjusts
+prices and volume for forward and reverse stock splits. Research metrics remain price-based and
+R-multiple based; they do not model dividend cash flows, dividend reinvestment, or spin-off shares,
+and therefore do not claim dividend/spin-off total return. New runs record their adjustment mode
+as provenance. Historical records without an explicit adjustment mode remain `legacy-unknown` and
+must not be presumed to have used either `raw` or `split`.
+
 - Never put Alpaca credentials in React/frontend code.
 - Never put API keys in GitHub source files.
 - Keep credentials in server-side environment variables.

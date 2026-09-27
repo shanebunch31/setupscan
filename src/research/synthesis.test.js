@@ -329,6 +329,30 @@ test('missing provider on both sides is reported as unknown, not a hard conflict
   assert.ok(!comparison.hardConflicts.some((entry) => entry.field === 'provider'))
 })
 
+test('matching split adjustment modes are compatible with respect to adjustmentMode', () => {
+  const recordA = robustnessRecord({ context: { provenance: { adjustmentMode: 'split' } } })
+  const recordB = robustnessRecord({ context: { provenance: { adjustmentMode: 'split' } } })
+  const comparison = compareEvidence(flattenViaSynthesis(recordA)[0], flattenViaSynthesis(recordB)[0])
+  assert.ok(!comparison.hardConflicts.some((entry) => entry.field === 'adjustmentMode'))
+})
+
+test('split and legacy-unknown adjustment modes produce a hard conflict', () => {
+  const splitRecord = robustnessRecord({ context: { provenance: { adjustmentMode: 'split' } } })
+  const legacyRecord = robustnessRecord({ context: { provenance: { adjustmentMode: 'legacy-unknown' } } })
+  const comparison = compareEvidence(flattenViaSynthesis(splitRecord)[0], flattenViaSynthesis(legacyRecord)[0])
+  assert.equal(comparison.compatible, false)
+  assert.ok(comparison.hardConflicts.some((entry) => entry.field === 'adjustmentMode'))
+})
+
+test('missing adjustment modes resolve to legacy-unknown without an adjustmentMode conflict', () => {
+  const recordA = robustnessRecord()
+  const recordB = robustnessRecord()
+  const comparison = compareEvidence(flattenViaSynthesis(recordA)[0], flattenViaSynthesis(recordB)[0])
+  const synthesized = synthesizeResearch([recordA])
+  assert.equal(synthesized.provenance.adjustmentMode, 'legacy-unknown')
+  assert.ok(!comparison.hardConflicts.some((entry) => entry.field === 'adjustmentMode'))
+})
+
 // --- 18. missing runId/datasetId ---
 test('missing runId/datasetId is surfaced as an unresolved question, never fabricated', () => {
   const result = synthesizeResearch([robustnessRecord()])

@@ -68,7 +68,7 @@ class MemoryResearchPool {
     }
     if (text.startsWith('INSERT INTO research_runs')) {
       const [runId, requestedAt, status, fetchStatus, symbols, timeframe, requestedStart, requestedEnd,
-        requestedExperiments, emaContractVersion, datasetId, provider, fetchIssues, datasetMetadata, synthesis, schemaVersion] = values
+        requestedExperiments, emaContractVersion, adjustmentMode, datasetId, provider, fetchIssues, datasetMetadata, synthesis, schemaVersion] = values
       if (state.runs.has(runId)) {
         const error = new Error('duplicate run')
         error.code = '23505'
@@ -86,6 +86,7 @@ class MemoryResearchPool {
         requested_end: requestedEnd,
         requested_experiments: requestedExperiments,
         ema_contract_version: emaContractVersion,
+        adjustment_mode: adjustmentMode,
         dataset_id: datasetId,
         provider,
         fetch_issues: JSON.parse(fetchIssues),
@@ -197,23 +198,14 @@ class MemoryResearchPool {
     if (text.includes('FROM research_run_experiments WHERE run_id = $1')) {
       return { rows: [...(state.experiments.get(values[0]) ?? [])].sort((a, b) => a.execution_order - b.execution_order) }
     }
-    if (text.startsWith('SELECT run_id, requested_at, dataset_id, ema_contract_version, synthesis FROM research_runs WHERE run_id = $1')) {
+    if (text.startsWith('SELECT run_id, requested_at, dataset_id, ema_contract_version, adjustment_mode, synthesis FROM research_runs WHERE run_id = $1')) {
       const row = state.runs.get(values[0])
       return { rows: row ? [{
         run_id: row.run_id,
         requested_at: row.requested_at,
         dataset_id: row.dataset_id,
         ema_contract_version: row.ema_contract_version,
-        synthesis: row.synthesis,
-      }] : [] }
-    }
-    if (text.startsWith('SELECT run_id, requested_at, dataset_id, ema_contract_version, synthesis FROM research_runs WHERE run_id = $1')) {
-      const row = state.runs.get(values[0])
-      return { rows: row ? [{
-        run_id: row.run_id,
-        requested_at: row.requested_at,
-        dataset_id: row.dataset_id,
-        ema_contract_version: row.ema_contract_version,
+        adjustment_mode: row.adjustment_mode,
         synthesis: row.synthesis,
       }] : [] }
     }
@@ -303,6 +295,7 @@ function makeRunResult({
       runId, requestedAt, symbols, timeframe: '1Hour',
       requestedStart: '2022-01-01T00:00:00Z', requestedEnd: '2026-09-26T00:00:00Z', requestedExperiments,
       emaContractVersion: 'setupscan-ema-sma-seeded-recursive-v1',
+      adjustmentMode: 'split',
     },
     status,
     fetchStatus,
@@ -310,6 +303,7 @@ function makeRunResult({
     dataset: datasetId ? {
       datasetId,
       provider: 'ALPACA HISTORICAL',
+      adjustmentMode: 'split',
       timeframe: '1Hour',
       requestedStart: '2022-01-01T00:00:00Z',
       requestedEnd: '2026-09-26T00:00:00Z',
@@ -338,6 +332,7 @@ test('saves and retrieves a completed run with record, nativePayload, synthesis,
   assert.equal(retrieved.fetchStatus, 'complete')
   assert.deepEqual(retrieved.runContext, run.runContext)
   assert.equal(retrieved.runContext.emaContractVersion, 'setupscan-ema-sma-seeded-recursive-v1')
+  assert.equal(retrieved.runContext.adjustmentMode, 'split')
   assert.equal(retrieved.records.length, 1)
   assert.equal(retrieved.records[0].id, 'robustness')
   assert.equal(retrieved.records[0].nativePayload.thresholdResults[0].metrics.profitFactor, Infinity)
@@ -345,6 +340,7 @@ test('saves and retrieves a completed run with record, nativePayload, synthesis,
   assert.deepEqual(retrieved.synthesis, run.synthesis)
   assert.deepEqual(retrieved.fetchIssues, run.fetchIssues)
   assert.equal(retrieved.dataset.datasetId, run.dataset.datasetId)
+  assert.equal(retrieved.dataset.adjustmentMode, 'split')
   assert.equal(retrieved.dataset.rawSeriesBySymbol, null)
 })
 
@@ -465,10 +461,11 @@ test('comparison snapshot query reads only run metadata and synthesis', async ()
     requestedAt: run.runContext.requestedAt,
     datasetId: run.dataset.datasetId,
     emaContractVersion: 'setupscan-ema-sma-seeded-recursive-v1',
+    adjustmentMode: 'split',
     synthesis: run.synthesis,
   })
   assert.equal(pool.queries.length, 1)
-  assert.match(pool.queries[0].text, /SELECT run_id, requested_at, dataset_id, ema_contract_version, synthesis FROM research_runs/)
+  assert.match(pool.queries[0].text, /SELECT run_id, requested_at, dataset_id, ema_contract_version, adjustment_mode, synthesis FROM research_runs/)
   assert.doesNotMatch(pool.queries[0].text, /research_run_experiments|record|native_payload/)
 })
 
@@ -512,7 +509,7 @@ test('persists the storage schema version and uses current synthesis schema meta
   const header = pool.state.runs.get(run.runContext.runId)
   assert.equal(header.persistence_schema_version, RESEARCH_PERSISTENCE_SCHEMA_VERSION)
   assert.equal(header.synthesis.schemaVersion, 1)
-  assert.equal(header.persistence_schema_version, 2)
+  assert.equal(header.persistence_schema_version, 3)
 })
 
 test('representative multi-symbol Signal Quality persistence reports serialized payload size', async () => {
@@ -643,4 +640,21 @@ test('investigation list validates pagination and persists only registered plan 
   assert.deepEqual(emptyPlan.requestedExperiments, [])
   const row = store.pool.state.investigations.get(emptyPlan.investigationId)
   assert.deepEqual(row.requested_experiments, [])
+})
+
+test('historical rows without adjustment provenance hydrate as legacy-unknown without rewriting synthesis', async () => {
+  const pool = new MemoryResearchPool()
+  const store = createResearchRunStore({ pool })
+  const run = makeRunResult({ runId: 'run-legacy-adjustment' })
+  delete run.runContext.adjustmentMode
+  delete run.dataset.adjustmentMode
+  run.synthesis.provenance.adjustmentMode = undefined
+  await store.saveResearchRun(run)
+  const row = pool.state.runs.get(run.runContext.runId)
+  delete row.adjustment_mode
+
+  const retrieved = await store.getResearchRun(run.runContext.runId)
+  assert.equal(retrieved.runContext.adjustmentMode, 'legacy-unknown')
+  assert.equal(retrieved.dataset.adjustmentMode, 'legacy-unknown')
+  assert.equal(retrieved.synthesis.provenance.adjustmentMode, undefined)
 })

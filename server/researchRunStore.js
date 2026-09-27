@@ -3,8 +3,9 @@ import { Pool } from 'pg'
 import { describeDatabaseUrl } from './postgresPaperStore.js'
 import { parseResearchJson, stringifyResearchJson } from '../src/research/researchRunSerialization.js'
 import { normalizeResearchInvestigationInput, normalizeResearchRunId } from '../src/research/researchInvestigation.js'
+import { LEGACY_ADJUSTMENT_MODE } from '../src/data/historicalDataContract.js'
 
-export const RESEARCH_PERSISTENCE_SCHEMA_VERSION = 2
+export const RESEARCH_PERSISTENCE_SCHEMA_VERSION = 3
 export const RESEARCH_INVESTIGATION_PERSISTENCE_SCHEMA_VERSION = 1
 
 const schema = `
@@ -19,6 +20,7 @@ CREATE TABLE IF NOT EXISTS research_runs (
   requested_end text,
   requested_experiments text[] NOT NULL,
   ema_contract_version text NOT NULL DEFAULT 'legacy-unknown',
+  adjustment_mode text NOT NULL DEFAULT 'legacy-unknown',
   dataset_id text,
   provider text,
   fetch_issues jsonb NOT NULL,
@@ -27,6 +29,7 @@ CREATE TABLE IF NOT EXISTS research_runs (
   persistence_schema_version integer NOT NULL
 );
 ALTER TABLE research_runs ADD COLUMN IF NOT EXISTS ema_contract_version text NOT NULL DEFAULT 'legacy-unknown';
+ALTER TABLE research_runs ADD COLUMN IF NOT EXISTS adjustment_mode text NOT NULL DEFAULT 'legacy-unknown';
 CREATE INDEX IF NOT EXISTS research_runs_requested_at_idx ON research_runs (requested_at DESC, run_id DESC);
 CREATE INDEX IF NOT EXISTS research_runs_dataset_id_idx ON research_runs (dataset_id);
 CREATE INDEX IF NOT EXISTS research_runs_symbols_idx ON research_runs USING GIN (symbols);
@@ -65,7 +68,7 @@ CREATE INDEX IF NOT EXISTS research_investigation_runs_run_id_idx ON research_in
 `
 
 const RUN_COLUMNS = `run_id, requested_at, status, fetch_status, symbols, timeframe,
-  requested_start, requested_end, requested_experiments, ema_contract_version, dataset_id, provider,
+  requested_start, requested_end, requested_experiments, ema_contract_version, adjustment_mode, dataset_id, provider,
   fetch_issues, dataset_metadata, synthesis, persistence_schema_version`
 
 function required(value, label) {
@@ -149,6 +152,7 @@ function metadataOnlyDataset(dataset) {
   return {
     datasetId: dataset.datasetId,
     provider: dataset.provider,
+    adjustmentMode: dataset.adjustmentMode,
     timeframe: dataset.timeframe,
     requestedStart: dataset.requestedStart,
     requestedEnd: dataset.requestedEnd,
@@ -253,10 +257,15 @@ function runFromRow(row, experimentRows) {
     requestedEnd: row.requested_end,
     requestedExperiments: row.requested_experiments,
     emaContractVersion: row.ema_contract_version ?? 'legacy-unknown',
+    adjustmentMode: row.adjustment_mode ?? 'legacy-unknown',
   }
   const storedDataset = parseResearchJson(row.dataset_metadata)
   const dataset = storedDataset
-    ? { ...storedDataset, rawSeriesBySymbol: null }
+    ? {
+        ...storedDataset,
+        adjustmentMode: storedDataset.adjustmentMode ?? row.adjustment_mode ?? LEGACY_ADJUSTMENT_MODE,
+        rawSeriesBySymbol: null,
+      }
     : null
   const records = experimentRows.map((experiment) => parseResearchJson(experiment.record)).filter(Boolean)
   const experimentResults = experimentRows.map((experiment) => {
@@ -348,8 +357,8 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
       await client.query('BEGIN')
       await client.query(
         `INSERT INTO research_runs (${RUN_COLUMNS}) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-          $13::jsonb, $14::jsonb, $15::jsonb, $16
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+          $14::jsonb, $15::jsonb, $16::jsonb, $17
         )`,
         [
           context.runId,
@@ -362,6 +371,7 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
           context.requestedEnd,
           context.requestedExperiments,
           context.emaContractVersion,
+          context.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE,
           result.dataset?.datasetId ?? null,
           result.dataset?.provider ?? null,
           stringifyResearchJson(result.fetchIssues),
@@ -425,7 +435,7 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
   async function getResearchRunComparisonSnapshot(runId) {
     await init()
     const result = await clientPool.query(
-      'SELECT run_id, requested_at, dataset_id, ema_contract_version, synthesis FROM research_runs WHERE run_id = $1',
+      'SELECT run_id, requested_at, dataset_id, ema_contract_version, adjustment_mode, synthesis FROM research_runs WHERE run_id = $1',
       [runId],
     )
     const row = result.rows[0]
@@ -435,6 +445,7 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
       requestedAt: row.requested_at instanceof Date ? row.requested_at.toISOString() : row.requested_at,
       datasetId: row.dataset_id,
       emaContractVersion: row.ema_contract_version ?? 'legacy-unknown',
+      adjustmentMode: row.adjustment_mode ?? 'legacy-unknown',
       synthesis: parseResearchJson(row.synthesis),
     }
   }
@@ -456,9 +467,12 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
         requestedEnd: row.requested_end,
         requestedExperiments: row.requested_experiments,
         emaContractVersion: row.ema_contract_version ?? 'legacy-unknown',
+        adjustmentMode: row.adjustment_mode ?? 'legacy-unknown',
         datasetId: row.dataset_id,
         provider: row.provider,
-        datasetMetadata: dataset,
+        datasetMetadata: dataset
+          ? { ...dataset, adjustmentMode: dataset.adjustmentMode ?? row.adjustment_mode ?? LEGACY_ADJUSTMENT_MODE }
+          : dataset,
         persistenceSchemaVersion: row.persistence_schema_version,
       }
     })

@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import { createDatasetId, createResearchRunContext, createRunId, executeResearchRun } from './orchestration.js'
 import { listResearchExperiments } from './registry.js'
 import { EMA_CONTRACT_VERSION } from '../data/marketData.js'
+import { HISTORICAL_ADJUSTMENT_MODE, LEGACY_ADJUSTMENT_MODE } from '../data/historicalDataContract.js'
 
 test('createRunId returns a string', () => {
   assert.equal(typeof createRunId(), 'string')
@@ -91,11 +92,24 @@ test('createDatasetId: identical metadata and identical ordered candles produce 
   assert.equal(createDatasetId([result]), createDatasetId([{ ...result, candles: candlesForIdentity() }]))
 })
 
+test('createDatasetId includes adjustment mode while remaining deterministic for matching content and mode', () => {
+  const result = makeFetchResult({ adjustmentMode: 'split', candleCount: 2, candles: candlesForIdentity() })
+  assert.equal(createDatasetId([result]), createDatasetId([{ ...result, candles: candlesForIdentity() }]))
+  assert.notEqual(createDatasetId([result]), createDatasetId([{ ...result, adjustmentMode: 'raw' }]))
+})
+
+test('createDatasetId treats missing adjustment provenance as legacy-unknown', () => {
+  const oldStyle = makeFetchResult({ candleCount: 2, candles: candlesForIdentity() })
+  assert.equal(createDatasetId([oldStyle]), createDatasetId([{ ...oldStyle, adjustmentMode: LEGACY_ADJUSTMENT_MODE }]))
+  assert.notEqual(createDatasetId([oldStyle]), createDatasetId([{ ...oldStyle, adjustmentMode: 'split' }]))
+})
+
 test('createDatasetId uses SHA-256 over the canonical metadata and candle tuple representation', () => {
   const result = makeFetchResult({ candleCount: 1, candles: [candlesForIdentity()[0]] })
   const candle = result.candles[0]
   const canonical = [[
     result.provider, result.symbol, result.timeframe, result.start, result.end, result.candleCount,
+    result.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE,
     [[candle.symbol, candle.timestamp, candle.timeframe, candle.open, candle.high, candle.low, candle.close, candle.volume]],
   ]]
   const expected = `dataset_${createHash('sha256').update(JSON.stringify(canonical), 'utf8').digest('hex')}`
@@ -413,6 +427,10 @@ test('createResearchRunContext records the active EMA contract version', () => {
   assert.equal(createResearchRunContext(baseRequest()).emaContractVersion, EMA_CONTRACT_VERSION)
 })
 
+test('createResearchRunContext records split adjustment mode', () => {
+  assert.equal(createResearchRunContext(baseRequest()).adjustmentMode, HISTORICAL_ADJUSTMENT_MODE)
+})
+
 test('createResearchRunContext: duplicate experiment ids are removed', () => {
   const context = createResearchRunContext(baseRequest({ requestedExperiments: ['robustness', 'robustness', 'signal-quality'] }))
   assert.deepEqual(context.requestedExperiments, ['robustness', 'signal-quality'])
@@ -485,6 +503,7 @@ function makeRunFetchResult(symbol, overrides = {}) {
   }]
   return {
     provider: 'ALPACA HISTORICAL',
+    adjustmentMode: HISTORICAL_ADJUSTMENT_MODE,
     symbol,
     timeframe: '1Hour',
     start: candles[0]?.timestamp ?? '2022-01-01T00:00:00Z',
@@ -563,7 +582,7 @@ test('executeResearchRun preserves fetch response references and creates the exa
     runOptions(async (symbol) => responses.find((response) => response.symbol === symbol)),
   )
   assert.deepEqual(Object.keys(result.dataset), [
-    'datasetId', 'provider', 'timeframe', 'requestedStart', 'requestedEnd', 'fetchResultsBySymbol', 'rawSeriesBySymbol',
+    'datasetId', 'provider', 'adjustmentMode', 'timeframe', 'requestedStart', 'requestedEnd', 'fetchResultsBySymbol', 'rawSeriesBySymbol',
   ])
   assert.equal(result.dataset.fetchResultsBySymbol.SPY, responses[0])
   assert.equal(result.dataset.fetchResultsBySymbol.QQQ, responses[1])
@@ -772,7 +791,7 @@ test('strategy-comparison and strategy-discovery dispatch receive only canonical
   assert.deepEqual(datasets.map(([experimentId]) => experimentId), requestedExperiments)
   for (const [, dataset] of datasets) {
     assert.deepEqual(Object.keys(dataset), [
-      'datasetId', 'provider', 'timeframe', 'requestedStart', 'requestedEnd', 'fetchResultsBySymbol', 'rawSeriesBySymbol',
+      'datasetId', 'provider', 'adjustmentMode', 'timeframe', 'requestedStart', 'requestedEnd', 'fetchResultsBySymbol', 'rawSeriesBySymbol',
     ])
     assert.equal(Array.isArray(dataset.rawSeriesBySymbol.SPY), true)
   }

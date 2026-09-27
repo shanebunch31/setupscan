@@ -161,6 +161,7 @@ test('merges occurrences from multiple symbols into one chronologically-ordered 
   const result = runRegularSessionBreakoutResearch(datasets)
   assert.equal(result.available, true)
   assert.equal(result.summary.overall.occurrenceCount, 2)
+  assert.ok(result.datasetInfo.every((entry) => entry.adjustmentMode === 'split'))
   const symbolsRepresented = result.summary.bySymbol.map((row) => row.label).sort()
   assert.deepEqual(symbolsRepresented, ['IWM', 'SPY'])
 })

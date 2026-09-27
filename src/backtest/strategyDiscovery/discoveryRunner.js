@@ -5,6 +5,7 @@
 // server-side via server/alpacaProxy.js and never falling back to demo data). Never fabricates
 // results: an experiment is reported as unavailable rather than filled in with invented numbers.
 import { synchronizeCandleSeries } from '../relativeValue.js'
+import { HISTORICAL_ADJUSTMENT_MODE } from '../../data/historicalDataContract.js'
 import {
   strategyDiscoveryCostTiers,
   strategyDiscoveryResearchWindows,
@@ -46,6 +47,7 @@ function prepareSymbolData(symbol, candles) {
     dataset: {
       symbol,
       provider: 'ALPACA HISTORICAL',
+      adjustmentMode: HISTORICAL_ADJUSTMENT_MODE,
       candleCount: cleaned.length,
       start: cleaned[0]?.timestamp ?? null,
       end: cleaned.at(-1)?.timestamp ?? null,

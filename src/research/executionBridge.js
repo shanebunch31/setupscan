@@ -1,5 +1,6 @@
 import { createResearchRecordForExperiment, getResearchExperiment } from './registry.js'
 import { createResearchRecord } from './researchRecord.js'
+import { LEGACY_ADJUSTMENT_MODE } from '../data/historicalDataContract.js'
 
 const NORMALIZED_STATUS = Object.freeze({
   succeeded: 'completed',
@@ -13,6 +14,7 @@ function provenanceFor(runContext, dataset) {
     datasetId: dataset?.datasetId ?? null,
     requestedAt: runContext?.requestedAt ?? null,
     emaContractVersion: runContext?.emaContractVersion ?? 'legacy-unknown',
+    adjustmentMode: runContext?.adjustmentMode ?? dataset?.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE,
   }
 }
 
@@ -28,6 +30,7 @@ function adapterContextFor(executionResult, runContext, dataset) {
     requestedStart: runContext?.requestedStart ?? null,
     requestedEnd: runContext?.requestedEnd ?? null,
     emaContractVersion: runContext?.emaContractVersion ?? 'legacy-unknown',
+    adjustmentMode: runContext?.adjustmentMode ?? dataset?.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE,
     available: executionResult.status !== 'unavailable',
     ...(executionResult.status === 'incomplete' ? { complete: false } : {}),
     status,
@@ -52,6 +55,7 @@ function createStatusRecord(executionResult, runContext, dataset, status) {
       requestedStart: runContext?.requestedStart ?? null,
       requestedEnd: runContext?.requestedEnd ?? null,
       emaContractVersion: runContext?.emaContractVersion ?? 'legacy-unknown',
+      adjustmentMode: runContext?.adjustmentMode ?? dataset?.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE,
       actualStart: null,
       actualEnd: null,
       candleCount: null,
