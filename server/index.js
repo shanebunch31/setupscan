@@ -4,6 +4,7 @@ import { fetchAlpacaHistoricalBars } from './alpacaProxy.js'
 import { createPaperService } from './paperService.js'
 import { createResearchInvestigationApi } from './researchInvestigationApi.js'
 import { createResearchRunApi } from './researchRunApi.js'
+import { dispatchResearchRunRoute } from './researchRunRoute.js'
 import { createResearchRunStore } from './researchRunStore.js'
 
 dotenv.config()
@@ -52,8 +53,13 @@ const server = http.createServer(async (request, response) => {
     }
     return
   }
-  if (url.pathname === '/api/research-runs' || url.pathname.startsWith('/api/research-runs/')) {
-    await researchRunApi(request, response, url)
+  if (await dispatchResearchRunRoute({
+    pathname: url.pathname,
+    request,
+    response,
+    url,
+    researchRunApi,
+  })) {
     return
   }
   if (url.pathname === '/api/research-investigations' || url.pathname.startsWith('/api/research-investigations/')) {
