@@ -3,6 +3,9 @@ import { scanSetups } from '../logic/scanner.js'
 const timeframeMinutes = { '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1D': 1440 }
 const average = (values) => values.length ? values.reduce((total, value) => total + value, 0) / values.length : 0
 
+// Shared with replay configuration preflight so the resolver reads the runner's actual defaults.
+export const setupScanBacktestDefaults = Object.freeze({ minimumScore: 65, stopDistance: null, targetDistance: null, stopDistancePercent: 0.005, targetR: 2, maxHoldingBars: 12, splitRatio: 0.7 })
+
 function getMetrics(trades) {
 	const wins = trades.filter((trade) => trade.rMultiple > 0)
 	const losses = trades.filter((trade) => trade.rMultiple < 0)
@@ -100,7 +103,7 @@ export function partitionTradesByEntryAndOutcome(trades, candles, splitIndex) {
 }
 
 export function runSetupScanBacktest(candles, settings = {}) {
-	const options = { minimumScore: 65, stopDistance: null, targetDistance: null, stopDistancePercent: 0.005, targetR: 2, maxHoldingBars: 12, splitRatio: 0.7, ...settings }
+	const options = { ...setupScanBacktestDefaults, ...settings }
 	const splitIndex = options.splitIndex ?? Math.floor(candles.length * options.splitRatio)
 	const signals = scanSetups(candles)
 	const trades = signals.map((signal) => ({ signal, index: candles.findIndex((candle) => candle.timestamp === signal.timestamp) })).filter(({ signal, index }) => signal.score >= options.minimumScore && signal.status === 'Bullish' && index >= 0 && index < candles.length - 1).map(({ signal, index }) => createTrade(signal, candles[index + 1], candles, index, options)).sort((a, b) => a.timestamp.localeCompare(b.timestamp))

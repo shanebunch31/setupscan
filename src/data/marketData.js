@@ -88,16 +88,7 @@ export function enrichHistoricalCandles(candles) {
   })
 }
 
-export async function fetchHistoricalMarketData(symbol = 'SPY', timeframe = '1Hour', range = {}) {
-  const fetchRange = historicalFetchRange(range, timeframe)
-  const params = new URLSearchParams({ symbol, timeframe })
-  if (fetchRange.start) params.set('start', fetchRange.start)
-  if (fetchRange.end) params.set('end', fetchRange.end)
-  const response = await fetch(apiUrl(`/api/historical?${params}`))
-  const payload = await response.json()
-  if (!response.ok) throw new Error(payload.error || 'Historical data request failed')
-
-  const fetchedCandles = Array.isArray(payload.candles) ? payload.candles : []
+function buildHistoricalMarketDataResult(symbol, timeframe, fetchRange, payload, fetchedCandles) {
   const ema9ByBar = emaSeries(fetchedCandles, 9)
   const ema21ByBar = emaSeries(fetchedCandles, 21)
   const requestedStartTime = fetchRange.requestedStart ? new Date(fetchRange.requestedStart).getTime() : null
@@ -149,6 +140,73 @@ export async function fetchHistoricalMarketData(symbol = 'SPY', timeframe = '1Ho
   }
   Object.defineProperty(result, 'calculationCandles', { value: fetchedCandles })
   return result
+}
+
+/**
+ * Rebuilds the in-memory executor dataset from the persisted canonical calculation series.
+ * Calculation candles are already fetched and completion-filtered, so this path performs no
+ * network access and does not consult a clock.
+ */
+export function reconstructResearchDataset(canonicalDataset) {
+  if (!canonicalDataset || !Array.isArray(canonicalDataset.calculationSeries)) {
+    throw new Error('Research dataset reconstruction requires a canonical calculationSeries')
+  }
+
+  const effectiveMetadata = canonicalDataset.effectiveMetadata ?? {}
+  const metadataBySymbol = effectiveMetadata.symbols ?? {}
+  const calculationBySymbol = new Map(canonicalDataset.calculationSeries.map((entry) => [entry.symbol, entry]))
+  const symbols = [...new Set([...Object.keys(metadataBySymbol), ...calculationBySymbol.keys()])]
+  const rawSeriesBySymbol = {}
+  const fetchResultsBySymbol = {}
+
+  for (const symbol of symbols) {
+    const metadata = metadataBySymbol[symbol]
+    // A null per-symbol entry represents a failed historical fetch, not an empty candle series.
+    if (metadata === null) continue
+    const calculation = calculationBySymbol.get(symbol)
+    const calculationCandles = Array.isArray(calculation?.candles) ? calculation.candles : []
+    const timeframe = metadata?.timeframe ?? calculation?.timeframe ?? canonicalDataset.timeframe
+    const requestedStart = metadata?.requestedStart ?? effectiveMetadata.requestedStart ?? null
+    const requestedEnd = metadata?.requestedEnd ?? effectiveMetadata.requestedEnd ?? null
+    const fetchRange = { requestedStart, requestedEnd }
+    const result = buildHistoricalMarketDataResult(symbol, timeframe, fetchRange, {
+      provider: metadata?.provider ?? canonicalDataset.provider,
+      adjustmentMode: metadata?.adjustmentMode ?? canonicalDataset.adjustmentMode,
+      requestedStart,
+      requestedEnd,
+      start: metadata?.actualStart ?? null,
+      end: metadata?.actualEnd ?? null,
+      candleCount: metadata?.requestedCandleCount ?? 0,
+      complete: metadata?.complete ?? null,
+      minimumExpectedCandles: 0,
+    }, calculationCandles)
+
+    // The original Research path gates executor availability with the fetch completeness flag.
+    if (metadata?.complete !== undefined && metadata?.complete !== null) result.complete = metadata.complete
+    fetchResultsBySymbol[symbol] = result
+    if (result.candles.length) rawSeriesBySymbol[symbol] = result.candles
+  }
+
+  return {
+    ...canonicalDataset,
+    requestedStart: effectiveMetadata.requestedStart ?? null,
+    requestedEnd: effectiveMetadata.requestedEnd ?? null,
+    fetchResultsBySymbol,
+    rawSeriesBySymbol,
+  }
+}
+
+export async function fetchHistoricalMarketData(symbol = 'SPY', timeframe = '1Hour', range = {}) {
+  const fetchRange = historicalFetchRange(range, timeframe)
+  const params = new URLSearchParams({ symbol, timeframe })
+  if (fetchRange.start) params.set('start', fetchRange.start)
+  if (fetchRange.end) params.set('end', fetchRange.end)
+  const response = await fetch(apiUrl(`/api/historical?${params}`))
+  const payload = await response.json()
+  if (!response.ok) throw new Error(payload.error || 'Historical data request failed')
+
+  const fetchedCandles = Array.isArray(payload.candles) ? payload.candles : []
+  return buildHistoricalMarketDataResult(symbol, timeframe, fetchRange, payload, fetchedCandles)
 }
 
 export function getHistoricalMarketData(symbol = 'SPY', count = 180, timeframe = '1h') {

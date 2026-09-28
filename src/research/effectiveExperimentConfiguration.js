@@ -1,15 +1,24 @@
 import { robustnessThresholds } from '../backtest/robustness.js'
-import { canonicalPairs } from '../backtest/relativeValueBacktest.js'
+import { canonicalPairs, relativeValueDefaults } from '../backtest/relativeValueBacktest.js'
 import {
   scoreBucketDefinitions,
   componentDefinitions,
   costTierDefinitions,
+  signalQualityDefaults,
 } from '../backtest/signalQualityBacktest.js'
-import { walkForwardWindows } from '../backtest/walkForwardRegimeBacktest.js'
-import { variantDefinitions } from '../backtest/volatilityAwareVariantsBacktest.js'
+import { frozenScoreHoldoutDefaults } from '../backtest/frozenScoreHoldoutBacktest.js'
+import { yearlyRegimeDefaults } from '../backtest/yearlyRegimeBacktest.js'
+import { walkForwardDefaults, walkForwardWindows } from '../backtest/walkForwardRegimeBacktest.js'
+import { variantDefinitions, volatilityAwareDefaults } from '../backtest/volatilityAwareVariantsBacktest.js'
 import { trendMomentumParameters } from '../backtest/strategyComparison.js'
 import { causalRegimeDefaults, getCausalRegimeDefinitions } from '../backtest/causalRegimeBacktest.js'
 import { volatilityLabels as walkForwardVolatilityLabels } from '../backtest/walkForwardRegimeBacktest.js'
+import { setupScanBacktestDefaults } from '../backtest/strategy.js'
+import { strategyDiscoveryUniverse, strategyDiscoveryTimeframe } from '../backtest/strategyDiscovery/discoveryRunner.js'
+import { momentumBreakoutMeta } from '../backtest/strategyDiscovery/momentumBreakout.js'
+import { meanReversionMeta } from '../backtest/strategyDiscovery/meanReversion.js'
+import { priorDayReclaimMeta } from '../backtest/strategyDiscovery/priorDayReclaim.js'
+import { volatilityExpansionMeta } from '../backtest/strategyDiscovery/volatilityExpansion.js'
 import {
   strategyDiscoveryResearchWindows,
   strategyDiscoveryCostTiers,
@@ -116,4 +125,105 @@ export function createEffectiveExperimentConfiguration(experimentResults = []) {
     status,
     configuration: experimentConfiguration(experimentId, nativeOutput),
   }]))
+}
+
+function settingsForLength(defaults, length) {
+  return { ...defaults, splitIndex: Math.floor(length * defaults.splitRatio) }
+}
+
+function expectedRobustnessConfiguration(candles) {
+  const thresholds = [...robustnessThresholds]
+  const thresholdRuns = thresholds.map((minimumScore) => ({
+    minimumScore,
+    settings: settingsForLength({ ...setupScanBacktestDefaults, minimumScore }, candles.length),
+  }))
+  const periodCount = 4
+  const periodSize = Math.ceil(candles.length / periodCount)
+  const periodRuns = []
+  for (let index = 0; index < periodCount; index += 1) {
+    const periodCandles = candles.slice(index * periodSize, (index + 1) * periodSize)
+    if (!periodCandles.length) continue
+    periodRuns.push({
+      label: `Period ${index + 1}`,
+      start: periodCandles[0].timestamp,
+      end: periodCandles.at(-1).timestamp,
+      candleCount: periodCandles.length,
+      settings: settingsForLength({ ...setupScanBacktestDefaults, minimumScore: 75 }, periodCandles.length),
+    })
+  }
+  return { thresholds, periodCount, thresholdRuns, periodRuns }
+}
+
+const strategyDiscoveryMetas = [momentumBreakoutMeta, meanReversionMeta, priorDayReclaimMeta, volatilityExpansionMeta]
+
+function currentConfigurationFor(experimentId, dataset, codeRevision) {
+  let output
+  if (experimentId === 'robustness') {
+    const candles = dataset?.rawSeriesBySymbol?.SPY ?? []
+    const expected = expectedRobustnessConfiguration(candles)
+    output = {
+      thresholdResults: expected.thresholdRuns,
+      periodResults: expected.periodRuns,
+    }
+  } else if (experimentId === 'relative-value') output = { options: relativeValueDefaults }
+  else if (experimentId === 'signal-quality') output = { options: signalQualityDefaults }
+  else if (experimentId === 'frozen-score-holdout') output = { options: frozenScoreHoldoutDefaults }
+  else if (experimentId === 'yearly-regime') output = { options: yearlyRegimeDefaults }
+  else if (experimentId === 'causal-regime') output = { options: causalRegimeDefaults }
+  else if (experimentId === 'walk-forward-regime') output = { options: walkForwardDefaults }
+  else if (experimentId === 'volatility-aware-variants') output = { options: volatilityAwareDefaults }
+  else if (experimentId === 'strategy-discovery') output = {
+    universe: strategyDiscoveryUniverse,
+    timeframe: strategyDiscoveryTimeframe,
+    researchWindows: strategyDiscoveryResearchWindows,
+    costTiers: strategyDiscoveryCostTiers,
+    experiments: strategyDiscoveryMetas,
+    gitCommit: codeRevision,
+  }
+  else if (experimentId === 'strategy-comparison') {
+    const symbols = dataset?.requestedSymbols ?? []
+    const bySymbol = {}
+    symbols.forEach((symbol) => {
+      const candles = dataset?.rawSeriesBySymbol?.[symbol] ?? []
+      const fetchResult = dataset?.fetchResultsBySymbol?.[symbol]
+      if (!candles.length || fetchResult?.complete === false) return
+      bySymbol[symbol] = {
+        control: { settings: settingsForLength({ ...setupScanBacktestDefaults, minimumScore: 75 }, candles.length) },
+        trendMomentum: { settings: settingsForLength(trendMomentumParameters, candles.length) },
+      }
+    })
+    output = { bySymbol }
+  }
+  // Use the same projection as persisted runs so the preflight cannot drift from that contract.
+  const configuration = experimentConfiguration(experimentId, output)
+  return configuration === null ? null : structuredClone(configuration)
+}
+
+/**
+ * Resolves current code-defined experiment configuration without calling any experiment runner.
+ * The dataset must already be reconstructed offline from persisted canonical candles.
+ */
+export function resolveCurrentEffectiveExperimentConfiguration({ run, dataset, codeRevision } = {}) {
+  const context = run?.runContext ?? run ?? {}
+  const experimentResults = run?.experimentResults ?? []
+  const statusById = new Map(experimentResults.map((result) => [result.experimentId, result.status]))
+  const datasetForConfiguration = {
+    ...dataset,
+    requestedSymbols: context.symbols ?? [],
+  }
+  const experiments = Object.fromEntries((context.requestedExperiments ?? []).map((experimentId) => [experimentId,
+    statusById.get(experimentId) === 'unavailable'
+      ? null
+      : currentConfigurationFor(experimentId, datasetForConfiguration, codeRevision ?? null),
+  ]))
+  return {
+    input: {
+      symbols: [...(context.symbols ?? [])],
+      timeframe: context.timeframe ?? null,
+      requestedStart: context.requestedStart ?? null,
+      requestedEnd: context.requestedEnd ?? null,
+      requestedExperiments: [...(context.requestedExperiments ?? [])],
+    },
+    experiments,
+  }
 }
