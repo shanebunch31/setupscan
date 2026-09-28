@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { createDatasetId } from './orchestration.js'
 import { listResearchExperiments } from './registry.js'
 import { reconstructResearchDataset } from '../data/marketData.js'
@@ -289,18 +290,21 @@ function makeModernRun({
   }
 }
 
-describe('replayResearchRun', () => {
-  beforeEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  it('rejects incompatible runs before executing replay', async () => {
+test(
+  'replayResearchRun rejects incompatible runs before executing replay',
+  async () => {
     const { run, canonicalDataset } = makeModernRun()
 
-    const executeResearchExperiment = vi.fn()
+    let executeResearchExperimentCalled = false
 
-    await expect(
-      replayResearchRun({
+    const executeResearchExperiment = async () => {
+      executeResearchExperimentCalled = true
+    }
+
+    let error = null
+
+    try {
+      await replayResearchRun({
         run,
         canonicalDataset,
         runtime: {
@@ -310,15 +314,20 @@ describe('replayResearchRun', () => {
         executeResearchRunOptions: {
           executeResearchExperiment,
         },
-      }),
-    ).rejects.toMatchObject({
-      code: 'RESEARCH_REPLAY_INCOMPATIBLE',
-    })
+      })
+    } catch (caughtError) {
+      error = caughtError
+    }
 
-    expect(executeResearchExperiment).not.toHaveBeenCalled()
-  })
+    assert.ok(error)
+    assert.equal(error.code, 'RESEARCH_REPLAY_INCOMPATIBLE')
+    assert.equal(executeResearchExperimentCalled, false)
+  },
+)
 
-  it('creates a new run identity for a compatible replay', async () => {
+test(
+  'replayResearchRun creates a new run identity for a compatible replay',
+  async () => {
     const { run, canonicalDataset } = makeModernRun()
 
     const reconstructed = reconstructResearchDataset(canonicalDataset)
@@ -342,17 +351,23 @@ describe('replayResearchRun', () => {
       runtime,
     })
 
-    expect(compatibility).toEqual({
+    assert.deepEqual(compatibility, {
       compatible: true,
       blockers: [],
     })
 
-    const executeResearchExperiment = vi.fn(async () => ({
-      nativeOutput: {
-        replayed: true,
-      },
-      status: 'succeeded',
-    }))
+    let executedExperimentId = null
+
+    const executeResearchExperiment = async (experimentId) => {
+      executedExperimentId = experimentId
+
+      return {
+        nativeOutput: {
+          replayed: true,
+        },
+        status: 'succeeded',
+      }
+    }
 
     const result = await replayResearchRun({
       run,
@@ -363,40 +378,47 @@ describe('replayResearchRun', () => {
       },
     })
 
-    expect(result).toBeDefined()
+    assert.ok(result)
+    assert.ok(result.runContext)
 
-    expect(result.runContext).toBeDefined()
-
-    expect(result.runContext.runId).not.toBe(
+    assert.notEqual(
+      result.runContext.runId,
       run.runContext.runId,
     )
 
-    expect(result.runContext.runId).toEqual(
-      expect.stringMatching(/^run_/),
+    assert.match(
+      result.runContext.runId,
+      /^run_/,
     )
 
-    expect(result.runContext.symbols).toEqual(
+    assert.deepEqual(
+      result.runContext.symbols,
       run.runContext.symbols,
     )
 
-    expect(result.runContext.timeframe).toBe(
+    assert.equal(
+      result.runContext.timeframe,
       run.runContext.timeframe,
     )
 
-    expect(result.runContext.requestedStart).toBe(
+    assert.equal(
+      result.runContext.requestedStart,
       run.runContext.requestedStart,
     )
 
-    expect(result.runContext.requestedEnd).toBe(
+    assert.equal(
+      result.runContext.requestedEnd,
       run.runContext.requestedEnd,
     )
 
-    expect(result.runContext.requestedExperiments).toEqual(
+    assert.deepEqual(
+      result.runContext.requestedExperiments,
       run.runContext.requestedExperiments,
     )
 
-    expect(executeResearchExperiment.mock.calls[0][0]).toEqual(
+    assert.equal(
+      executedExperimentId,
       'strategy-comparison',
     )
-  })
-})
+  },
+)
