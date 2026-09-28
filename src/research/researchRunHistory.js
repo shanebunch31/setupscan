@@ -27,9 +27,10 @@ async function requestJson(path, options) {
 
 export function saveResearchRun(runResult) {
   const dataset = runResult.dataset
+  const { calculationSeries: _calculationSeries, ...datasetForMetadata } = dataset ?? {}
   const datasetMetadata = dataset
     ? {
-      ...dataset,
+      ...datasetForMetadata,
       fetchResultsBySymbol: Object.fromEntries(Object.entries(dataset.fetchResultsBySymbol ?? {}).map(([symbol, fetchResult]) => {
         const { candles: _candles, ...metadata } = fetchResult ?? {}
         return [symbol, metadata]
@@ -37,9 +38,18 @@ export function saveResearchRun(runResult) {
       rawSeriesBySymbol: undefined,
     }
     : null
+  const canonicalDataset = dataset ? {
+    datasetId: dataset.datasetId,
+    provider: dataset.provider,
+    adjustmentMode: dataset.adjustmentMode,
+    timeframe: dataset.timeframe,
+    effectiveMetadata: dataset.effectiveMetadata,
+    calculationSeries: dataset.calculationSeries,
+  } : null
   const persistenceInput = {
     ...runResult,
     dataset: datasetMetadata,
+    canonicalDataset,
     experimentResults: runResult.experimentResults.map(({ nativeOutput: _nativeOutput, ...execution }) => execution),
   }
   return requestJson('/api/research-runs', {
@@ -51,6 +61,10 @@ export function saveResearchRun(runResult) {
 
 export function getResearchRun(runId) {
   return requestJson(`/api/research-runs/${encodeURIComponent(runId)}`, { method: 'GET' })
+}
+
+export function getResearchDataset(datasetId) {
+  return requestJson(`/api/research-datasets/${encodeURIComponent(datasetId)}`, { method: 'GET' })
 }
 
 export function compareResearchRuns(runIdA, runIdB) {

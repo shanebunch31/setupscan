@@ -139,3 +139,28 @@ test('malformed JSON and unsupported methods have explicit client errors', async
   assert.equal(malformed.status, 400)
   assert.equal(unsupported.status, 405)
 })
+
+test('immutable dataset content conflicts map to an explicit HTTP conflict', async () => {
+  const api = createResearchRunApi({ store: {
+    saveResearchRun: async () => {
+      const error = new Error('datasetId content conflict')
+      error.code = 'RESEARCH_DATASET_CONFLICT'
+      throw error
+    },
+  } })
+  const response = await invoke(api, { method: 'POST', body: '{"runContext":{}}' })
+  assert.equal(response.status, 409)
+  assert.equal(response.body.code, 'RESEARCH_DATASET_CONFLICT')
+})
+
+test('GET retrieves a canonical dataset through its datasetId and returns 404 when absent', async () => {
+  const dataset = { datasetId: 'dataset/1', calculationSeries: [{ symbol: 'SPY', candles: [] }] }
+  const api = createResearchRunApi({ store: {
+    getResearchDataset: async (datasetId) => datasetId === 'dataset/1' ? dataset : null,
+  } })
+  const found = await invoke(api, { path: '/api/research-datasets/dataset%2F1' })
+  const missing = await invoke(api, { path: '/api/research-datasets/missing' })
+  assert.equal(found.status, 200)
+  assert.deepEqual(found.body, dataset)
+  assert.equal(missing.status, 404)
+})

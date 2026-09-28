@@ -404,6 +404,7 @@ export function synthesizeResearch(records = [], context = {}) {
       datasetId: context.datasetId ?? null,
       emaContractVersion: context.emaContractVersion ?? null,
       adjustmentMode: context.adjustmentMode ?? 'legacy-unknown',
+      codeRevision: context.codeRevision ?? null,
     },
   }
 }

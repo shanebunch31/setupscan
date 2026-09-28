@@ -13,6 +13,7 @@ function provenanceFor(runContext, dataset) {
     runId: runContext?.runId ?? null,
     datasetId: dataset?.datasetId ?? null,
     requestedAt: runContext?.requestedAt ?? null,
+    codeRevision: runContext?.codeRevision ?? null,
     emaContractVersion: runContext?.emaContractVersion ?? 'legacy-unknown',
     adjustmentMode: runContext?.adjustmentMode ?? dataset?.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE,
   }
@@ -56,6 +57,7 @@ function createStatusRecord(executionResult, runContext, dataset, status) {
       requestedEnd: runContext?.requestedEnd ?? null,
       emaContractVersion: runContext?.emaContractVersion ?? 'legacy-unknown',
       adjustmentMode: runContext?.adjustmentMode ?? dataset?.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE,
+      codeRevision: runContext?.codeRevision ?? null,
       actualStart: null,
       actualEnd: null,
       candleCount: null,

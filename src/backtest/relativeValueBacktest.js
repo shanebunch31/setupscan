@@ -26,7 +26,7 @@ export const relativeValueDefaults = {
   periodCount: 4,
 }
 
-const canonicalPairs = [['SPY', 'QQQ'], ['SPY', 'IWM'], ['QQQ', 'IWM']]
+export const canonicalPairs = [['SPY', 'QQQ'], ['SPY', 'IWM'], ['QQQ', 'IWM']]
 const average = (values) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0)
 
 function buildAlignedSeries(rawSeriesBySymbol) {

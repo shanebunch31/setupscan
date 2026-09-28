@@ -5,7 +5,7 @@ import { parseResearchJson, stringifyResearchJson } from '../src/research/resear
 import { normalizeResearchInvestigationInput, normalizeResearchRunId } from '../src/research/researchInvestigation.js'
 import { LEGACY_ADJUSTMENT_MODE } from '../src/data/historicalDataContract.js'
 
-export const RESEARCH_PERSISTENCE_SCHEMA_VERSION = 3
+export const RESEARCH_PERSISTENCE_SCHEMA_VERSION = 4
 export const RESEARCH_INVESTIGATION_PERSISTENCE_SCHEMA_VERSION = 1
 
 const schema = `
@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS research_runs (
   requested_experiments text[] NOT NULL,
   ema_contract_version text NOT NULL DEFAULT 'legacy-unknown',
   adjustment_mode text NOT NULL DEFAULT 'legacy-unknown',
+  code_revision text,
+  effective_date_provenance jsonb,
+  effective_experiment_configuration jsonb,
   dataset_id text,
   provider text,
   fetch_issues jsonb NOT NULL,
@@ -30,6 +33,24 @@ CREATE TABLE IF NOT EXISTS research_runs (
 );
 ALTER TABLE research_runs ADD COLUMN IF NOT EXISTS ema_contract_version text NOT NULL DEFAULT 'legacy-unknown';
 ALTER TABLE research_runs ADD COLUMN IF NOT EXISTS adjustment_mode text NOT NULL DEFAULT 'legacy-unknown';
+ALTER TABLE research_runs ADD COLUMN IF NOT EXISTS code_revision text;
+ALTER TABLE research_runs ADD COLUMN IF NOT EXISTS effective_date_provenance jsonb;
+ALTER TABLE research_runs ADD COLUMN IF NOT EXISTS effective_experiment_configuration jsonb;
+CREATE TABLE IF NOT EXISTS research_datasets (
+  dataset_id text PRIMARY KEY,
+  provider text NOT NULL,
+  adjustment_mode text NOT NULL,
+  timeframe text NOT NULL,
+  effective_metadata jsonb NOT NULL,
+  calculation_series jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'research_runs_dataset_id_fkey') THEN
+    ALTER TABLE research_runs ADD CONSTRAINT research_runs_dataset_id_fkey
+      FOREIGN KEY (dataset_id) REFERENCES research_datasets(dataset_id) ON DELETE RESTRICT NOT VALID;
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS research_runs_requested_at_idx ON research_runs (requested_at DESC, run_id DESC);
 CREATE INDEX IF NOT EXISTS research_runs_dataset_id_idx ON research_runs (dataset_id);
 CREATE INDEX IF NOT EXISTS research_runs_symbols_idx ON research_runs USING GIN (symbols);
@@ -68,7 +89,8 @@ CREATE INDEX IF NOT EXISTS research_investigation_runs_run_id_idx ON research_in
 `
 
 const RUN_COLUMNS = `run_id, requested_at, status, fetch_status, symbols, timeframe,
-  requested_start, requested_end, requested_experiments, ema_contract_version, adjustment_mode, dataset_id, provider,
+  requested_start, requested_end, requested_experiments, ema_contract_version, adjustment_mode, code_revision,
+  effective_date_provenance, effective_experiment_configuration, dataset_id, provider,
   fetch_issues, dataset_metadata, synthesis, persistence_schema_version`
 
 function required(value, label) {
@@ -156,7 +178,69 @@ function metadataOnlyDataset(dataset) {
     timeframe: dataset.timeframe,
     requestedStart: dataset.requestedStart,
     requestedEnd: dataset.requestedEnd,
+    effectiveMetadata: dataset.effectiveMetadata,
     fetchResultsBySymbol,
+  }
+}
+
+function canonicalizeJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalizeJson)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalizeJson(value[key])]))
+  }
+  return value
+}
+
+function canonicalDatasetForResult(result) {
+  if (result.canonicalDataset) return result.canonicalDataset
+  const dataset = result.dataset
+  if (!dataset) return null
+  return {
+    datasetId: dataset.datasetId,
+    provider: dataset.provider,
+    adjustmentMode: dataset.adjustmentMode,
+    timeframe: dataset.timeframe,
+    effectiveMetadata: dataset.effectiveMetadata,
+    calculationSeries: dataset.calculationSeries,
+  }
+}
+
+async function persistImmutableDataset(client, canonicalDataset) {
+  if (!canonicalDataset) return
+  const { datasetId, provider, adjustmentMode, timeframe, effectiveMetadata, calculationSeries } = canonicalDataset
+  required(datasetId, 'canonicalDataset.datasetId')
+  required(provider, 'canonicalDataset.provider')
+  required(adjustmentMode, 'canonicalDataset.adjustmentMode')
+  required(timeframe, 'canonicalDataset.timeframe')
+  if (!effectiveMetadata || !Array.isArray(calculationSeries)) {
+    throw new Error('Canonical research dataset requires effectiveMetadata and calculationSeries')
+  }
+  await client.query(
+    `INSERT INTO research_datasets
+      (dataset_id, provider, adjustment_mode, timeframe, effective_metadata, calculation_series)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)
+     ON CONFLICT (dataset_id) DO NOTHING`,
+    [datasetId, provider, adjustmentMode, timeframe, stringifyResearchJson(effectiveMetadata), stringifyResearchJson(calculationSeries)],
+  )
+  const stored = await client.query(
+    `SELECT dataset_id, provider, adjustment_mode, timeframe, effective_metadata, calculation_series
+     FROM research_datasets WHERE dataset_id = $1 FOR UPDATE`,
+    [datasetId],
+  )
+  const row = stored.rows[0]
+  const storedMetadata = typeof row?.effective_metadata === 'string' ? parseResearchJson(row.effective_metadata) : row?.effective_metadata
+  const storedSeries = typeof row?.calculation_series === 'string' ? parseResearchJson(row.calculation_series) : row?.calculation_series
+  const same = row
+    && row.provider === provider
+    && row.adjustment_mode === adjustmentMode
+    && row.timeframe === timeframe
+    && JSON.stringify(canonicalizeJson(storedMetadata)) === JSON.stringify(canonicalizeJson(effectiveMetadata))
+    && JSON.stringify(canonicalizeJson(storedSeries)) === JSON.stringify(canonicalizeJson(calculationSeries))
+  if (!same) {
+    const error = new Error(`Canonical research dataset conflicts with existing datasetId: ${datasetId}`)
+    error.name = 'ResearchDatasetConflictError'
+    error.code = 'RESEARCH_DATASET_CONFLICT'
+    throw error
   }
 }
 
@@ -258,6 +342,7 @@ function runFromRow(row, experimentRows) {
     requestedExperiments: row.requested_experiments,
     emaContractVersion: row.ema_contract_version ?? 'legacy-unknown',
     adjustmentMode: row.adjustment_mode ?? 'legacy-unknown',
+    codeRevision: row.code_revision ?? null,
   }
   const storedDataset = parseResearchJson(row.dataset_metadata)
   const dataset = storedDataset
@@ -284,6 +369,8 @@ function runFromRow(row, experimentRows) {
     fetchStatus: row.fetch_status,
     fetchIssues: parseResearchJson(row.fetch_issues),
     dataset,
+    effectiveDateProvenance: parseResearchJson(row.effective_date_provenance),
+    effectiveExperimentConfiguration: parseResearchJson(row.effective_experiment_configuration),
     experimentResults,
     records,
     synthesis: parseResearchJson(row.synthesis),
@@ -351,14 +438,28 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
     await init()
     const context = result.runContext
     const dataset = metadataOnlyDataset(result.dataset)
+    const canonicalDataset = canonicalDatasetForResult(result)
+    if (result.dataset?.datasetId && canonicalDataset?.datasetId !== result.dataset.datasetId) {
+      const error = new Error('Canonical research dataset must match the run datasetId')
+      error.name = 'ResearchRunValidationError'
+      error.code = 'RESEARCH_RUN_INVALID'
+      throw error
+    }
+    if (result.dataset?.datasetId && !canonicalDataset) {
+      const error = new Error('Research run with a datasetId requires canonical calculation input')
+      error.name = 'ResearchRunValidationError'
+      error.code = 'RESEARCH_RUN_INVALID'
+      throw error
+    }
     const recordsByExperiment = new Map(result.records.map((record) => [record.id, record]))
     const client = await clientPool.connect()
     try {
       await client.query('BEGIN')
+      await persistImmutableDataset(client, canonicalDataset)
       await client.query(
         `INSERT INTO research_runs (${RUN_COLUMNS}) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-          $14::jsonb, $15::jsonb, $16::jsonb, $17
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+          $13::jsonb, $14::jsonb, $15, $16, $17::jsonb, $18::jsonb, $19::jsonb, $20
         )`,
         [
           context.runId,
@@ -372,6 +473,9 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
           context.requestedExperiments,
           context.emaContractVersion,
           context.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE,
+          context.codeRevision ?? null,
+          jsonParameter(result.effectiveDateProvenance ?? result.dataset?.effectiveMetadata ?? null),
+          jsonParameter(result.effectiveExperimentConfiguration ?? null),
           result.dataset?.datasetId ?? null,
           result.dataset?.provider ?? null,
           stringifyResearchJson(result.fetchIssues),
@@ -432,10 +536,30 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
     return runFromRow(row, experiments.rows)
   }
 
+  async function getResearchDataset(datasetId) {
+    await init()
+    const result = await clientPool.query(
+      `SELECT dataset_id, provider, adjustment_mode, timeframe, effective_metadata, calculation_series, created_at
+       FROM research_datasets WHERE dataset_id = $1`,
+      [datasetId],
+    )
+    const row = result.rows[0]
+    if (!row) return null
+    return {
+      datasetId: row.dataset_id,
+      provider: row.provider,
+      adjustmentMode: row.adjustment_mode,
+      timeframe: row.timeframe,
+      effectiveMetadata: typeof row.effective_metadata === 'string' ? parseResearchJson(row.effective_metadata) : row.effective_metadata,
+      calculationSeries: typeof row.calculation_series === 'string' ? parseResearchJson(row.calculation_series) : row.calculation_series,
+      createdAt: dateString(row.created_at),
+    }
+  }
+
   async function getResearchRunComparisonSnapshot(runId) {
     await init()
     const result = await clientPool.query(
-      'SELECT run_id, requested_at, dataset_id, ema_contract_version, adjustment_mode, synthesis FROM research_runs WHERE run_id = $1',
+      'SELECT run_id, requested_at, dataset_id, ema_contract_version, adjustment_mode, code_revision, synthesis FROM research_runs WHERE run_id = $1',
       [runId],
     )
     const row = result.rows[0]
@@ -446,6 +570,7 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
       datasetId: row.dataset_id,
       emaContractVersion: row.ema_contract_version ?? 'legacy-unknown',
       adjustmentMode: row.adjustment_mode ?? 'legacy-unknown',
+      codeRevision: row.code_revision ?? null,
       synthesis: parseResearchJson(row.synthesis),
     }
   }
@@ -582,6 +707,7 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
     init,
     saveResearchRun,
     getResearchRun,
+    getResearchDataset,
     getResearchRunComparisonSnapshot,
     listResearchRuns,
     createResearchInvestigation,

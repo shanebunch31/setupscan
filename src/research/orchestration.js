@@ -5,6 +5,7 @@ import { getResearchExperiment, listResearchExperiments } from './registry.js'
 import { executeResearchExperiment } from './experimentExecutors.js'
 import { EMA_CONTRACT_VERSION, fetchHistoricalMarketData as defaultFetchHistoricalMarketData } from '../data/marketData.js'
 import { HISTORICAL_ADJUSTMENT_MODE, LEGACY_ADJUSTMENT_MODE } from '../data/historicalDataContract.js'
+import { createEffectiveExperimentConfiguration } from './effectiveExperimentConfiguration.js'
 
 export { executeResearchExperiment }
 
@@ -153,6 +154,67 @@ function serializeFetchResultsForFingerprint(fetchResults, defaultAdjustmentMode
   return JSON.stringify(normalized)
 }
 
+function applicationCodeRevision() {
+  const value = import.meta.env?.VITE_GIT_COMMIT
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function calculationCandlesFor(fetchResult) {
+  return Array.isArray(fetchResult?.calculationCandles)
+    ? fetchResult.calculationCandles
+    : Array.isArray(fetchResult?.candles) ? fetchResult.candles : []
+}
+
+function canonicalCandle(candle, fetchResult) {
+  return {
+    symbol: candle?.symbol ?? fetchResult.symbol,
+    timestamp: candle?.timestamp ?? null,
+    timeframe: candle?.timeframe ?? fetchResult.timeframe,
+    open: candle?.open ?? null,
+    high: candle?.high ?? null,
+    low: candle?.low ?? null,
+    close: candle?.close ?? null,
+    volume: candle?.volume ?? null,
+  }
+}
+
+function calculationSeriesFor(fetchResults) {
+  return [...fetchResults]
+    .sort((left, right) => (left.symbol < right.symbol ? -1 : left.symbol > right.symbol ? 1 : 0))
+    .map((fetchResult) => ({
+      symbol: fetchResult.symbol,
+      timeframe: fetchResult.timeframe,
+      candles: calculationCandlesFor(fetchResult).map((candle) => canonicalCandle(candle, fetchResult)),
+    }))
+}
+
+function effectiveDateProvenanceFor(runContext, fetchResultsBySymbol) {
+  const symbols = Object.fromEntries((runContext.symbols ?? []).map((symbol) => {
+    const result = fetchResultsBySymbol[symbol]
+    if (!result) return [symbol, null]
+    const calculationCandles = calculationCandlesFor(result)
+    return [symbol, {
+      provider: result.provider ?? null,
+      adjustmentMode: result.adjustmentMode ?? runContext.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE,
+      timeframe: result.timeframe ?? runContext.timeframe ?? null,
+      requestedStart: result.requestedStart ?? runContext.requestedStart ?? null,
+      requestedEnd: result.requestedEnd ?? runContext.requestedEnd ?? null,
+      actualStart: result.start ?? null,
+      actualEnd: result.end ?? null,
+      calculationStart: result.calculationStart ?? calculationCandles[0]?.timestamp ?? result.start ?? null,
+      calculationEnd: result.calculationEnd ?? calculationCandles.at(-1)?.timestamp ?? result.end ?? null,
+      requestedCandleCount: result.requestedCandleCount ?? result.candleCount ?? null,
+      calculationCandleCount: result.calculationCandleCount ?? result.candleCount ?? null,
+      complete: result.complete ?? null,
+    }]
+  }))
+  return {
+    requestedStart: runContext.requestedStart ?? null,
+    requestedEnd: runContext.requestedEnd ?? null,
+    symbols,
+  }
+}
+
 /** Synchronous SHA-256 over UTF-8 canonical JSON, without runtime-specific crypto APIs. */
 function sha256Hex(input) {
   const bytes = new TextEncoder().encode(input)
@@ -234,6 +296,7 @@ export function createResearchRunContext(request = {}) {
     requestedExperiments,
     emaContractVersion: EMA_CONTRACT_VERSION,
     adjustmentMode: HISTORICAL_ADJUSTMENT_MODE,
+    codeRevision: applicationCodeRevision(),
   }
 }
 
@@ -347,6 +410,8 @@ export async function executeResearchRun(runContext, options = {}) {
       fetchIssues: [],
       dataset: null,
       experimentResults: [],
+      effectiveDateProvenance: effectiveDateProvenanceFor(runContext, {}),
+      effectiveExperimentConfiguration: {},
     }
   }
 
@@ -359,6 +424,8 @@ export async function executeResearchRun(runContext, options = {}) {
       fetchIssues: [{ type: 'orchestration-configuration-error', message: 'Fetch and experiment dependencies must be functions.' }],
       dataset: null,
       experimentResults: [],
+      effectiveDateProvenance: effectiveDateProvenanceFor(runContext, {}),
+      effectiveExperimentConfiguration: {},
     }
   }
   const symbols = runContext.symbols ?? []
@@ -396,6 +463,7 @@ export async function executeResearchRun(runContext, options = {}) {
   })
 
   const fetchStatus = fetchStatusFor(runContext, rawSeriesBySymbol, fetchIssues)
+  const effectiveDateProvenance = effectiveDateProvenanceFor(runContext, fetchResultsBySymbol)
   const providers = new Set(successfulFetchResults.map((result) => result?.provider))
   if (successfulFetchResults.length && (providers.size !== 1 || typeof [...providers][0] !== 'string' || ![...providers][0])) {
     fetchIssues.push({
@@ -410,6 +478,8 @@ export async function executeResearchRun(runContext, options = {}) {
       fetchIssues,
       dataset: null,
       experimentResults: [],
+      effectiveDateProvenance,
+      effectiveExperimentConfiguration: {},
     }
   }
 
@@ -427,6 +497,8 @@ export async function executeResearchRun(runContext, options = {}) {
         requestedEnd: runContext.requestedEnd,
         fetchResultsBySymbol,
         rawSeriesBySymbol,
+        calculationSeries: calculationSeriesFor(nonEmptyFetchResults),
+        effectiveMetadata: effectiveDateProvenance,
       }
     } catch (error) {
       fetchIssues.push({ type: 'dataset-assembly-error', error: structuredError(error), fetchResultsBySymbol })
@@ -437,6 +509,8 @@ export async function executeResearchRun(runContext, options = {}) {
         fetchIssues,
         dataset: null,
         experimentResults: [],
+        effectiveDateProvenance,
+        effectiveExperimentConfiguration: {},
       }
     }
   }
@@ -449,6 +523,8 @@ export async function executeResearchRun(runContext, options = {}) {
       fetchIssues,
       dataset: null,
       experimentResults: requestedExperiments.map(unavailableResult),
+      effectiveDateProvenance,
+      effectiveExperimentConfiguration: createEffectiveExperimentConfiguration(requestedExperiments.map((experimentId) => unavailableResult(experimentId))),
     }
   }
 
@@ -470,5 +546,14 @@ export async function executeResearchRun(runContext, options = {}) {
   const allExperimentsSucceeded = experimentResults.length === requestedExperiments.length
     && experimentResults.every((result) => result?.status === 'succeeded')
   const status = fetchStatus === 'complete' && allExperimentsSucceeded ? 'completed' : 'partial'
-  return { runContext, status, fetchStatus, fetchIssues, dataset, experimentResults }
+  return {
+    runContext,
+    status,
+    fetchStatus,
+    fetchIssues,
+    dataset,
+    experimentResults,
+    effectiveDateProvenance,
+    effectiveExperimentConfiguration: createEffectiveExperimentConfiguration(experimentResults),
+  }
 }

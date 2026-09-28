@@ -39,6 +39,16 @@ const trendBreadthCombos = [
   ['Uptrend', 'Strong'], ['Uptrend', 'Weak'], ['Downtrend', 'Strong'], ['Downtrend', 'Weak'],
 ]
 
+export function getCausalRegimeDefinitions() {
+  return {
+    trendLabels: [...trendLabels],
+    volatilityLabels: [...volatilityLabels],
+    breadthLabels: [...breadthLabels],
+    trendVolatilityCombos: trendVolatilityCombos.map((combo) => [...combo]),
+    trendBreadthCombos: trendBreadthCombos.map((combo) => [...combo]),
+  }
+}
+
 // --- Causal building blocks: every function only ever reads index (index - period + 1) .. index. ---
 
 function trailingSma(closes, index, period) {

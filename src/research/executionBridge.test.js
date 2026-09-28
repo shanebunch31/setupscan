@@ -78,6 +78,7 @@ test('succeeded execution selects the registry adapter and supplies run/dataset 
     runId: context.runId,
     datasetId: data.datasetId,
     requestedAt: context.requestedAt,
+    codeRevision: null,
     emaContractVersion: context.emaContractVersion,
     adjustmentMode: context.adjustmentMode,
   })
@@ -205,6 +206,7 @@ test('Strategy Discovery native provenance survives orchestration provenance ove
     runId: 'run-bridge-test',
     datasetId: 'dataset-bridge-test',
     requestedAt: '2026-09-26T00:00:00.000Z',
+    codeRevision: null,
     emaContractVersion: EMA_CONTRACT_VERSION,
     adjustmentMode: 'split',
   })

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { compareResearchRuns, getResearchRun, listResearchRuns, saveResearchRun } from './researchRunHistory.js'
+import { compareResearchRuns, getResearchDataset, getResearchRun, listResearchRuns, saveResearchRun } from './researchRunHistory.js'
 
 test('saveResearchRun posts the persistence projection using the research history API', async () => {
   const originalFetch = globalThis.fetch
@@ -144,6 +144,23 @@ test('listResearchRuns sends supported filters and reports API errors', async ()
   globalThis.fetch = async () => ({ ok: false, text: async () => '{"error":"not found"}' })
   try {
     await assert.rejects(getResearchRun('missing'), /not found/)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('getResearchDataset retrieves the canonical calculation series by datasetId', async () => {
+  const originalFetch = globalThis.fetch
+  let requestedUrl
+  globalThis.fetch = async (url) => {
+    requestedUrl = String(url)
+    return { ok: true, text: async () => '{"datasetId":"dataset%2F1","calculationSeries":[]}' }
+  }
+  try {
+    const dataset = await getResearchDataset('dataset/1')
+    assert.match(requestedUrl, /\/api\/research-datasets\/dataset%2F1$/)
+    assert.equal(dataset.datasetId, 'dataset%2F1')
+    assert.deepEqual(dataset.calculationSeries, [])
   } finally {
     globalThis.fetch = originalFetch
   }

@@ -259,8 +259,9 @@ test('synthesis receives only the approved context and is called exactly once', 
     datasetId: 'dataset-compose-test',
     requestedExperiments: ['robustness'],
     adjustmentMode: 'split',
+    codeRevision: null,
   })
-  assert.deepEqual(Object.keys(receivedContext), ['runId', 'datasetId', 'requestedExperiments', 'adjustmentMode'])
+  assert.deepEqual(Object.keys(receivedContext), ['runId', 'datasetId', 'requestedExperiments', 'adjustmentMode', 'codeRevision'])
   assert.deepEqual(composed.synthesis, { done: true })
 })
 

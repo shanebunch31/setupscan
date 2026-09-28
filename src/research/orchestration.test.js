@@ -431,6 +431,12 @@ test('createResearchRunContext records split adjustment mode', () => {
   assert.equal(createResearchRunContext(baseRequest()).adjustmentMode, HISTORICAL_ADJUSTMENT_MODE)
 })
 
+test('createResearchRunContext takes code revision from the build environment, never from request input', () => {
+  const context = createResearchRunContext(baseRequest({ codeRevision: 'caller-supplied-revision' }))
+  assert.notEqual(context.codeRevision, 'caller-supplied-revision')
+  assert.ok(context.codeRevision === null || typeof context.codeRevision === 'string')
+})
+
 test('createResearchRunContext: duplicate experiment ids are removed', () => {
   const context = createResearchRunContext(baseRequest({ requestedExperiments: ['robustness', 'robustness', 'signal-quality'] }))
   assert.deepEqual(context.requestedExperiments, ['robustness', 'signal-quality'])
@@ -577,21 +583,31 @@ test('executeResearchRun preserves the same timeframe and requested date range f
 
 test('executeResearchRun preserves fetch response references and creates the exact canonical dataset shape', async () => {
   const responses = ['SPY', 'QQQ'].map((symbol) => makeRunFetchResult(symbol))
+  const preRoll = { symbol: 'SPY', timeframe: '1Hour', timestamp: 'SPY-pre-roll', open: 98, high: 99, low: 97, close: 98, volume: 900 }
+  Object.defineProperty(responses[0], 'calculationCandles', { value: [preRoll, ...responses[0].candles] })
   const result = await executeResearchRun(
     makeRunContext({ symbols: ['SPY', 'QQQ'] }),
     runOptions(async (symbol) => responses.find((response) => response.symbol === symbol)),
   )
   assert.deepEqual(Object.keys(result.dataset), [
-    'datasetId', 'provider', 'adjustmentMode', 'timeframe', 'requestedStart', 'requestedEnd', 'fetchResultsBySymbol', 'rawSeriesBySymbol',
+    'datasetId', 'provider', 'adjustmentMode', 'timeframe', 'requestedStart', 'requestedEnd', 'fetchResultsBySymbol', 'rawSeriesBySymbol', 'calculationSeries', 'effectiveMetadata',
   ])
   assert.equal(result.dataset.fetchResultsBySymbol.SPY, responses[0])
   assert.equal(result.dataset.fetchResultsBySymbol.QQQ, responses[1])
   assert.equal(result.dataset.rawSeriesBySymbol.SPY, responses[0].candles)
   assert.equal(result.dataset.rawSeriesBySymbol.QQQ, responses[1].candles)
+  assert.equal(result.dataset.calculationSeries[0].symbol, 'QQQ')
+  assert.deepEqual(result.dataset.calculationSeries[1].candles, [
+    { symbol: 'SPY', timeframe: '1Hour', timestamp: 'SPY-pre-roll', open: 98, high: 99, low: 97, close: 98, volume: 900 },
+    { symbol: 'SPY', timeframe: '1Hour', timestamp: 'SPY-actual-start', open: 100, high: 101, low: 99, close: 100, volume: 1000 },
+  ])
   assert.equal(result.dataset.provider, 'ALPACA HISTORICAL')
   assert.equal(result.dataset.timeframe, '1Hour')
   assert.equal(result.dataset.requestedStart, result.runContext.requestedStart)
   assert.equal(result.dataset.requestedEnd, result.runContext.requestedEnd)
+  assert.equal(result.effectiveDateProvenance.symbols.SPY.calculationStart, 'SPY-pre-roll')
+  assert.equal(result.effectiveDateProvenance.symbols.SPY.requestedEnd, result.runContext.requestedEnd)
+  assert.ok(result.effectiveExperimentConfiguration.robustness)
   assert.equal('actualStart' in result.dataset, false)
   assert.equal('actualEnd' in result.dataset, false)
   assert.equal('candleCount' in result.dataset, false)
@@ -791,7 +807,7 @@ test('strategy-comparison and strategy-discovery dispatch receive only canonical
   assert.deepEqual(datasets.map(([experimentId]) => experimentId), requestedExperiments)
   for (const [, dataset] of datasets) {
     assert.deepEqual(Object.keys(dataset), [
-      'datasetId', 'provider', 'adjustmentMode', 'timeframe', 'requestedStart', 'requestedEnd', 'fetchResultsBySymbol', 'rawSeriesBySymbol',
+      'datasetId', 'provider', 'adjustmentMode', 'timeframe', 'requestedStart', 'requestedEnd', 'fetchResultsBySymbol', 'rawSeriesBySymbol', 'calculationSeries', 'effectiveMetadata',
     ])
     assert.equal(Array.isArray(dataset.rawSeriesBySymbol.SPY), true)
   }

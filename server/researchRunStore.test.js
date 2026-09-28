@@ -9,6 +9,7 @@ import { createResearchRunStore, RESEARCH_PERSISTENCE_SCHEMA_VERSION } from './r
 function cloneState(state) {
   return {
     runs: new Map(state.runs),
+    datasets: new Map(state.datasets),
     experiments: new Map([...state.experiments].map(([key, rows]) => [key, [...rows]])),
     investigations: new Map([...state.investigations].map(([key, row]) => [key, { ...row }])),
     investigationRuns: state.investigationRuns.map((row) => ({ ...row })),
@@ -21,7 +22,7 @@ function rowKey(runId, experimentId) {
 
 class MemoryResearchPool {
   constructor() {
-    this.state = { runs: new Map(), experiments: new Map(), investigations: new Map(), investigationRuns: [] }
+    this.state = { runs: new Map(), datasets: new Map(), experiments: new Map(), investigations: new Map(), investigationRuns: [] }
     this.failExperimentId = null
     this.committedTransactions = 0
     this.rolledBackTransactions = 0
@@ -66,9 +67,39 @@ class MemoryResearchPool {
       this.schemaSql = text
       return { rows: [] }
     }
+    if (text.startsWith('INSERT INTO research_datasets')) {
+      const [datasetId, provider, adjustmentMode, timeframe, effectiveMetadata, calculationSeries] = values
+      if (!state.datasets.has(datasetId)) {
+        state.datasets.set(datasetId, {
+          dataset_id: datasetId,
+          provider,
+          adjustment_mode: adjustmentMode,
+          timeframe,
+          effective_metadata: JSON.parse(effectiveMetadata),
+          calculation_series: JSON.parse(calculationSeries),
+          created_at: new Date().toISOString(),
+        })
+      }
+      return { rows: [] }
+    }
+    if (text.startsWith('DELETE FROM research_datasets')) {
+      const datasetId = values[0]
+      if ([...state.runs.values()].some((run) => run.dataset_id === datasetId)) {
+        const error = new Error('foreign key restrict')
+        error.code = '23503'
+        throw error
+      }
+      state.datasets.delete(datasetId)
+      return { rows: [] }
+    }
+    if (text.includes('FROM research_datasets WHERE dataset_id = $1')) {
+      const row = state.datasets.get(values[0])
+      return { rows: row ? [{ ...row }] : [] }
+    }
     if (text.startsWith('INSERT INTO research_runs')) {
       const [runId, requestedAt, status, fetchStatus, symbols, timeframe, requestedStart, requestedEnd,
-        requestedExperiments, emaContractVersion, adjustmentMode, datasetId, provider, fetchIssues, datasetMetadata, synthesis, schemaVersion] = values
+        requestedExperiments, emaContractVersion, adjustmentMode, codeRevision, effectiveDateProvenance,
+        effectiveExperimentConfiguration, datasetId, provider, fetchIssues, datasetMetadata, synthesis, schemaVersion] = values
       if (state.runs.has(runId)) {
         const error = new Error('duplicate run')
         error.code = '23505'
@@ -87,6 +118,9 @@ class MemoryResearchPool {
         requested_experiments: requestedExperiments,
         ema_contract_version: emaContractVersion,
         adjustment_mode: adjustmentMode,
+        code_revision: codeRevision,
+        effective_date_provenance: effectiveDateProvenance === null ? null : JSON.parse(effectiveDateProvenance),
+        effective_experiment_configuration: effectiveExperimentConfiguration === null ? null : JSON.parse(effectiveExperimentConfiguration),
         dataset_id: datasetId,
         provider,
         fetch_issues: JSON.parse(fetchIssues),
@@ -198,7 +232,7 @@ class MemoryResearchPool {
     if (text.includes('FROM research_run_experiments WHERE run_id = $1')) {
       return { rows: [...(state.experiments.get(values[0]) ?? [])].sort((a, b) => a.execution_order - b.execution_order) }
     }
-    if (text.startsWith('SELECT run_id, requested_at, dataset_id, ema_contract_version, adjustment_mode, synthesis FROM research_runs WHERE run_id = $1')) {
+    if (text.startsWith('SELECT run_id, requested_at, dataset_id, ema_contract_version, adjustment_mode, code_revision, synthesis FROM research_runs WHERE run_id = $1')) {
       const row = state.runs.get(values[0])
       return { rows: row ? [{
         run_id: row.run_id,
@@ -206,6 +240,7 @@ class MemoryResearchPool {
         dataset_id: row.dataset_id,
         ema_contract_version: row.ema_contract_version,
         adjustment_mode: row.adjustment_mode,
+        code_revision: row.code_revision,
         synthesis: row.synthesis,
       }] : [] }
     }
@@ -271,6 +306,8 @@ function makeRunResult({
   records,
   fetchIssues = [],
   synthesis = { schemaVersion: 1, generatedAt: 'synthesis-time', coverage: { requested: requestedExperiments, evaluated: [] }, strategyGroups: [], provenance: { runId, datasetId } },
+  codeRevision = null,
+  effectiveExperimentConfiguration = { robustness: { status: 'succeeded', configuration: { threshold: 75 } } },
 } = {}) {
   const nativeOutput = {
     thresholdResults: [{
@@ -296,6 +333,7 @@ function makeRunResult({
       requestedStart: '2022-01-01T00:00:00Z', requestedEnd: '2026-09-26T00:00:00Z', requestedExperiments,
       emaContractVersion: 'setupscan-ema-sma-seeded-recursive-v1',
       adjustmentMode: 'split',
+      codeRevision,
     },
     status,
     fetchStatus,
@@ -314,10 +352,36 @@ function makeRunResult({
         candleCount: 220, complete: true, minimumExpectedCandles: 1000, candles: makeCandles(symbol),
       }])),
       rawSeriesBySymbol: Object.fromEntries(symbols.map((symbol) => [symbol, makeCandles(symbol)])),
+      calculationSeries: symbols.slice().sort().map((symbol) => ({
+        symbol,
+        timeframe: '1Hour',
+        candles: [
+          { symbol, timeframe: '1Hour', timestamp: '2021-12-31T23:00:00.000Z', open: 99, high: 100, low: 98, close: 99, volume: 900 },
+          ...makeCandles(symbol),
+        ],
+      })),
+      effectiveMetadata: {
+        requestedStart: '2022-01-01T00:00:00Z', requestedEnd: '2026-09-26T00:00:00Z',
+        symbols: Object.fromEntries(symbols.map((symbol) => [symbol, {
+          provider: 'ALPACA HISTORICAL', adjustmentMode: 'split', timeframe: '1Hour',
+          requestedStart: '2022-01-01T00:00:00Z', requestedEnd: '2026-09-26T00:00:00Z',
+          actualStart: '2022-01-03T00:00:00.000Z', actualEnd: '2022-01-12T03:00:00.000Z',
+          calculationStart: '2021-12-01T00:00:00.000Z', calculationEnd: '2022-01-12T03:00:00.000Z',
+          requestedCandleCount: 220, calculationCandleCount: 230,
+        }])) ,
+      },
     } : null,
     experimentResults: experimentExecutionResults,
     records: normalizedRecords,
     synthesis,
+    effectiveDateProvenance: datasetId ? {
+      requestedStart: '2022-01-01T00:00:00Z', requestedEnd: '2026-09-26T00:00:00Z',
+      symbols: Object.fromEntries(symbols.map((symbol) => [symbol, {
+        actualStart: '2022-01-03T00:00:00.000Z', actualEnd: '2022-01-12T03:00:00.000Z',
+        calculationStart: '2021-12-01T00:00:00.000Z', calculationEnd: '2022-01-12T03:00:00.000Z',
+      }])),
+    } : { requestedStart: null, requestedEnd: null, symbols: {} },
+    effectiveExperimentConfiguration,
   }
 }
 
@@ -342,6 +406,92 @@ test('saves and retrieves a completed run with record, nativePayload, synthesis,
   assert.equal(retrieved.dataset.datasetId, run.dataset.datasetId)
   assert.equal(retrieved.dataset.adjustmentMode, 'split')
   assert.equal(retrieved.dataset.rawSeriesBySymbol, null)
+  assert.equal('calculationSeries' in retrieved.dataset, false)
+  assert.deepEqual(retrieved.effectiveDateProvenance, run.effectiveDateProvenance)
+  assert.deepEqual(retrieved.effectiveExperimentConfiguration, run.effectiveExperimentConfiguration)
+  assert.equal(pool.state.datasets.size, 1)
+  assert.equal(pool.state.datasets.get(run.dataset.datasetId).calculation_series[0].candles.length, 221)
+  assert.equal('calculationSeries' in pool.state.runs.get(run.runContext.runId).dataset_metadata, false)
+  assert.equal(pool.state.runs.get(run.runContext.runId).code_revision, null)
+})
+
+test('persists code revision and explicitly preserves unknown when it is unavailable', async () => {
+  const store = createResearchRunStore({ pool: new MemoryResearchPool() })
+  const known = makeRunResult({ runId: 'run-known-revision', codeRevision: 'a1b2c3d4' })
+  const unknown = makeRunResult({ runId: 'run-unknown-revision', datasetId: null, codeRevision: null })
+  await store.saveResearchRun(known)
+  await store.saveResearchRun(unknown)
+  assert.equal((await store.getResearchRun(known.runContext.runId)).runContext.codeRevision, 'a1b2c3d4')
+  assert.equal((await store.getResearchRun(unknown.runContext.runId)).runContext.codeRevision, null)
+})
+
+test('reuses an immutable dataset for multiple runs and retrieves it by datasetId', async () => {
+  const pool = new MemoryResearchPool()
+  const store = createResearchRunStore({ pool })
+  const first = makeRunResult({ runId: 'run-shared-a' })
+  const second = makeRunResult({ runId: 'run-shared-b' })
+  await store.saveResearchRun(first)
+  await store.saveResearchRun(second)
+  assert.equal(pool.state.datasets.size, 1)
+  assert.equal(pool.state.runs.get(first.runContext.runId).dataset_id, first.dataset.datasetId)
+  assert.equal(pool.state.runs.get(second.runContext.runId).dataset_id, first.dataset.datasetId)
+  const dataset = await store.getResearchDataset(first.dataset.datasetId)
+  assert.equal(dataset.datasetId, first.dataset.datasetId)
+  assert.equal(dataset.calculationSeries[0].candles[0].timestamp, '2021-12-31T23:00:00.000Z')
+})
+
+test('keeps a historical run readable when it has no canonical dataset row', async () => {
+  const pool = new MemoryResearchPool()
+  const store = createResearchRunStore({ pool })
+  const run = makeRunResult({ runId: 'run-legacy-no-input' })
+  await store.saveResearchRun(run)
+  pool.state.datasets.delete(run.dataset.datasetId)
+  const retrieved = await store.getResearchRun(run.runContext.runId)
+  assert.equal(retrieved.runContext.runId, run.runContext.runId)
+  assert.equal(retrieved.dataset.datasetId, run.dataset.datasetId)
+  assert.equal(await store.getResearchDataset(run.dataset.datasetId), null)
+})
+
+test('rejects changed content for an existing datasetId without overwriting it', async () => {
+  const pool = new MemoryResearchPool()
+  const store = createResearchRunStore({ pool })
+  const original = makeRunResult({ runId: 'run-immutable-original' })
+  await store.saveResearchRun(original)
+  const conflicting = makeRunResult({ runId: 'run-immutable-conflict' })
+  conflicting.dataset.calculationSeries[0].candles[0].close += 1
+  await assert.rejects(store.saveResearchRun(conflicting), { code: 'RESEARCH_DATASET_CONFLICT' })
+  assert.equal(pool.state.runs.has(conflicting.runContext.runId), false)
+  assert.equal(pool.state.datasets.get(original.dataset.datasetId).calculation_series[0].candles[0].close, 99)
+})
+
+test('dataset, run, and experiment rows roll back together when experiment persistence fails', async () => {
+  const pool = new MemoryResearchPool()
+  pool.failExperimentId = 'relative-value'
+  const store = createResearchRunStore({ pool })
+  const run = makeRunResult({
+    runId: 'run-dataset-rollback',
+    experimentResults: [
+      { experimentId: 'robustness', status: 'failed', nativeOutput: null, error: { message: 'x' } },
+      { experimentId: 'relative-value', status: 'failed', nativeOutput: null, error: { message: 'y' } },
+    ],
+    records: [],
+  })
+  await assert.rejects(store.saveResearchRun(run), /injected experiment insert failure/)
+  assert.equal(pool.state.datasets.has(run.dataset.datasetId), false)
+  assert.equal(pool.state.runs.has(run.runContext.runId), false)
+  assert.equal(pool.state.experiments.has(run.runContext.runId), false)
+})
+
+test('a shared dataset cannot be deleted while any saved run references it', async () => {
+  const pool = new MemoryResearchPool()
+  const store = createResearchRunStore({ pool })
+  const first = makeRunResult({ runId: 'run-ref-a' })
+  const second = makeRunResult({ runId: 'run-ref-b' })
+  await store.saveResearchRun(first)
+  await store.saveResearchRun(second)
+  await assert.rejects(pool.query('DELETE FROM research_datasets WHERE dataset_id = $1', [first.dataset.datasetId]), { code: '23503' })
+  assert.equal(pool.state.datasets.has(first.dataset.datasetId), true)
+  assert.match(pool.schemaSql, /FOREIGN KEY \(dataset_id\) REFERENCES research_datasets\(dataset_id\) ON DELETE RESTRICT/)
 })
 
 test('saves partial, unavailable, failed, and no-experiment run headers and child rows', async () => {
@@ -439,6 +589,7 @@ test('header and experiment inserts roll back atomically when a child insert fai
   await assert.rejects(store.saveResearchRun(run), /injected experiment insert failure/)
   assert.equal(pool.state.runs.has('run-rollback'), false)
   assert.equal(pool.state.experiments.has('run-rollback'), false)
+  assert.equal(pool.state.datasets.has(run.dataset.datasetId), false)
   assert.equal(pool.rolledBackTransactions, 1)
   assert.equal(pool.committedTransactions, 0)
   assert.equal(pool.releasedClients, 1)
@@ -462,10 +613,11 @@ test('comparison snapshot query reads only run metadata and synthesis', async ()
     datasetId: run.dataset.datasetId,
     emaContractVersion: 'setupscan-ema-sma-seeded-recursive-v1',
     adjustmentMode: 'split',
+    codeRevision: null,
     synthesis: run.synthesis,
   })
   assert.equal(pool.queries.length, 1)
-  assert.match(pool.queries[0].text, /SELECT run_id, requested_at, dataset_id, ema_contract_version, adjustment_mode, synthesis FROM research_runs/)
+  assert.match(pool.queries[0].text, /SELECT run_id, requested_at, dataset_id, ema_contract_version, adjustment_mode, code_revision, synthesis FROM research_runs/)
   assert.doesNotMatch(pool.queries[0].text, /research_run_experiments|record|native_payload/)
 })
 
@@ -476,7 +628,7 @@ test('lists recent runs with status, dataset, symbol, experiment, and pagination
     makeRunResult({ runId: 'run-b', requestedAt: '2026-09-25T00:00:00Z', symbols: ['QQQ'], datasetId: 'dataset-b', requestedExperiments: ['relative-value'], status: 'partial' }),
     makeRunResult({
       runId: 'run-c', requestedAt: '2026-09-26T00:00:00Z', symbols: ['SPY', 'IWM'],
-      datasetId: 'dataset-a', requestedExperiments: ['robustness', 'signal-quality'], status: 'completed',
+      datasetId: 'dataset-c', requestedExperiments: ['robustness', 'signal-quality'], status: 'completed',
       experimentResults: [
         { experimentId: 'robustness', status: 'succeeded', nativeOutput: { metrics: {} }, error: null },
         { experimentId: 'signal-quality', status: 'unavailable', nativeOutput: null, error: null },
@@ -489,7 +641,8 @@ test('lists recent runs with status, dataset, symbol, experiment, and pagination
 
   assert.deepEqual((await store.listResearchRuns({ limit: 2 })).map((entry) => entry.runId), ['run-c', 'run-b'])
   assert.deepEqual((await store.listResearchRuns({ status: 'partial' })).map((entry) => entry.runId), ['run-b'])
-  assert.deepEqual((await store.listResearchRuns({ datasetId: 'dataset-a' })).map((entry) => entry.runId), ['run-c', 'run-a'])
+  assert.deepEqual((await store.listResearchRuns({ datasetId: 'dataset-a' })).map((entry) => entry.runId), ['run-a'])
+  assert.deepEqual((await store.listResearchRuns({ datasetId: 'dataset-c' })).map((entry) => entry.runId), ['run-c'])
   assert.deepEqual((await store.listResearchRuns({ symbols: ['IWM'] })).map((entry) => entry.runId), ['run-c'])
   assert.deepEqual((await store.listResearchRuns({ experimentId: 'signal-quality' })).map((entry) => entry.runId), ['run-c'])
   assert.deepEqual((await store.listResearchRuns({ limit: 1, offset: 1 })).map((entry) => entry.runId), ['run-b'])
@@ -509,7 +662,7 @@ test('persists the storage schema version and uses current synthesis schema meta
   const header = pool.state.runs.get(run.runContext.runId)
   assert.equal(header.persistence_schema_version, RESEARCH_PERSISTENCE_SCHEMA_VERSION)
   assert.equal(header.synthesis.schemaVersion, 1)
-  assert.equal(header.persistence_schema_version, 3)
+  assert.equal(header.persistence_schema_version, 4)
 })
 
 test('representative multi-symbol Signal Quality persistence reports serialized payload size', async () => {
@@ -562,13 +715,15 @@ test('representative multi-symbol Signal Quality persistence reports serialized 
   assert.ok(bytes > 0)
 })
 
-test('schema creates only research-specific tables and contains no raw candle dataset table', async () => {
+test('schema creates research-specific dataset and run tables without a per-candle table', async () => {
   const pool = new MemoryResearchPool()
   const store = createResearchRunStore({ pool })
   await store.init()
   assert.equal(pool.schemaQueries, 1)
   assert.ok(!pool.schemaSql.includes('paper_observer_state'))
-  assert.ok(!pool.schemaSql.includes('CREATE TABLE IF NOT EXISTS research_datasets'))
+  assert.match(pool.schemaSql, /CREATE TABLE IF NOT EXISTS research_datasets/)
+  assert.match(pool.schemaSql, /ON DELETE RESTRICT NOT VALID/)
+  assert.ok(!pool.schemaSql.includes('research_dataset_candles'))
   assert.ok(!pool.schemaSql.includes('native_output'))
   assert.match(pool.schemaSql, /CREATE TABLE IF NOT EXISTS research_runs/)
   assert.match(pool.schemaSql, /CREATE TABLE IF NOT EXISTS research_run_experiments/)
@@ -646,12 +801,10 @@ test('historical rows without adjustment provenance hydrate as legacy-unknown wi
   const pool = new MemoryResearchPool()
   const store = createResearchRunStore({ pool })
   const run = makeRunResult({ runId: 'run-legacy-adjustment' })
-  delete run.runContext.adjustmentMode
-  delete run.dataset.adjustmentMode
-  run.synthesis.provenance.adjustmentMode = undefined
   await store.saveResearchRun(run)
   const row = pool.state.runs.get(run.runContext.runId)
   delete row.adjustment_mode
+  delete row.dataset_metadata.adjustmentMode
 
   const retrieved = await store.getResearchRun(run.runContext.runId)
   assert.equal(retrieved.runContext.adjustmentMode, 'legacy-unknown')

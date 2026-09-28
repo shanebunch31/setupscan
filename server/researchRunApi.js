@@ -75,6 +75,23 @@ export function createResearchRunApi({ store = null, compareResearchRuns } = {})
         return
       }
 
+      if (url.pathname.startsWith('/api/research-datasets/') && request.method === 'GET') {
+        let datasetId
+        try {
+          datasetId = decodeURIComponent(url.pathname.slice('/api/research-datasets/'.length))
+        } catch {
+          sendJson(response, 400, { error: 'Invalid datasetId encoding' })
+          return
+        }
+        const dataset = await store.getResearchDataset(datasetId)
+        if (!dataset) {
+          sendJson(response, 404, { error: `Research dataset not found: ${datasetId}` })
+          return
+        }
+        sendJson(response, 200, dataset)
+        return
+      }
+
       if (url.pathname.startsWith('/api/research-runs/') && request.method === 'GET') {
         let runId
         try {
@@ -95,7 +112,7 @@ export function createResearchRunApi({ store = null, compareResearchRuns } = {})
       sendJson(response, 405, { error: 'Method not allowed' })
     } catch (error) {
       const status = error.statusCode
-        ?? (error.code === 'RESEARCH_RUN_EXISTS' ? 409 : error.code === 'RESEARCH_RUN_INVALID' ? 400 : 500)
+        ?? (error.code === 'RESEARCH_RUN_EXISTS' || error.code === 'RESEARCH_DATASET_CONFLICT' ? 409 : error.code === 'RESEARCH_RUN_INVALID' ? 400 : 500)
       sendJson(response, status, {
         error: status === 500 ? 'Research Run History storage failed' : error.message,
         code: error.code ?? null,
