@@ -1,4 +1,5 @@
 import { HISTORICAL_ADJUSTMENT_MODE } from '../src/data/historicalDataContract.js'
+import { completedHourlyCandles } from './marketSession.js'
 
 const requiredEnvironmentVariables = ['ALPACA_API_KEY', 'ALPACA_API_SECRET']
 const alpacaBarsUrl = 'https://data.alpaca.markets/v2/stocks'
@@ -20,7 +21,7 @@ function normalizeBar(bar, symbol, timeframe) {
   }
 }
 
-export async function fetchAlpacaHistoricalBars({ symbol = 'SPY', timeframe = '1Hour', start, end, environment = process.env } = {}) {
+export async function fetchAlpacaHistoricalBars({ symbol = 'SPY', timeframe = '1Hour', start, end, environment = process.env, now = () => new Date() } = {}) {
   const missing = getMissingEnvironmentVariables(environment)
   if (missing.length) {
     const error = new Error(`Missing required environment variables: ${missing.join(', ')}`)
@@ -28,7 +29,7 @@ export async function fetchAlpacaHistoricalBars({ symbol = 'SPY', timeframe = '1
     throw error
   }
 
-  const bars = []
+  const fetchedBars = []
   let pageToken
   const requestedStart = start ?? null
   const requestedEnd = end ?? null
@@ -50,10 +51,11 @@ export async function fetchAlpacaHistoricalBars({ symbol = 'SPY', timeframe = '1
       throw error
     }
     const payload = await response.json()
-    for (const bar of payload.bars ?? []) bars.push(normalizeBar(bar, symbol, timeframe))
+    for (const bar of payload.bars ?? []) fetchedBars.push(normalizeBar(bar, symbol, timeframe))
     pageToken = payload.next_page_token
   } while (pageToken)
 
+  const bars = timeframe === '1Hour' ? completedHourlyCandles(fetchedBars, now()) : fetchedBars
   const timestamps = bars.map((bar) => bar.timestamp).sort()
   const requestedDays = requestedStart && requestedEnd ? (new Date(requestedEnd) - new Date(requestedStart)) / 86400000 : 0
   const minimumExpectedCandles = requestedDays ? Math.min(1000, Math.max(20, Math.floor(requestedDays * 2))) : 0
