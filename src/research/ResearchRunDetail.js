@@ -1492,49 +1492,117 @@ function PersistedRunProvenance({
         : null,
 
       h(
-        'h4',
-        null,
-        'Effective experiment configuration',
-      ),
+        'section',
+        {
+          className: 'research-detail-section',
+        },
+        h(
+          'h4',
+          null,
+          'What did SetupScan test?',
+        ),
 
-      configuration &&
-      Object.keys(configuration).length
-        ? h(
-            'dl',
-            {
-              className:
-                'research-detail-metadata',
-            },
-            Object.entries(
-              configuration,
-            ).map(
-              ([experimentId, value]) =>
-                h(
-                  'div',
-                  { key: experimentId },
-                  h(
-                    'dt',
-                    null,
-                    experimentId,
-                  ),
-                  h(
-                    'dd',
-                    null,
-                    displayStoredValue(
-                      value,
-                    ),
-                  ),
-                ),
+        h(
+          'p',
+          { className: 'workbench-muted' },
+          'This section gives you the plain-English version first. The exact technical configuration remains available below when you want to inspect how the research was run.',
+        ),
+
+        h(
+          'dl',
+          { className: 'research-detail-metadata' },
+          h(
+            'div',
+            null,
+            h('dt', null, 'What was tested'),
+            h(
+              'dd',
+              null,
+              'The symbols, timeframe, and historical period shown in the run summary above were tested across the selected research experiments.',
             ),
-          )
-        : h(
-            'p',
-            {
-              className:
-                'workbench-muted',
-            },
-            'No effective experiment configuration was persisted for this run.',
           ),
+
+          h(
+            'div',
+            null,
+            h('dt', null, 'Experiments'),
+            h(
+              'dd',
+              null,
+              configuration && Object.keys(configuration).length
+                ? `${Object.keys(configuration).length} experiment configurations were preserved with this run.`
+                : 'No effective experiment configuration was persisted for this run.',
+            ),
+          ),
+
+          h(
+            'div',
+            null,
+            h('dt', null, 'Reproducibility'),
+            h(
+              'dd',
+              null,
+              'The historical dataset and experiment configuration are preserved so the research can be reconstructed without silently replacing the original market data.',
+            ),
+          ),
+
+          h(
+            'div',
+            null,
+            h('dt', null, 'How to read this'),
+            h(
+              'dd',
+              null,
+              'These results describe evidence found in the historical sample that was tested. They do not establish what will happen in future market conditions.',
+            ),
+          ),
+        ),
+
+        h(
+          'details',
+          null,
+          h(
+            'summary',
+            null,
+            'How was this tested? View technical details',
+          ),
+
+          h(
+            'div',
+            { style: { marginTop: '1rem' } },
+            h(
+              'h4',
+              null,
+              'Effective experiment configuration',
+            ),
+
+            configuration &&
+            Object.keys(configuration).length
+              ? h(
+                  'dl',
+                  { className: 'research-detail-metadata' },
+                  Object.entries(configuration).map(
+                    ([experimentId, value]) =>
+                      h(
+                        'div',
+                        { key: experimentId },
+                        h('dt', null, experimentId),
+                        h(
+                          'dd',
+                          null,
+                          displayStoredValue(value),
+                        ),
+                      ),
+                  ),
+                )
+              : h(
+                  'p',
+                  { className: 'workbench-muted' },
+                  'No effective experiment configuration was persisted for this run.',
+                ),
+          ),
+        ),
+      ),
     ),
   )
 }
