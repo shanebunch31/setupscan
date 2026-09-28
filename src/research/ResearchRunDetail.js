@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { LoaderCircle } from 'lucide-react'
-import { getResearchRun } from './researchRunHistory.js'
-import { loadResearchRunDetail } from './researchHistoryModel.js'
+import { getResearchDataset, getResearchRun } from './researchRunHistory.js'
+import { beginResearchRunDatasetLoad, loadResearchRunDetail, researchRunDatasetId, selectedResearchRun } from './researchHistoryModel.js'
 import { TermHelp } from '../TermHelp.js'
 
 const h = React.createElement
@@ -134,7 +134,7 @@ function PersistedRunSummary({ run }) {
       : h('p', { className: 'workbench-muted' }, 'No normalized evidence groups.')),
     h('details', { className: 'research-run-disclosure research-detail-technical' },
       h('summary', null, 'How was this tested? View technical details'),
-      h('p', { className: 'research-detail-learning-note' }, 'Dataset: the historical market-data pull used by this run. Dataset ID is an identity key; it does not prove every raw candle is identical.'),
+      h('p', { className: 'research-detail-learning-note' }, 'Dataset: the historical market-data input used by this run. The canonical calculation series is summarized below.'),
       h('dl', { className: 'research-detail-metadata' },
         ...[
           ['Run ID', context.runId], ['Requested at', context.requestedAt], ['Fetch status', run.fetchStatus],
@@ -162,14 +162,15 @@ function PersistedRunSummary({ run }) {
   )
 }
 
-export function ResearchRunDetail({ runId, run = null, getRun = getResearchRun, loading: externalLoading = false, error: externalError = null }) {
-  const [loadedRun, setLoadedRun] = useState(null)
+export function ResearchRunDetail({ runId, run = null, getRun = getResearchRun, getDataset = getResearchDataset, loading: externalLoading = false, error: externalError = null }) {
+  const [loadedRunState, setLoadedRunState] = useState({ runId: null, run: null })
   const [loading, setLoading] = useState(Boolean(runId && !run))
   const [error, setError] = useState(null)
+  const [datasetState, setDatasetState] = useState({ datasetId: null, status: 'idle', dataset: null, error: null })
 
   useEffect(() => {
     if (run) {
-      setLoadedRun(null)
+      setLoadedRunState({ runId: null, run: null })
       setError(null)
       setLoading(false)
       return undefined
@@ -177,13 +178,10 @@ export function ResearchRunDetail({ runId, run = null, getRun = getResearchRun, 
     if (externalLoading || externalError || !runId) return undefined
 
     let active = true
-    setLoadedRun(null)
     setError(null)
     setLoading(true)
     loadResearchRunDetail(runId, getRun)
-      .then((result) => {
-        if (active) setLoadedRun(result)
-      })
+      .then((result) => { if (active) setLoadedRunState({ runId, run: result }) })
       .catch((loadError) => {
         if (active) setError(loadError.message)
       })
@@ -193,15 +191,92 @@ export function ResearchRunDetail({ runId, run = null, getRun = getResearchRun, 
     return () => { active = false }
   }, [runId, run, getRun, externalLoading, externalError])
 
-  const displayRun = run ?? loadedRun
+  const displayRun = selectedResearchRun(runId, run, loadedRunState)
   const displayError = externalError ?? error
+  const datasetId = researchRunDatasetId(displayRun)
+  const detailLoading = externalLoading || loading || Boolean(runId && !run && loadedRunState.runId !== runId)
+
+  useEffect(() => {
+    return beginResearchRunDatasetLoad(displayRun, getDataset, setDatasetState)
+  }, [displayRun, datasetId, getDataset])
+
+  const currentDatasetState = datasetState.datasetId === datasetId
+    ? datasetState
+    : datasetId ? { status: 'loading', dataset: null, error: null } : { status: 'idle', dataset: null, error: null }
+
   return h('section', { className: 'research-run-detail', 'aria-labelledby': 'research-run-detail-title' },
     h('header', { className: 'research-run-detail-heading' },
       h('div', null, h('p', { className: 'workbench-eyebrow' }, 'PERSISTED RUN'), h('h2', { id: 'research-run-detail-title' }, 'Run detail')),
     ),
     displayError ? h('p', { className: 'research-detail-error', role: 'alert' }, displayError)
-      : externalLoading || loading ? h('p', { className: 'workbench-muted', role: 'status' }, h(LoaderCircle, { size: 15, className: 'workbench-spinner', 'aria-hidden': true }), ' Loading run detail')
-        : displayRun ? h(PersistedRunSummary, { run: displayRun })
+      : detailLoading ? h('p', { className: 'workbench-muted', role: 'status' }, h(LoaderCircle, { size: 15, className: 'workbench-spinner', 'aria-hidden': true }), ' Loading run detail')
+        : displayRun ? h(React.Fragment, null,
+          h(PersistedRunSummary, { run: displayRun }),
+          h(CanonicalDatasetSection, { dataset: currentDatasetState.dataset, loading: currentDatasetState.status === 'loading', error: currentDatasetState.error, datasetId }),
+          h(PersistedRunProvenance, { run: displayRun, context: displayRun.runContext ?? {}, dataset: displayRun.dataset ?? {} }),
+        )
           : h('p', { className: 'workbench-muted' }, runId ? 'Research run not found.' : 'Select a run to view its persisted detail.'),
   )
+}
+
+function displayStoredValue(value) {
+  if (value === null || value === undefined || value === '') return 'Unavailable'
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return JSON.stringify(value)
+}
+
+export function CanonicalDatasetSection({ dataset, loading, error, datasetId }) {
+  const series = Array.isArray(dataset?.calculationSeries) ? dataset.calculationSeries : []
+  return h(DetailSection, { title: 'Canonical calculation dataset' },
+    h('p', { className: 'workbench-muted' }, 'Canonical dataset contents retrieved from saved storage; this is separate from the run provenance recorded below.'),
+    loading
+      ? h('p', { className: 'workbench-muted', role: 'status' }, h(LoaderCircle, { size: 15, className: 'workbench-spinner', 'aria-hidden': true }), ' Loading canonical dataset')
+      : error
+        ? h('p', { className: 'research-detail-error', role: 'alert' }, `Canonical dataset could not be loaded: ${error}`)
+        : dataset
+          ? h(React.Fragment, null,
+            h('dl', { className: 'research-detail-metadata' },
+              ...[
+                ['Dataset ID', dataset.datasetId ?? datasetId],
+                ['Calculation series', String(series.length)],
+              ].map(([label, value]) => h('div', { key: label }, h('dt', null, label), h('dd', null, value ?? 'Unavailable'))),
+            ),
+            series.length
+              ? h('ul', { className: 'workbench-plain-list' }, series.map((item, index) => {
+                const candles = Array.isArray(item?.candles) ? item.candles : []
+                return h('li', { key: item?.symbol ?? index }, `${item?.symbol ?? 'Unknown symbol'} · ${candles.length} calculation candles${candles.length ? ` · ${candles[0].timestamp} to ${candles.at(-1).timestamp}` : ''}`)
+              }))
+              : h('p', { className: 'workbench-muted' }, 'No calculation series are stored for this dataset.'),
+          )
+          : h('p', { className: 'workbench-muted' }, datasetId
+            ? 'Canonical dataset is unavailable.'
+            : 'This legacy run has no dataset ID; canonical dataset retrieval is unavailable.'),
+  )
+}
+
+function PersistedRunProvenance({ run, context, dataset }) {
+  const dateProvenance = run.effectiveDateProvenance ?? dataset.effectiveMetadata ?? null
+  const effectiveRanges = dateProvenance?.symbols ?? {}
+  const configuration = run.effectiveExperimentConfiguration
+  const fields = [
+    ['Dataset ID', dataset.datasetId ?? researchRunDatasetId(run)],
+    ['Provider', dataset.provider],
+    ['Adjustment mode', context.adjustmentMode ?? dataset.adjustmentMode],
+    ['Timeframe', context.timeframe ?? dataset.timeframe],
+    ['Requested date range', [context.requestedStart, context.requestedEnd].filter(Boolean).join(' – ') || 'Unbounded'],
+    ['Code revision', context.codeRevision],
+  ]
+  return h(DetailSection, { title: 'Persisted run provenance' }, h(React.Fragment, null,
+    h('dl', { className: 'research-detail-metadata' }, fields.map(([label, value]) => h('div', { key: label }, h('dt', null, label), h('dd', null, displayStoredValue(value))))),
+    Object.keys(effectiveRanges).length
+      ? h(React.Fragment, null,
+        h('h4', null, 'Effective and calculation ranges by symbol'),
+        h('ul', { className: 'workbench-plain-list' }, Object.entries(effectiveRanges).map(([symbol, range]) => h('li', { key: symbol }, `${symbol}: ${displayStoredValue(range?.actualStart)} to ${displayStoredValue(range?.actualEnd)} actual; ${displayStoredValue(range?.calculationStart)} to ${displayStoredValue(range?.calculationEnd)} calculation`))),
+      )
+      : null,
+    h('h4', null, 'Effective experiment configuration'),
+    configuration && Object.keys(configuration).length
+      ? h('dl', { className: 'research-detail-metadata' }, Object.entries(configuration).map(([experimentId, value]) => h('div', { key: experimentId }, h('dt', null, experimentId), h('dd', null, displayStoredValue(value)))))
+      : h('p', { className: 'workbench-muted' }, 'No effective experiment configuration was persisted for this run.'),
+  ))
 }

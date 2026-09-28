@@ -1,4 +1,4 @@
-import { getResearchRun, listResearchRuns } from './researchRunHistory.js'
+import { getResearchDataset, getResearchRun, listResearchRuns } from './researchRunHistory.js'
 
 export const RESEARCH_HISTORY_PAGE_SIZE = 20
 
@@ -34,4 +34,38 @@ export function createResearchHistoryPage(offset, returnedRows, pageSize = RESEA
 
 export function loadResearchRunDetail(runId, getRun = getResearchRun) {
   return getRun(runId)
+}
+
+export function selectedResearchRun(runId, suppliedRun, loadedRunState) {
+  if (suppliedRun) return suppliedRun
+  return loadedRunState?.runId === runId ? loadedRunState.run : null
+}
+
+export function researchRunDatasetId(run) {
+  return run?.dataset?.datasetId ?? run?.runContext?.datasetId ?? run?.synthesis?.provenance?.datasetId ?? null
+}
+
+export function loadResearchRunDataset(run, getDataset = getResearchDataset) {
+  const datasetId = researchRunDatasetId(run)
+  return datasetId ? getDataset(datasetId) : Promise.resolve(null)
+}
+
+export function beginResearchRunDatasetLoad(run, getDataset, onState) {
+  const datasetId = researchRunDatasetId(run)
+  if (!datasetId) {
+    onState({ datasetId: null, status: 'idle', dataset: null, error: null })
+    return () => {}
+  }
+
+  let active = true
+  onState({ datasetId, status: 'loading', dataset: null, error: null })
+  Promise.resolve()
+    .then(() => loadResearchRunDataset(run, getDataset))
+    .then((dataset) => {
+      if (active) onState({ datasetId, status: 'loaded', dataset, error: null })
+    })
+    .catch((error) => {
+      if (active) onState({ datasetId, status: 'error', dataset: null, error: error.message })
+    })
+  return () => { active = false }
 }

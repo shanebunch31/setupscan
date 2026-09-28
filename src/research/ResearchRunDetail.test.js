@@ -2,20 +2,22 @@ import assert from 'node:assert/strict'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { test } from 'node:test'
-import { ResearchRunDetail } from './ResearchRunDetail.js'
-import { createResearchHistoryActions, loadResearchRunDetail } from './researchHistoryModel.js'
+import { CanonicalDatasetSection, ResearchRunDetail } from './ResearchRunDetail.js'
+import { beginResearchRunDatasetLoad, createResearchHistoryActions, loadResearchRunDataset, loadResearchRunDetail, selectedResearchRun } from './researchHistoryModel.js'
 
 function persistedRun() {
   return {
     runContext: {
       runId: 'run-detail-1', requestedAt: '2026-09-20T12:30:00.000Z', symbols: ['SPY', 'QQQ'],
         timeframe: '1Hour', requestedStart: '2024-01-01', requestedEnd: '2025-01-01', requestedExperiments: ['robustness'],
-        emaContractVersion: 'setupscan-ema-sma-seeded-recursive-v1',
+        emaContractVersion: 'setupscan-ema-sma-seeded-recursive-v1', adjustmentMode: 'split', codeRevision: 'revision-persisted-1',
     },
     status: 'partial',
     fetchStatus: 'partial',
     fetchIssues: [{ symbol: 'QQQ', type: 'fetch-error', error: { message: 'Provider timeout' }, fetchResult: { candles: [{ close: 'RAW_ISSUE_CANDLE_MARKER' }] } }],
-    dataset: { datasetId: 'dataset-detail-1', rawSeriesBySymbol: { SPY: [{ close: 'RAW_DATASET_CANDLE_MARKER' }] } },
+    dataset: { datasetId: 'dataset-detail-1', provider: 'alpaca', adjustmentMode: 'split', timeframe: '1Hour', effectiveMetadata: { requestedStart: '2024-01-01', requestedEnd: '2025-01-01', symbols: { SPY: { actualStart: '2024-01-02', actualEnd: '2024-12-31', calculationStart: '2023-12-01', calculationEnd: '2024-12-31' } } }, rawSeriesBySymbol: { SPY: [{ close: 'RAW_DATASET_CANDLE_MARKER' }] } },
+    effectiveDateProvenance: { requestedStart: '2024-01-01', requestedEnd: '2025-01-01', symbols: { SPY: { actualStart: '2024-01-02', actualEnd: '2024-12-31', calculationStart: '2023-12-01', calculationEnd: '2024-12-31' } } },
+    effectiveExperimentConfiguration: { robustness: { status: 'succeeded', configuration: { periodCount: 4 } } },
     experimentResults: [{ experimentId: 'robustness', status: 'incomplete', error: null, nativeOutput: { large: 'RAW_NATIVE_OUTPUT_MARKER' } }],
     records: [{ id: 'robustness', nativePayload: { large: 'RAW_RECORD_PAYLOAD_MARKER' } }],
     synthesis: {
@@ -53,7 +55,7 @@ test('Run Detail renders persisted metadata, diagnostics, synthesis evidence, qu
     'holdout',
     'Evidence differs across partitions.', 'Holdout sample remains incomplete.',
     'Provider compatibility is unknown.', 'Provenance',
-    'Dataset: the historical market-data pull used by this run.',
+    'Dataset: the historical market-data input used by this run.',
     'Synthesis: A structured summary of experiment results and remaining evidence gaps.',
     'Evidence: A measured result from an experiment and sample.',
     'Compatibility: Whether the available information allows two results to be compared directly.',
@@ -154,4 +156,92 @@ test('History/Detail actions expose only the existing list and detail read APIs'
   await actions.list()
   await actions.getRun('run-read-only')
   assert.deepEqual(calls, ['listResearchRuns', 'getResearchRun:run-read-only'])
+})
+
+test('saved Run Detail loads the canonical dataset using its persisted datasetId', async () => {
+  const dataset = { datasetId: 'dataset-detail-1', calculationSeries: [{ symbol: 'SPY', timeframe: '1Hour', candles: [{ timestamp: '2023-12-01T14:00:00Z' }, { timestamp: '2024-12-31T20:00:00Z' }] }] }
+  const calls = []
+  const loaded = await loadResearchRunDataset(persistedRun(), async (datasetId) => {
+    calls.push(datasetId)
+    return dataset
+  })
+  assert.deepEqual(calls, ['dataset-detail-1'])
+  assert.deepEqual(loaded, dataset)
+
+  const html = renderToStaticMarkup(React.createElement(CanonicalDatasetSection, { dataset: loaded, datasetId: loaded.datasetId }))
+  assert.match(html, /Canonical calculation dataset/)
+  assert.match(html, /SPY.*2 calculation candles/)
+  assert.match(html, /2023-12-01T14:00:00Z to 2024-12-31T20:00:00Z/)
+  assert.doesNotMatch(html, /close|open|volume/i)
+})
+
+test('Run Detail dataset effect path loads direct and asynchronously retrieved runs, and ignores stale results', async () => {
+  const directRun = persistedRun()
+  const directStates = []
+  const directDataset = { datasetId: 'dataset-detail-1', calculationSeries: [] }
+  const cleanupDirect = beginResearchRunDatasetLoad(directRun, async (id) => {
+    assert.equal(id, 'dataset-detail-1')
+    return directDataset
+  }, (state) => directStates.push(state))
+  await new Promise((resolve) => setImmediate(resolve))
+  cleanupDirect()
+  assert.deepEqual(directStates.map(({ status }) => status), ['loading', 'loaded'])
+  assert.deepEqual(directStates.at(-1).dataset, directDataset)
+
+  const loadedRun = await loadResearchRunDetail('run-async-1', async (id) => ({ ...persistedRun(), runContext: { ...persistedRun().runContext, runId: id }, dataset: { ...persistedRun().dataset, datasetId: 'dataset-async-1' } }))
+  const asyncStates = []
+  let finishOldFetch
+  const cleanupOld = beginResearchRunDatasetLoad(directRun, () => new Promise((resolve) => { finishOldFetch = resolve }), (state) => asyncStates.push(state))
+  await Promise.resolve()
+  cleanupOld()
+  const cleanupNew = beginResearchRunDatasetLoad(loadedRun, async (id) => ({ datasetId: id, calculationSeries: [] }), (state) => asyncStates.push(state))
+  await new Promise((resolve) => setImmediate(resolve))
+  finishOldFetch({ datasetId: 'dataset-detail-1', calculationSeries: [{ symbol: 'STALE' }] })
+  cleanupNew()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(asyncStates.filter(({ status }) => status === 'loaded').map(({ datasetId }) => datasetId), ['dataset-async-1'])
+  assert.equal(selectedResearchRun('run-async-1', null, { runId: 'run-old', run: directRun }), null)
+  assert.equal(selectedResearchRun('run-async-1', null, { runId: 'run-async-1', run: loadedRun }), loadedRun)
+})
+
+test('legacy saved runs without a datasetId still render and skip canonical retrieval', async () => {
+  const run = persistedRun()
+  run.dataset = null
+  run.synthesis.provenance = { runId: 'run-detail-1' }
+  let called = false
+  assert.equal(await loadResearchRunDataset(run, async () => { called = true }), null)
+  assert.equal(called, false)
+
+  const html = renderToStaticMarkup(React.createElement(ResearchRunDetail, { run }))
+  assert.match(html, /run-detail-1/)
+  assert.match(html, /This legacy run has no dataset ID/)
+  assert.match(html, /Persisted run provenance/)
+})
+
+test('canonical dataset retrieval failure has a clear detail error state', async () => {
+  const states = []
+  beginResearchRunDatasetLoad(persistedRun(), async () => { throw new Error('Stored dataset is unavailable') }, (state) => states.push(state))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(states.map(({ status }) => status), ['loading', 'error'])
+  const html = renderToStaticMarkup(React.createElement(React.Fragment, null,
+    React.createElement(ResearchRunDetail, { run: persistedRun() }),
+    React.createElement(CanonicalDatasetSection, { datasetId: 'dataset-detail-1', error: states.at(-1).error }),
+  ))
+  assert.match(html, /Run status/)
+  assert.match(html, /Canonical dataset could not be loaded: Stored dataset is unavailable/)
+  assert.match(html, /role="alert"/)
+})
+
+test('canonical dataset loading state is visible while saved contents are being fetched', () => {
+  const html = renderToStaticMarkup(React.createElement(CanonicalDatasetSection, { datasetId: 'dataset-detail-1', loading: true }))
+  assert.match(html, /Loading canonical dataset/)
+  assert.match(html, /role="status"/)
+})
+
+test('Persisted Run Detail surfaces existing provenance without exposing candle or native payloads', () => {
+  const html = renderToStaticMarkup(React.createElement(ResearchRunDetail, { run: persistedRun() }))
+  for (const field of ['Persisted run provenance', 'Dataset ID', 'Provider', 'alpaca', 'Adjustment mode', 'split', 'Requested date range', '2024-01-01', 'Code revision', 'Effective and calculation ranges by symbol', '2023-12-01', 'Effective experiment configuration', 'periodCount']) {
+    assert.ok(html.includes(field), `expected provenance to include ${field}`)
+  }
+  assert.doesNotMatch(html, /RAW_DATASET_CANDLE_MARKER|RAW_NATIVE_OUTPUT_MARKER|RAW_RECORD_PAYLOAD_MARKER/)
 })
