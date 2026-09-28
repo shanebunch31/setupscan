@@ -146,16 +146,68 @@ test('Run Detail error takes precedence over loading', () => {
   assert.doesNotMatch(html, /Loading run detail/)
 })
 
-test('History/Detail actions expose only the existing list and detail read APIs', async () => {
+test('History/Detail actions expose list, detail, and replay APIs', async () => {
   const calls = []
+
   const actions = createResearchHistoryActions({
-    listRuns: async () => { calls.push('listResearchRuns'); return { runs: [] } },
-    getRun: async (runId) => { calls.push(`getResearchRun:${runId}`); return persistedRun() },
+    listRuns: async () => {
+      calls.push('listResearchRuns')
+      return { runs: [] }
+    },
+
+    getRun: async (runId) => {
+      calls.push(`getResearchRun:${runId}`)
+      return persistedRun()
+    },
+
+    replayRun: async ({ run, canonicalDataset }) => {
+      calls.push(`replay:${run.runContext.runId}:${canonicalDataset.datasetId}`)
+
+      return {
+        ...run,
+        runContext: {
+          ...run.runContext,
+          runId: 'replayed-run-1',
+        },
+        dataset: {
+          ...run.dataset,
+          datasetId: 'replayed-dataset-1',
+        },
+      }
+    },
+
+    saveRun: async (result) => {
+      calls.push(`saveResearchRun:${result.runContext.runId}`)
+      return result
+    },
   })
-  assert.deepEqual(Object.keys(actions).sort(), ['getRun', 'list'])
+
+  assert.deepEqual(
+    Object.keys(actions).sort(),
+    ['getRun', 'list', 'replay'],
+  )
+
   await actions.list()
   await actions.getRun('run-read-only')
-  assert.deepEqual(calls, ['listResearchRuns', 'getResearchRun:run-read-only'])
+
+  const replayResult = await actions.replay(
+    persistedRun(),
+    {
+      datasetId: 'dataset-detail-1',
+    },
+  )
+
+  assert.equal(
+    replayResult.saved.runContext.runId,
+    'replayed-run-1',
+  )
+
+  assert.deepEqual(calls, [
+    'listResearchRuns',
+    'getResearchRun:run-read-only',
+    'replay:run-detail-1:dataset-detail-1',
+    'saveResearchRun:replayed-run-1',
+  ])
 })
 
 test('saved Run Detail loads the canonical dataset using its persisted datasetId', async () => {

@@ -146,14 +146,73 @@ test('history pagination control disables Next for a terminal 20-row page and en
   assert.equal(hasMoreNext.props.disabled, false)
 })
 
-test('history actions are read-only list/detail client calls', async () => {
+test('history actions expose list, detail, and replay client calls', async () => {
   const calls = []
+
   const actions = createResearchHistoryActions({
-    listRuns: async () => { calls.push('list'); return { runs: [] } },
-    getRun: async () => { calls.push('detail'); return null },
+    listRuns: async () => {
+      calls.push('list')
+      return { runs: [] }
+    },
+
+    getRun: async () => {
+      calls.push('detail')
+      return null
+    },
+
+    replayRun: async ({ run, canonicalDataset }) => {
+      calls.push(
+        `replay:${run.runContext.runId}:${canonicalDataset.datasetId}`,
+      )
+
+      return {
+        runContext: {
+          ...run.runContext,
+          runId: 'replayed-run-1',
+        },
+      }
+    },
+
+    saveRun: async (result) => {
+      calls.push(
+        `save:${result.runContext.runId}`,
+      )
+
+      return result
+    },
   })
+
   await actions.list()
   await actions.getRun('run-read-only')
-  assert.deepEqual(calls, ['list', 'detail'])
-  assert.deepEqual(Object.keys(actions).sort(), ['getRun', 'list'])
+
+  const replayResult = await actions.replay(
+    {
+      runContext: {
+        runId: 'original-run-1',
+      },
+    },
+    {
+      datasetId: 'dataset-1',
+    },
+  )
+
+  assert.equal(
+    replayResult.saved.runContext.runId,
+    'replayed-run-1',
+  )
+
+  assert.deepEqual(
+    calls,
+    [
+      'list',
+      'detail',
+      'replay:original-run-1:dataset-1',
+      'save:replayed-run-1',
+    ],
+  )
+
+  assert.deepEqual(
+    Object.keys(actions).sort(),
+    ['getRun', 'list', 'replay'],
+  )
 })

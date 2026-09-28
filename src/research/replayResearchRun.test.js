@@ -181,10 +181,12 @@ function makeModernRun({
         requestedEnd,
         effectiveMetadata: effectiveDateProvenance,
         fetchResultsBySymbol: Object.fromEntries(
-          Object.entries(bySymbol).map(([symbol, metadata]) => [
-            symbol,
-            metadata,
-          ]),
+          Object.entries(bySymbol).map(
+            ([symbol, metadata]) => [
+              symbol,
+              metadata,
+            ],
+          ),
         ),
       }
     : null
@@ -200,41 +202,58 @@ function makeModernRun({
       }
     : null
 
-  const experimentResults = experimentIds.map((experimentId) => {
-    const definition = listResearchExperiments().find(
-      (item) => item.id === experimentId,
-    )
+  const experimentResults = experimentIds.map(
+    (experimentId) => {
+      const definition =
+        listResearchExperiments().find(
+          (item) => item.id === experimentId,
+        )
 
-    const unavailable =
-      definition.requiredSymbols.some(
-        (symbol) =>
-          !successfulSymbols.includes(symbol) ||
-          incompleteSymbols.includes(symbol),
-      ) ||
-      (experimentId === 'strategy-comparison' &&
-        !symbols.some(
+      const unavailable =
+        definition.requiredSymbols.some(
           (symbol) =>
-            successfulSymbols.includes(symbol) &&
-            !incompleteSymbols.includes(symbol),
-        ))
+            !successfulSymbols.includes(
+              symbol,
+            ) ||
+            incompleteSymbols.includes(
+              symbol,
+            ),
+        ) ||
+        (experimentId ===
+          'strategy-comparison' &&
+          !symbols.some(
+            (symbol) =>
+              successfulSymbols.includes(
+                symbol,
+              ) &&
+              !incompleteSymbols.includes(
+                symbol,
+              ),
+          ))
 
-    return {
-      experimentId,
-      status: unavailable ? 'unavailable' : 'succeeded',
-      nativeOutput: null,
-      error: null,
-    }
-  })
+      return {
+        experimentId,
+        status: unavailable
+          ? 'unavailable'
+          : 'succeeded',
+        nativeOutput: null,
+        error: null,
+      }
+    },
+  )
 
   const run = {
     runContext: {
       runId: 'run-fixture',
-      requestedAt: '2025-01-02T00:00:00.000Z',
+      requestedAt:
+        '2025-01-02T00:00:00.000Z',
       symbols: [...symbols],
       timeframe,
       requestedStart,
       requestedEnd,
-      requestedExperiments: [...experimentIds],
+      requestedExperiments: [
+        ...experimentIds,
+      ],
       emaContractVersion: emaVersion,
       adjustmentMode,
       codeRevision: revision,
@@ -242,7 +261,9 @@ function makeModernRun({
 
     status:
       fetchStatus === 'complete' &&
-      experimentResults.every(({ status }) => status === 'succeeded')
+      experimentResults.every(
+        ({ status }) => status === 'succeeded',
+      )
         ? 'completed'
         : successfulSymbols.length
           ? 'partial'
@@ -263,25 +284,39 @@ function makeModernRun({
   }
 
   if (datasetId) {
-    const reconstructed = reconstructResearchDataset(canonicalDataset)
+    const reconstructed =
+      reconstructResearchDataset(
+        canonicalDataset,
+      )
 
     const expectedConfiguration =
-      resolveCurrentEffectiveExperimentConfiguration({
-        run,
-        dataset: reconstructed,
-        codeRevision: revision,
-      })
-
-    run.effectiveExperimentConfiguration = Object.fromEntries(
-      experimentResults.map(({ experimentId, status }) => [
-        experimentId,
+      resolveCurrentEffectiveExperimentConfiguration(
         {
-          status,
-          configuration:
-            expectedConfiguration.experiments[experimentId],
+          run,
+          dataset: reconstructed,
+          codeRevision: revision,
         },
-      ]),
-    )
+      )
+
+    run.effectiveExperimentConfiguration =
+      Object.fromEntries(
+        experimentResults.map(
+          ({
+            experimentId,
+            status,
+          }) => [
+            experimentId,
+            {
+              status,
+              configuration:
+                expectedConfiguration
+                  .experiments[
+                    experimentId
+                  ],
+            },
+          ],
+        ),
+      )
   }
 
   return {
@@ -293,13 +328,19 @@ function makeModernRun({
 test(
   'replayResearchRun rejects incompatible runs before executing replay',
   async () => {
-    const { run, canonicalDataset } = makeModernRun()
+    const {
+      run,
+      canonicalDataset,
+    } = makeModernRun()
 
-    let executeResearchExperimentCalled = false
+    let executeResearchExperimentCalled =
+      false
 
-    const executeResearchExperiment = async () => {
-      executeResearchExperimentCalled = true
-    }
+    const executeResearchExperiment =
+      async () => {
+        executeResearchExperimentCalled =
+          true
+      }
 
     let error = null
 
@@ -308,8 +349,10 @@ test(
         run,
         canonicalDataset,
         runtime: {
-          codeRevision: 'different-revision',
-          emaContractVersion: emaVersion,
+          codeRevision:
+            'different-revision',
+          emaContractVersion:
+            emaVersion,
         },
         executeResearchRunOptions: {
           executeResearchExperiment,
@@ -320,24 +363,38 @@ test(
     }
 
     assert.ok(error)
-    assert.equal(error.code, 'RESEARCH_REPLAY_INCOMPATIBLE')
-    assert.equal(executeResearchExperimentCalled, false)
+    assert.equal(
+      error.code,
+      'RESEARCH_REPLAY_INCOMPATIBLE',
+    )
+    assert.equal(
+      executeResearchExperimentCalled,
+      false,
+    )
   },
 )
 
 test(
   'replayResearchRun creates a new run identity for a compatible replay',
   async () => {
-    const { run, canonicalDataset } = makeModernRun()
+    const {
+      run,
+      canonicalDataset,
+    } = makeModernRun()
 
-    const reconstructed = reconstructResearchDataset(canonicalDataset)
+    const reconstructed =
+      reconstructResearchDataset(
+        canonicalDataset,
+      )
 
     const expectedConfiguration =
-      resolveCurrentEffectiveExperimentConfiguration({
-        run,
-        dataset: reconstructed,
-        codeRevision: revision,
-      })
+      resolveCurrentEffectiveExperimentConfiguration(
+        {
+          run,
+          dataset: reconstructed,
+          codeRevision: revision,
+        },
+      )
 
     const runtime = {
       codeRevision: revision,
@@ -345,38 +402,47 @@ test(
       expectedConfiguration,
     }
 
-    const compatibility = checkResearchReplayCompatibility({
-      run,
-      canonicalDataset,
-      runtime,
-    })
+    const compatibility =
+      checkResearchReplayCompatibility(
+        {
+          run,
+          canonicalDataset,
+          runtime,
+        },
+      )
 
-    assert.deepEqual(compatibility, {
-      compatible: true,
-      blockers: [],
-    })
+    assert.deepEqual(
+      compatibility,
+      {
+        compatible: true,
+        blockers: [],
+      },
+    )
 
     let executedExperimentId = null
 
-    const executeResearchExperiment = async (experimentId) => {
-      executedExperimentId = experimentId
+    const executeResearchExperiment =
+      async (experimentId) => {
+        executedExperimentId =
+          experimentId
 
-      return {
-        nativeOutput: {
-          replayed: true,
-        },
-        status: 'succeeded',
+        return {
+          nativeOutput: {
+            replayed: true,
+          },
+          status: 'succeeded',
+        }
       }
-    }
 
-    const result = await replayResearchRun({
-      run,
-      canonicalDataset,
-      runtime,
-      executeResearchRunOptions: {
-        executeResearchExperiment,
-      },
-    })
+    const result =
+      await replayResearchRun({
+        run,
+        canonicalDataset,
+        runtime,
+        executeResearchRunOptions: {
+          executeResearchExperiment,
+        },
+      })
 
     assert.ok(result)
     assert.ok(result.runContext)
