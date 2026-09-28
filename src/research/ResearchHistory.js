@@ -689,6 +689,8 @@ export function ResearchHistory({
             error:
               detailError,
             getRun,
+            onSelectRun: 
+              selectRun,
             replayRun:
               replaySelectedRun,
             onReplaySaved:

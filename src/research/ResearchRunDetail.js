@@ -752,7 +752,37 @@ function PersistedRunSummary({ run }) {
     ),
   )
 }
+function ReplayLineage({ run, onSelectRun }) {
+  const replayOfRunId =
+    run?.runContext?.replayOfRunId
 
+  if (!replayOfRunId) return null
+
+  return h(
+    'section',
+    {
+      className: 'research-detail-replay-lineage',
+      'aria-label': 'Replay lineage',
+    },
+    h(
+      'p',
+      { className: 'workbench-muted' },
+      'This run was deterministically replayed from ',
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'research-history-select',
+          onClick: () =>
+            onSelectRun?.(replayOfRunId),
+          'aria-label': `View original run ${replayOfRunId}`,
+        },
+        replayOfRunId,
+      ),
+      '.',
+    ),
+  )
+}
 function ReplayControls({
   run,
   dataset,
@@ -889,6 +919,7 @@ export function ResearchRunDetail({
   getDataset = getResearchDataset,
   replayRun = null,
   onReplaySaved = null,
+  onSelectRun = null,
   loading: externalLoading = false,
   error: externalError = null,
 }) {
@@ -1132,14 +1163,13 @@ export function ResearchRunDetail({
               React.Fragment,
               null,
 
-              h(ReplayControls, {
+              h(ReplayLineage, {
                 run: displayRun,
-                dataset:
-                  currentDatasetState.dataset,
-                replaying,
-                replayError,
-                onReplay:
-                  handleReplay,
+                onSelectRun,
+  }),
+
+  h(ReplayControls, {
+    run: displayRun,
               }),
 
               h(

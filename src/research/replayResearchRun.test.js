@@ -451,7 +451,10 @@ test(
       result.runContext.runId,
       run.runContext.runId,
     )
-
+    assert.equal(
+      result.runContext.replayOfRunId,
+       run.runContext.runId,
+)
     assert.match(
       result.runContext.runId,
       /^run_/,
