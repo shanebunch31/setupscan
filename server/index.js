@@ -1,7 +1,10 @@
 import dotenv from 'dotenv'
 import http from 'node:http'
 import { fetchAlpacaHistoricalBars } from './alpacaProxy.js'
-import { getPaperTradingAccount } from './alpacaTrading.js'
+import {
+  getPaperTradingAccount,
+  submitPaperOrder,
+} from './alpacaTrading.js'
 import { createPaperService } from './paperService.js'
 import { createResearchInvestigationApi } from './researchInvestigationApi.js'
 import { createResearchRunApi } from './researchRunApi.js'
@@ -110,20 +113,56 @@ const server = http.createServer(
     }
 
     if (
+  url.pathname ===
+  '/api/trading/paper-account'
+) {
+  try {
+    sendJson(
+      response,
+      200,
+      await getPaperTradingAccount(),
+    )
+  } catch (error) {
+    const status =
+      error.code === 'MISSING_ALPACA_ENV'
+        ? 503
+        : error.status || 502
+
+    sendJson(response, status, {
+      error: error.message,
+      code: error.code ?? null,
+    })
+  }
+
+    return
+}
+
+    if (
       url.pathname ===
-      '/api/trading/paper-account'
+        '/api/trading/paper-orders' &&
+      request.method === 'POST'
     ) {
       try {
+        let body = ''
+
+        for await (const chunk of request) {
+          body += chunk
+        }
+
+        const order = body ? JSON.parse(body) : {}
+
         sendJson(
           response,
-          200,
-          await getPaperTradingAccount(),
+          201,
+          await submitPaperOrder(order),
         )
       } catch (error) {
         const status =
-          error.code === 'MISSING_ALPACA_ENV'
-            ? 503
-            : error.status || 502
+          error.code === 'INVALID_PAPER_ORDER'
+            ? 400
+            : error.code === 'MISSING_ALPACA_ENV'
+              ? 503
+              : error.status || 502
 
         sendJson(response, status, {
           error: error.message,
