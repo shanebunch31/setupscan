@@ -100,29 +100,18 @@ export function enrichHistoricalCandles(candles) {
   const ema9Series = emaSeries(candles, 9)
   const ema21Series = emaSeries(candles, 21)
 
-  return candles.map((candle, index) => {
-    const priorCandles = candles.slice(
-      Math.max(0, index - 20),
-      index,
-    )
+  let cumulativeTypicalPrice = 0
+  let cumulativeVolume = 0
 
-    const closes = priorCandles.map((item) => item.close)
+  return candles.map((candle, index) => {
+    const priorStart = Math.max(0, index - 20)
+    const priorCandles = candles.slice(priorStart, index)
 
     const typicalPrice =
       (candle.high + candle.low + candle.close) / 3
 
-    const previousTypicalPrices = candles
-      .slice(0, index + 1)
-      .map(
-        (item) =>
-          (item.high + item.low + item.close) / 3,
-      )
-
-    const previousVolume = averageValues(
-      candles
-        .slice(0, index + 1)
-        .map((item) => item.volume),
-    )
+    cumulativeTypicalPrice += typicalPrice
+    cumulativeVolume += candle.volume
 
     const usePrecomputedEma =
       candle?.[emaPrecomputedMarker] === EMA_CONTRACT_VERSION
@@ -135,20 +124,42 @@ export function enrichHistoricalCandles(candles) {
       ? candle.ema21
       : ema21Series[index]
 
-    const gains = closes
-      .slice(1)
-      .map((close, closeIndex) =>
-        Math.max(0, close - closes[closeIndex]),
-      )
+    let totalGain = 0
+    let totalLoss = 0
+    let changeCount = 0
 
-    const losses = closes
-      .slice(1)
-      .map((close, closeIndex) =>
-        Math.max(0, closes[closeIndex] - close),
-      )
+    for (
+      let priorIndex = priorStart + 1;
+      priorIndex < index;
+      priorIndex += 1
+    ) {
+      const currentClose =
+        candles[priorIndex].close
 
-    const averageGain = averageValues(gains)
-    const averageLoss = averageValues(losses)
+      const previousClose =
+        candles[priorIndex - 1].close
+
+      const change =
+        currentClose - previousClose
+
+      if (change > 0) {
+        totalGain += change
+      } else if (change < 0) {
+        totalLoss += -change
+      }
+
+      changeCount += 1
+    }
+
+    const averageGain =
+      changeCount
+        ? totalGain / changeCount
+        : 0
+
+    const averageLoss =
+      changeCount
+        ? totalLoss / changeCount
+        : 0
 
     const relativeStrength = averageLoss
       ? averageGain / averageLoss
@@ -160,29 +171,53 @@ export function enrichHistoricalCandles(candles) {
       100 -
       100 / (1 + relativeStrength)
 
-    const range = candle.high - candle.low
+    let priorHigh = -Infinity
+
+    for (
+      let priorIndex = priorStart;
+      priorIndex < index;
+      priorIndex += 1
+    ) {
+      priorHigh = Math.max(
+        priorHigh,
+        candles[priorIndex].high,
+      )
+    }
+
+    const averageVolume =
+      cumulativeVolume / (index + 1)
+
+    const range =
+      candle.high - candle.low
 
     const enrichedCandle = {
       ...candle,
       timeframe: '1h',
       price: candle.close,
-      vwap: averageValues(previousTypicalPrices),
+
+      // Same cumulative-average calculation as before,
+      // without rebuilding the full history array each candle.
+      vwap:
+        cumulativeTypicalPrice /
+        (index + 1),
+
       ema9,
       ema21,
+
       rsi: Number.isFinite(rsi)
         ? Math.round(rsi)
         : 100,
-      relativeVolume: previousVolume
-        ? candle.volume / previousVolume
-        : 1,
+
+      relativeVolume:
+        averageVolume
+          ? candle.volume /
+            averageVolume
+          : 1,
+
       breakout:
         priorCandles.length >= 20 &&
-        candle.close >
-          Math.max(
-            ...priorCandles.map(
-              (item) => item.high,
-            ),
-          ),
+        candle.close > priorHigh,
+
       trend:
         !Number.isFinite(ema9) ||
         !Number.isFinite(ema21) ||
@@ -191,6 +226,7 @@ export function enrichHistoricalCandles(candles) {
           : ema9 > ema21
             ? 'Bullish'
             : 'Bearish',
+
       atr: range,
     }
 
@@ -207,6 +243,8 @@ export function enrichHistoricalCandles(candles) {
     return enrichedCandle
   })
 }
+     
+      
 
 function buildHistoricalMarketDataResult(
   symbol,
