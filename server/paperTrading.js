@@ -5,6 +5,11 @@ const RISK_DOLLARS = 100
 const MAX_HOLDING_BARS = 12
 const STOP_DISTANCE_PERCENT = 0.005
 const TARGET_R = 2
+const DEFAULT_TRAILING_STOP = {
+  enabled: false,
+  activationR: 1,
+  trailDistancePercent: 0.003,
+}
 
 function tradeKey(symbol, timestamp) {
   return `${symbol}:${timestamp}`
@@ -65,6 +70,9 @@ function createPaperTrade(symbol, signal, signalIndex, candles) {
     targetPrice: entryPrice + initialRisk * TARGET_R,
     initialRiskDollars: RISK_DOLLARS,
     initialRiskR: 1,
+    trailingStopActive: false,
+    highestPrice: entryPrice,
+    exitTimestamp: null,
     exitTimestamp: null,
     exitPrice: null,
     exitReason: null,
@@ -79,24 +87,111 @@ function closeTrade(trade, candle, exitPrice, exitReason, holdingBars) {
   return { ...trade, status: 'closed', exitTimestamp: candle.timestamp, exitPrice, exitReason, rMultiple, pnl: rMultiple * RISK_DOLLARS, holdingTime: holdingBars * 60 }
 }
 
-function updateTrade(trade, candles, signalIndex) {
+function updateTrade(
+  trade,
+  candles,
+  signalIndex,
+  trailingStop = DEFAULT_TRAILING_STOP,
+) {
   if (trade.status === 'closed') return trade
-  const maxBars = Math.min(MAX_HOLDING_BARS, candles.length - signalIndex - 1)
+
+  const maxBars = Math.min(
+    MAX_HOLDING_BARS,
+    candles.length - signalIndex - 1,
+  )
+
   let updated = trade
+
   for (let offset = 1; offset <= maxBars; offset += 1) {
     const candle = candles[signalIndex + offset]
-    if (candle.low <= trade.stopPrice) return closeTrade(trade, candle, trade.stopPrice, 'Stop', offset)
-    if (candle.high >= trade.targetPrice) return closeTrade(trade, candle, trade.targetPrice, 'Target', offset)
-    updated = { ...trade, holdingTime: offset * 60 }
+
+    const highestPrice = Math.max(
+      updated.highestPrice ?? updated.entryPrice,
+      candle.high,
+    )
+
+    let stopPrice = updated.stopPrice
+    let trailingStopActive =
+      updated.trailingStopActive ?? false
+
+    const riskPerShare =
+      updated.entryPrice * STOP_DISTANCE_PERCENT
+
+    const currentR =
+      (highestPrice - updated.entryPrice) /
+      riskPerShare
+
+    if (
+      trailingStop.enabled &&
+      currentR >= trailingStop.activationR
+    ) {
+      trailingStopActive = true
+
+      const candidateStop =
+        highestPrice *
+        (1 - trailingStop.trailDistancePercent)
+
+      stopPrice = Math.max(
+        stopPrice,
+        candidateStop,
+      )
+    }
+
+    updated = {
+      ...updated,
+      highestPrice,
+      stopPrice,
+      trailingStopActive,
+      holdingTime: offset * 60,
+    }
+
+    if (candle.low <= stopPrice) {
+      return closeTrade(
+        updated,
+        candle,
+        stopPrice,
+        trailingStopActive
+          ? 'Trailing Stop'
+          : 'Stop',
+        offset,
+      )
+    }
+
+    if (candle.high >= updated.targetPrice) {
+      return closeTrade(
+        updated,
+        candle,
+        updated.targetPrice,
+        'Target',
+        offset,
+      )
+    }
   }
-  if (maxBars > 0 && maxBars === MAX_HOLDING_BARS) {
-    const candle = candles[signalIndex + maxBars]
-    return closeTrade(trade, candle, candle.close, 'Expired', maxBars)
+
+  if (
+    maxBars > 0 &&
+    maxBars === MAX_HOLDING_BARS
+  ) {
+    const candle =
+      candles[signalIndex + maxBars]
+
+    return closeTrade(
+      updated,
+      candle,
+      candle.close,
+      'Expired',
+      maxBars,
+    )
   }
+
   return updated
 }
 
-export function createPaperTradingEngine({ state = { trades: [] }, saveState = () => {} } = {}) {
+export function createPaperTradingEngine({
+  state = { trades: [] },
+  saveState = () => {},
+  trailingStop = DEFAULT_TRAILING_STOP,
+} = {}) {
   const journal = { trades: [...(state.trades ?? [])] }
 
   function processCandles(symbol, candles) {
@@ -115,7 +210,14 @@ export function createPaperTradingEngine({ state = { trades: [] }, saveState = (
     journal.trades = journal.trades.map((trade) => {
       if (trade.symbol !== symbol || trade.status === 'closed') return trade
       const signalIndex = sortedCandles.findIndex((candle) => candle.timestamp === trade.signalTimestamp)
-      return signalIndex >= 0 ? updateTrade(trade, sortedCandles, signalIndex) : trade
+      return signalIndex >= 0
+  ? updateTrade(
+      trade,
+      sortedCandles,
+      signalIndex,
+      trailingStop,
+    )
+  : trade
     })
     saveState(journal)
     return journal

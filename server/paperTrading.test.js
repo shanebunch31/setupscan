@@ -72,3 +72,55 @@ test('paper engine has no order submission dependency', async () => {
   assert.equal(source.includes('orders'), false)
   assert.equal(source.includes('submit'), false)
 })
+test('trailing stop ratchets upward after activation and protects a winning trade', () => {
+  const rows = candles()
+
+  // Entry is 100.
+  // Initial stop = 99.50.
+  // +1R = 100.50.
+  rows[1] = {
+    ...rows[1],
+    open: 100,
+    high: 100.6,
+    low: 99.9,
+    close: 100.6,
+    price: 100.6,
+  }
+
+  // Move higher, but stay below the existing 2R target at 101.
+  rows[2] = {
+    ...rows[2],
+    open: 100.6,
+    high: 100.8,
+    low: 100.5,
+    close: 100.8,
+    price: 100.8,
+  }
+
+  // Reverse and hit the trailing stop.
+  rows[3] = {
+    ...rows[3],
+    open: 100.8,
+    high: 100.9,
+    low: 100.45,
+    close: 100.5,
+    price: 100.5,
+  }
+
+  const engine = createPaperTradingEngine({
+    trailingStop: {
+      enabled: true,
+      activationR: 1,
+      trailDistancePercent: 0.003,
+    },
+  })
+
+  engine.processCandles('SPY', rows)
+
+  const trade = engine.getJournal().trades[0]
+
+  assert.equal(trade.status, 'closed')
+  assert.equal(trade.exitReason, 'Trailing Stop')
+  assert.ok(trade.stopPrice > 99.5)
+  assert.ok(trade.exitPrice > 99.5)
+})
