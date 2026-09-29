@@ -30,7 +30,7 @@ function ValueList({ label, values }) {
     'p',
     { className: 'research-detail-value' },
     h('strong', null, `${label}: `),
-    Array.isArray(values) && values.length ? values.join(' ? ') : 'None',
+    Array.isArray(values) && values.length ? values.join(', ') : 'None',
   )
 }
 
