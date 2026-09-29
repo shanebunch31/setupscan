@@ -40,10 +40,13 @@ export function PaperTradingPanel() {
         <th>Score</th><th>Setup</th>
         <th>Theoretical entry <TermHelp term="Theoretical entry" explanation="Modeled entry: the next bar's open." /></th>
         <th>Observed market <TermHelp term="Observed market" explanation="Observed bar-open price; this is not a real fill price." /></th>
-        <th>Exit <TermHelp term="Exit" explanation="The simulated trade closing event; Stop or Target describes why it closed." /></th><th>Close / expiration · ET</th>
+        <th>Stop</th>
+        <th>Risk status</th>
+        <th>Exit <TermHelp term="Exit" explanation="The simulated trade closing event; Stop, Target, or Trailing Stop describes why it closed." /></th>
+        <th>Close / expiration · ET</th>
         <th>R <TermHelp term="R" explanation="One unit of planned risk. In this paper model, 1R = $100." /></th>
         <th>Hypothetical P&amp;L</th>
-      </tr></thead><tbody>{trades.length ? trades.map((row) => <PaperTradeRow key={row.trade.id} row={row} />) : <tr><td colSpan="11">No qualifying paper signals observed yet.</td></tr>}</tbody></table></div>
+      </tr></thead><tbody>{trades.length ? trades.map((row) => <PaperTradeRow key={row.trade.id} row={row} />) : <tr><td colSpan="13">No qualifying paper signals observed yet.</td></tr>}</tbody></table></div>
       <button className="refresh-button paper-refresh" onClick={refresh}>Refresh paper journal</button>
     </>}
   </section>

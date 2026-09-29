@@ -15,6 +15,20 @@ export function PaperTradeRow({ row }) {
     h('td', null, trade.setupType),
     h('td', null, formatMoney(trade.theoreticalEntryPrice)),
     h('td', null, trade.observedMarketPrice ? formatMoney(trade.observedMarketPrice) : '—'),
+    h(
+  'td',
+  null,
+  trade.stopPrice == null
+    ? '—'
+    : formatMoney(trade.stopPrice),
+),
+h(
+  'td',
+  null,
+  trade.trailingStopActive
+    ? 'Trailing active'
+    : 'Initial stop',
+),
     h('td', null,
       row.exitLabel,
       row.exitLabel === 'Expired' ? h(TermHelp, { term: 'Expired', explanation: "The simulated holding limit was reached." }) : null,

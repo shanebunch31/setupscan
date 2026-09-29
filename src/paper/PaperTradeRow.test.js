@@ -37,3 +37,13 @@ test('paper row displays unavailable for missing entry or closed event timestamp
   const html = markup({ ...baseTrade(), entryTimestamp: null, exitTimestamp: null, exitReason: 'Expired' })
   assert.match(html, /Unavailable/)
 })
+test('paper row displays trailing stop state and current stop price', () => {
+  const html = markup({
+    ...baseTrade(),
+    stopPrice: 100.25,
+    trailingStopActive: true,
+  })
+
+  assert.match(html, /\$100\.25/)
+  assert.match(html, /Trailing active/)
+})
