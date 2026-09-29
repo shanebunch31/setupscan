@@ -30,7 +30,7 @@ function ValueList({ label, values }) {
     'p',
     { className: 'research-detail-value' },
     h('strong', null, `${label}: `),
-    Array.isArray(values) && values.length ? values.join(', ') : 'None',
+    Array.isArray(values) && values.length ? values.join(' ? ') : 'None',
   )
 }
 
@@ -81,7 +81,7 @@ function PersistedRunSummary({ run }) {
   const requestedDates =
     [context.requestedStart, context.requestedEnd]
       .filter(Boolean)
-      .join(' – ') || 'Unbounded'
+      .join(' ? ') || 'Unbounded'
 
   return h(
     React.Fragment,
@@ -249,7 +249,7 @@ function PersistedRunSummary({ run }) {
         h(
           'p',
           { className: 'workbench-muted' },
-          `${requestedExperiments.length} requested · ${evaluatedExperiments.length} evaluated · ${unavailableExperiments.length} unavailable · ${incompleteExperiments.length} incomplete`,
+          `${requestedExperiments.length} requested \u00b7 ${evaluatedExperiments.length} evaluated \u00b7 ${unavailableExperiments.length} unavailable \u00b7 ${incompleteExperiments.length} incomplete`,
         ),
 
         h(
@@ -394,7 +394,7 @@ function PersistedRunSummary({ run }) {
             h(
               'p',
               { className: 'workbench-muted' },
-              `${strategyGroups.length} strategy groups · ${evidenceCount} evidence entries`,
+              `${strategyGroups.length} strategy groups \u00b7 ${evidenceCount} evidence entries`,
             ),
 
             h(
@@ -524,7 +524,7 @@ function PersistedRunSummary({ run }) {
                                               ]) =>
                                                 `${key}: ${value}`,
                                             )
-                                            .join(' · '),
+                                            .join(' ? '),
                                         ),
                                       )
                                     : null,
@@ -609,7 +609,7 @@ function PersistedRunSummary({ run }) {
             'div',
             { key: label },
             h('dt', null, label),
-            h('dd', null, value ?? '—'),
+            h('dd', null, value ?? '?'),
           ),
         ),
       ),
@@ -633,7 +633,7 @@ function PersistedRunSummary({ run }) {
                       null,
                       [issue.symbol, issue.type]
                         .filter(Boolean)
-                        .join(' · ') ||
+                        .join(String.fromCharCode(32, 183, 32)) ||
                         'Run issue',
                     ),
                     issue.error?.message
@@ -835,7 +835,7 @@ function ReplayControls({
                     'workbench-spinner',
                   'aria-hidden': true,
                 }),
-                ' Replaying…',
+                ' Replaying?',
               )
             : h(
                 React.Fragment,
@@ -1170,6 +1170,10 @@ export function ResearchRunDetail({
 
   h(ReplayControls, {
     run: displayRun,
+    dataset: currentDatasetState.dataset,
+    replaying,
+    replayError,
+    onReplay: handleReplay,
               }),
 
               h(
@@ -1351,9 +1355,9 @@ export function CanonicalDatasetSection({
                               item?.symbol ??
                               index,
                           },
-                          `${item?.symbol ?? 'Unknown symbol'} · ${candles.length} calculation candles${
+                          `${item?.symbol ?? 'Unknown symbol'} ? ${candles.length} calculation candles${
                             candles.length
-                              ? ` · ${candles[0].timestamp} to ${candles.at(-1).timestamp}`
+                              ? ` ? ${candles[0].timestamp} to ${candles.at(-1).timestamp}`
                               : ''
                           }`,
                         )
@@ -1422,7 +1426,7 @@ function PersistedRunProvenance({
         context.requestedEnd,
       ]
         .filter(Boolean)
-        .join(' – ') ||
+        .join(' ? ') ||
         'Unbounded',
     ],
     ['Code revision', context.codeRevision],

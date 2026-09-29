@@ -49,7 +49,7 @@ test('Run Detail renders persisted metadata, diagnostics, synthesis evidence, qu
   const html = renderToStaticMarkup(React.createElement(ResearchRunDetail, { run: persistedRun() }))
   for (const text of [
     'run-detail-1', '2026-09-20T12:30:00.000Z', 'partial', 'partial', 'SPY, QQQ', '1Hour',
-    '2024-01-01 – 2025-01-01', 'dataset-detail-1', 'QQQ · fetch-error', 'Provider timeout',
+    '2024-01-01 ? 2025-01-01', 'dataset-detail-1', 'QQQ · fetch-error', 'Provider timeout',
     'robustness', 'incomplete',
     'baseline', 'overall', 'tradeCount: 12', 'winRate: 0.58',
     'holdout',

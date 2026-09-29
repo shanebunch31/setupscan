@@ -65,9 +65,29 @@ export function createResearchHistoryActions({
 
       const saved = await saveRun(result)
 
+      const savedRunId =
+        saved?.runId ??
+        saved?.runContext?.runId ??
+        result?.runContext?.runId ??
+        null
+
+      if (!savedRunId) {
+        throw new Error(
+          'Research replay completed, but the saved run did not return a run ID.',
+        )
+      }
+
+      const savedResult = {
+        ...result,
+        runContext: {
+          ...(result.runContext ?? {}),
+          runId: savedRunId,
+        },
+      }
+
       return {
         result,
-        saved,
+        saved: savedResult,
       }
     },
   }

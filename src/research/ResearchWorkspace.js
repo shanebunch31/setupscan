@@ -25,7 +25,7 @@ export function projectResearchComparisonRuns(runs) {
 }
 
 export function ResearchWorkspace({
-  activeView = 'labs',
+  activeView = 'workbench',
   onNavigate = () => {},
   existingLabs = null,
   selectedRunId = null,

@@ -66,6 +66,72 @@ const researchTabs = [
 const formatPrice = (value) => Number.isFinite(value) ? `$${value.toFixed(2)}` : '—'
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
 const formatR = (value) => `${value === Infinity ? '∞' : value.toFixed(2)}R`
+const APP_ROUTES = {
+  scan: '/scan',
+  paper: '/paper',
+  backtest: '/backtest',
+  research: '/research/workbench',
+  settings: '/settings',
+}
+
+const RESEARCH_ROUTES = {
+  workbench: '/research/workbench',
+  history: '/research/history',
+  comparison: '/research/comparison',
+  labs: '/research/labs',
+}
+
+function readAppRoute() {
+  if (typeof window === 'undefined') {
+    return {
+      view: 'scan',
+      researchWorkspaceView: 'workbench',
+    }
+  }
+
+  const path = window.location.pathname.replace(/\/+$/, '') || '/'
+
+  if (path === '/research' || path === '/research/workbench') {
+    return {
+      view: 'research',
+      researchWorkspaceView: 'workbench',
+    }
+  }
+
+  for (const [workspace, route] of Object.entries(RESEARCH_ROUTES)) {
+    if (path === route) {
+      return {
+        view: 'research',
+        researchWorkspaceView: workspace,
+      }
+    }
+  }
+
+  for (const [view, route] of Object.entries(APP_ROUTES)) {
+    if (path === route) {
+      return {
+        view,
+        researchWorkspaceView: 'workbench',
+      }
+    }
+  }
+
+  return {
+    view: 'scan',
+    researchWorkspaceView: 'workbench',
+  }
+}
+
+function navigateAppRoute(view, researchWorkspaceView = 'workbench') {
+  if (typeof window === 'undefined') return
+
+  const route =
+    view === 'research'
+      ? RESEARCH_ROUTES[researchWorkspaceView] ?? RESEARCH_ROUTES.workbench
+      : APP_ROUTES[view] ?? APP_ROUTES.scan
+
+  window.history.pushState({}, '', route)
+}
 const formatDate = (value) =>
   value ? new Date(value).toLocaleDateString('en-US', { timeZone: 'UTC' }) : '—'
 const getDemoHistoricalData = () => {
@@ -354,10 +420,13 @@ function NavBar({ view, onNavigate, navOpen, onToggleNav, currentTime }) {
 
 
 function App() {
-  const [view, setView] = useState('scan')
-  const [navOpen, setNavOpen] = useState(false)
-  const [researchTab, setResearchTab] = useState('robustness')
-  const [researchWorkspaceView, setResearchWorkspaceView] = useState('labs')
+  const initialRoute = readAppRoute()
+const [view, setView] = useState(initialRoute.view)
+const [navOpen, setNavOpen] = useState(false)
+const [researchTab, setResearchTab] = useState('robustness')
+const [researchWorkspaceView, setResearchWorkspaceView] = useState(
+  initialRoute.researchWorkspaceView,
+)
   const [selectedResearchRunId, setSelectedResearchRunId] = useState(null)
   const [comparisonRuns, setComparisonRuns] = useState([])
   const [comparisonRunsLoading, setComparisonRunsLoading] = useState(false)
@@ -529,10 +598,39 @@ function App() {
       setScanLoading(false)
     }
   }
-  const handleNavigate = (id) => {
-    setView(id)
+  useEffect(() => {
+  const handlePopState = () => {
+    const nextRoute = readAppRoute()
+
+    setView(nextRoute.view)
+    setResearchWorkspaceView(nextRoute.researchWorkspaceView)
     setNavOpen(false)
   }
+
+  window.addEventListener('popstate', handlePopState)
+
+  return () => {
+    window.removeEventListener('popstate', handlePopState)
+  }
+}, [])
+
+const handleNavigate = (id) => {
+  setView(id)
+  setNavOpen(false)
+
+  if (id === 'research') {
+    setResearchWorkspaceView('workbench')
+    navigateAppRoute('research', 'workbench')
+    return
+  }
+
+  navigateAppRoute(id)
+}
+
+const handleResearchWorkspaceNavigate = (nextView) => {
+  setResearchWorkspaceView(nextView)
+  navigateAppRoute('research', nextView)
+}
   const existingResearchLabs = (
     <>
       <nav className="research-subnav">
@@ -980,7 +1078,7 @@ function App() {
         {view === 'research' && (
           <ResearchWorkspace
             activeView={researchWorkspaceView}
-            onNavigate={setResearchWorkspaceView}
+            onNavigate={handleResearchWorkspaceNavigate}
             existingLabs={existingResearchLabs}
             selectedRunId={selectedResearchRunId}
             onRunSelected={(runId) => setSelectedResearchRunId(runId)}
