@@ -1,4 +1,8 @@
-import { partitionTradesByEntryAndOutcome, runSetupScanBacktest } from './strategy.js'
+import {
+  partitionTradesByEntryAndOutcome,
+  runSetupScanBacktest,
+  runTrailingStopBacktest,
+} from './strategy.js'
 
 export const trendMomentumParameters = {
   momentumLookback: 20,
@@ -99,7 +103,29 @@ export function runTrendMomentumBacktest(candles, settings = {}) {
 }
 
 export function runStrategyComparison(candles, enrichedCandles) {
-  const control = runSetupScanBacktest(enrichedCandles, { minimumScore: 75 })
-  const trendMomentum = runTrendMomentumBacktest(candles)
-  return { control, trendMomentum }
+  const baseline = runSetupScanBacktest(
+    enrichedCandles,
+    {
+      minimumScore: 75,
+    },
+  )
+
+  const trailingStop = runTrailingStopBacktest(
+    enrichedCandles,
+    {
+      minimumScore: 75,
+      activationR: 1,
+      trailDistancePercent: 0.003,
+    },
+  )
+
+  const trendMomentum =
+    runTrendMomentumBacktest(candles)
+
+  return {
+    baseline,
+    trailingStop,
+    control: baseline,
+    trendMomentum,
+  }
 }

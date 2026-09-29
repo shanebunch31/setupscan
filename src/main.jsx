@@ -522,34 +522,64 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
 
   useEffect(() => {
     let active = true
-    Promise.all(
-      robustnessSymbols.map(async (symbol) => {
+
+    async function loadRobustnessData() {
+      const datasets = []
+
+      for (const symbol of robustnessSymbols) {
+        if (!active) break
+
         try {
-          const data = await fetchHistoricalMarketData(symbol, '1Hour', frozenScoreRange)
-          const minimumExpectedCandles = data.minimumExpectedCandles ?? 1000
+          const data = await fetchHistoricalMarketData(
+            symbol,
+            '1Hour',
+            frozenScoreRange,
+          )
+
+          const minimumExpectedCandles =
+            data.minimumExpectedCandles ?? 1000
+
           if (
             data.provider !== 'ALPACA HISTORICAL' ||
             data.complete === false ||
             !data.candles?.length ||
             data.candleCount < minimumExpectedCandles
           ) {
-            return {
+            datasets.push({
               symbol,
               status: 'UNAVAILABLE',
-              error: 'Real Alpaca dataset unavailable or incomplete.',
-            }
+              error:
+                'Real Alpaca dataset unavailable or incomplete.',
+            })
+          } else {
+            datasets.push({
+              symbol,
+              status: 'AVAILABLE',
+              data,
+            })
           }
-          return { symbol, status: 'AVAILABLE', data }
         } catch (error) {
-          return { symbol, status: 'UNAVAILABLE', error: error.message }
+          datasets.push({
+            symbol,
+            status: 'UNAVAILABLE',
+            error: error.message,
+          })
         }
-      }),
-    ).then((datasets) => {
+
+        // Space the requests so one rate-limit response does not cascade.
+        await new Promise((resolve) =>
+          setTimeout(resolve, 1500),
+        )
+      }
+
       if (active) {
         setFrozenScoreData(datasets)
         setRobustnessData(datasets)
       }
-    })
+    }
+
+    loadRobustnessData()
+
     return () => {
       active = false
     }

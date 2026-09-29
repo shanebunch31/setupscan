@@ -83,3 +83,55 @@ test('partition correction preserves all trades and aggregate metrics', () => {
   assert.equal(splitRun.trades.length, 3)
   assert.equal(splitRun.excludedCrossBoundaryTradeCount, 1)
 })
+test('trailing stop activates after +1R and ratchets upward without same-bar optimism', async () => {
+  const rows = candles(10, [2])
+
+  // Entry at 100 on the candle after the signal.
+  rows[3] = {
+    ...rows[3],
+    open: 100,
+    high: 100.6,
+    low: 99.9,
+    close: 100.6,
+  }
+
+  // Trail should now be activated, but target 102 is not reached.
+  rows[4] = {
+    ...rows[4],
+    open: 100.6,
+    high: 100.8,
+    low: 100.6,
+    close: 100.8,
+  }
+
+  // This candle reaches below the previously ratcheted stop.
+  rows[5] = {
+    ...rows[5],
+    open: 100.8,
+    high: 100.9,
+    low: 100.45,
+    close: 100.5,
+  }
+
+  const { runTrailingStopBacktest } = await import('./strategy.js')
+
+  const result = runTrailingStopBacktest(rows, {
+    minimumScore: 75,
+    activationR: 1,
+    trailDistancePercent: 0.003,
+    maxHoldingBars: 3,
+    stopDistance: 0.5,
+    targetDistance: 1,
+    splitIndex: 9,
+  })
+
+  assert.equal(result.trades.length, 1)
+
+  const trade = result.trades[0]
+
+  assert.equal(trade.exitReason, 'Trailing Stop')
+  assert.equal(trade.trailingStopActive, true)
+  assert.ok(trade.stopPrice > 99.5)
+  assert.ok(trade.exitPrice > 99.5)
+  assert.ok(trade.rMultiple > -1)
+})

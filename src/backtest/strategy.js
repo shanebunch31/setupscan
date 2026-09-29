@@ -84,7 +84,185 @@ function createTrade(signal, entryCandle, candles, signalIndex, settings) {
 		holdingBars,
 	}
 }
+export const trailingStopBacktestDefaults = Object.freeze({
+  activationR: 1,
+  trailDistancePercent: 0.003,
+})
 
+function createTrailingStopTrade(signal, entryCandle, candles, signalIndex, settings) {
+  const entryPrice = entryCandle.open ?? entryCandle.close
+  const risk = settings.stopDistance ?? entryPrice * settings.stopDistancePercent
+  const initialStopPrice = entryPrice - risk
+  const targetPrice = entryPrice + (settings.targetDistance ?? risk * settings.targetR)
+  const maxBars = Math.min(settings.maxHoldingBars, candles.length - signalIndex - 1)
+
+  let stopPrice = initialStopPrice
+  let highestPrice = entryPrice
+  let trailingStopActive = false
+  let maximumFavorableExcursion = 0
+  let maximumAdverseExcursion = 0
+  let exitReason = 'Expired'
+  let exitPrice = candles[signalIndex + maxBars]?.close ?? entryPrice
+  let holdingBars = maxBars
+
+  for (let offset = 1; offset <= maxBars; offset += 1) {
+    const candle = candles[signalIndex + offset]
+
+    maximumFavorableExcursion = Math.max(
+      maximumFavorableExcursion,
+      candle.high - entryPrice,
+    )
+
+    maximumAdverseExcursion = Math.min(
+      maximumAdverseExcursion,
+      candle.low - entryPrice,
+    )
+
+    // Evaluate the stop carried into this candle first.
+    // Only after the candle survives can the trail ratchet upward.
+    if (candle.low <= stopPrice) {
+      exitReason = trailingStopActive ? 'Trailing Stop' : 'Stop'
+      exitPrice = stopPrice
+      holdingBars = offset
+      break
+    }
+
+    if (candle.high >= targetPrice) {
+      exitReason = 'Target'
+      exitPrice = targetPrice
+      holdingBars = offset
+      break
+    }
+
+    highestPrice = Math.max(highestPrice, candle.high)
+
+    const currentR =
+      (highestPrice - entryPrice) / risk
+
+    if (currentR >= settings.activationR) {
+      trailingStopActive = true
+
+      const candidateStop =
+        highestPrice *
+        (1 - settings.trailDistancePercent)
+
+      stopPrice = Math.max(
+        stopPrice,
+        candidateStop,
+      )
+    }
+  }
+
+  const rMultiple =
+    (exitPrice - entryPrice) / risk
+
+  return {
+    symbol: signal.symbol,
+    timeframe: signal.timeframe,
+    timestamp: signal.timestamp,
+    setupType: signal.setupType,
+    score: signal.score,
+    entryPrice,
+    stopPrice,
+    targetPrice,
+    exitPrice,
+    trailingStopActive,
+    highestPrice,
+    initialStopPrice,
+    outcome:
+      rMultiple > 0
+        ? 'Win'
+        : rMultiple < 0
+          ? 'Loss'
+          : 'Breakeven',
+    exitReason,
+    rMultiple,
+    maximumFavorableExcursion,
+    maximumAdverseExcursion,
+    holdingTime:
+      holdingBars *
+      (timeframeMinutes[signal.timeframe] || 60),
+    holdingBars,
+  }
+}
+
+export function runTrailingStopBacktest(
+  candles,
+  settings = {},
+) {
+  const options = {
+    ...setupScanBacktestDefaults,
+    ...trailingStopBacktestDefaults,
+    ...settings,
+  }
+
+  const splitIndex =
+    options.splitIndex ??
+    Math.floor(
+      candles.length *
+      options.splitRatio,
+    )
+
+  const signals = scanSetups(candles)
+
+  const trades = signals
+    .map((signal) => ({
+      signal,
+      index: candles.findIndex(
+        (candle) =>
+          candle.timestamp === signal.timestamp,
+      ),
+    }))
+    .filter(
+      ({ signal, index }) =>
+        signal.score >= options.minimumScore &&
+        signal.status === 'Bullish' &&
+        index >= 0 &&
+        index < candles.length - 1,
+    )
+    .map(
+      ({ signal, index }) =>
+        createTrailingStopTrade(
+          signal,
+          candles[index + 1],
+          candles,
+          index,
+          options,
+        ),
+    )
+    .sort((a, b) =>
+      a.timestamp.localeCompare(b.timestamp),
+    )
+
+  const {
+    inSample,
+    outOfSample,
+    excludedCrossBoundaryTradeCount,
+  } =
+    partitionTradesByEntryAndOutcome(
+      trades,
+      candles,
+      splitIndex,
+    )
+
+  return {
+    candles,
+    settings: {
+      ...options,
+      splitIndex,
+    },
+    trades,
+    partitions: {
+      inSample,
+      outOfSample,
+    },
+    excludedCrossBoundaryTradeCount,
+    metrics: getMetrics(trades),
+    inSampleMetrics: getMetrics(inSample),
+    outOfSampleMetrics:
+      getMetrics(outOfSample),
+  }
+}
 export function partitionTradesByEntryAndOutcome(trades, candles, splitIndex) {
 	const indexByTimestamp = new Map(candles.map((candle, index) => [candle.timestamp, index]))
 	const inSample = []

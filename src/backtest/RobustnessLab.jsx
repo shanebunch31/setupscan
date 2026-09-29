@@ -67,7 +67,7 @@ export function StrategyRobustnessLab({ datasets }) {
       {!availableSpy ? <div className="robustness-error">SPY robustness data is unavailable, so no robustness backtest was run.</div> : null}
       {availableSpy ? (
         <LearningDetails label="More details">
-          <ResearchSection title="Control vs Trend/Momentum · research only"><StrategyComparisonLab datasets={datasets} /></ResearchSection>
+          <ResearchSection title="Stop Management & Strategy Comparison · research only"><StrategyComparisonLab datasets={datasets} /></ResearchSection>
           <ResearchSection title="Score threshold comparison · existing rules unchanged"><ThresholdTable results={thresholdResults} /></ResearchSection>
           <ResearchSection title="Cumulative R by threshold"><div className="robustness-charts">{thresholdResults.map((result) => <CumulativeRChart key={result.minimumScore} result={result} />)}</div></ResearchSection>
           <ResearchSection title="Direction · current strategy is long-only"><DirectionTable result={baseline} /><p className="robustness-muted">Short logic has not been implemented: qualifying signals are bullish-only and trade construction uses a long entry, lower stop, and higher target.</p></ResearchSection>
