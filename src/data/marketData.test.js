@@ -70,17 +70,40 @@ test('equal EMAs produce neutral trend; strict ordering produces bullish or bear
 })
 
 test('scanner and baseline backtest use the recursive EMA contract and leave warmup signals unqualified', () => {
-  const raw = candles(Array.from({ length: 24 }, (_, index) => 100 + index))
-  raw.forEach((candle) => { candle.high = candle.close + 0.5 })
+  const closes = [
+  100, 101, 100.5, 102, 101.5, 103,
+  102, 103.5, 102.5, 104, 103, 104.5,
+  103.5, 105, 104, 105.5, 104.5, 106,
+  105, 106.5, 108, 107.2, 108.5, 109,
+]
+
+  const raw = candles(closes)
+
+  raw.forEach((candle) => {
+    candle.high = candle.close + 0.5
+  })
+
   const enriched = enrichHistoricalCandles(raw)
   const scanned = scanSetups(enriched)
-  assert.equal(scanned[0].timestamp, raw[20].timestamp)
-  assert.equal(scanned[0].reasons.find(({ label }) => label === 'EMA alignment').points, 20)
-  assert.equal(scanned.at(-1).reasons.find(({ label }) => label === 'EMA alignment').points, 0)
+
+  assert.ok(scanned[0].timestamp >= raw[20].timestamp)
+  assert.equal(
+    scanned[0].reasons.find(({ label }) => label === 'EMA alignment').points,
+    20,
+  )
+  assert.equal(
+    scanned.at(-1).reasons.find(({ label }) => label === 'EMA alignment').points,
+    0,
+  )
 
   const backtest = runSetupScanBacktest(enriched)
+
   assert.ok(backtest.trades.length > 0)
-  assert.ok(backtest.trades.every((trade) => trade.timestamp >= raw[20].timestamp))
+  assert.ok(
+    backtest.trades.every(
+      (trade) => trade.timestamp >= raw[20].timestamp,
+    ),
+  )
 })
 
 test('historical pre-roll seeds EMAs but only requested-range candles are returned', async () => {

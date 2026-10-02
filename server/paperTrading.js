@@ -196,7 +196,9 @@ export function createPaperTradingEngine({
 
   function processCandles(symbol, candles) {
     const sortedCandles = [...candles].sort((a, b) => a.timestamp.localeCompare(b.timestamp))
-    const signals = scanSetups(sortedCandles).filter((signal) => signal.score >= 75 && signal.status === 'Bullish')
+    const signals = scanSetups(sortedCandles).filter(
+  (signal) => signal.qualifiedSetup === true,
+)
     const existing = new Set(journal.trades.map((trade) => trade.id))
     for (const signal of signals) {
       const signalIndex = sortedCandles.findIndex((candle) => candle.timestamp === signal.timestamp)

@@ -4,9 +4,50 @@ import { createPaperObserver } from './paperObserverCore.js'
 import { completedHourlyCandles, isRegularSession } from './marketSession.js'
 
 function candles() {
-  return Array.from({ length: 30 }, (_, index) => ({
-    symbol: 'SPY', timeframe: '1h', timestamp: new Date(Date.UTC(2026, 8, 21, 12 + index)).toISOString(), open: 100, high: index === 21 ? 101.1 : 100.5, low: 99.5, close: index === 20 ? 110 : 100, volume: index === 20 ? 1500 : 1000,
-    price: index === 20 ? 110 : 100, vwap: 100, ema9: 101, ema21: 99, rsi: 60, relativeVolume: 1.5, breakout: index === 20, trend: 'Bullish',
+  const closes = [
+    100.0,
+    100.25,
+    100.2,
+    100.15,
+    99.95,
+    100.0,
+    99.9,
+    100.15,
+    100.1,
+    100.3,
+    100.2,
+    100.05,
+    100.3,
+    100.2,
+    100.15,
+    99.95,
+    100.15,
+    100.0,
+    99.85,
+    100.1,
+    101.0,
+    101.0,
+    100.5,
+    100.5,
+    100.5,
+    100.5,
+    100.5,
+    100.5,
+    100.5,
+    100.5,
+  ]
+
+  return closes.map((close, index) => ({
+    symbol: 'SPY',
+    timeframe: '1h',
+    timestamp: new Date(
+      Date.UTC(2026, 8, 21, 18 + index),
+    ).toISOString(),
+    open: index === 20 ? 100.5 : 100,
+    high: index === 20 ? 101.1 : close + 0.2,
+    low: close - 0.2,
+    close,
+    volume: index === 20 ? 1500 : 1000,
   }))
 }
 
@@ -26,7 +67,7 @@ test('only processes completed candles during the regular session', () => {
 test('scheduled processing creates once, persists checkpoint, and skips unchanged candles', async () => {
   const memory = store()
   let calls = 0
-  const observer = await createPaperObserver({ store: memory, now: () => new Date('2026-09-22T15:00:00Z'), fetchBars: async () => { calls += 1; return { provider: 'ALPACA HISTORICAL', candles: candles(), candleCount: 16 } } })
+  const observer = await createPaperObserver({ store: memory, now: () => new Date('2026-09-22T16:00:00Z'), fetchBars: async () => { calls += 1; return { provider: 'ALPACA HISTORICAL', candles: candles(), candleCount: 30 } } })
   const first = await observer.processOnce()
   const second = await observer.processOnce()
   assert.equal(first.processed, 3)
@@ -38,7 +79,7 @@ test('scheduled processing creates once, persists checkpoint, and skips unchange
 
 test('restart recovers persisted trades and checkpoints without duplicates', async () => {
   const memory = store()
-  const options = { store: memory, now: () => new Date('2026-09-22T15:00:00Z'), fetchBars: async () => ({ provider: 'ALPACA HISTORICAL', candles: candles(), candleCount: 16 }) }
+  const options = { store: memory, now: () => new Date('2026-09-22T16:00:00Z'), fetchBars: async () => ({ provider: 'ALPACA HISTORICAL', candles: candles(), candleCount: 30 }) }
   const first = await createPaperObserver(options)
   await first.processOnce()
   const second = await createPaperObserver(options)
@@ -49,7 +90,7 @@ test('restart recovers persisted trades and checkpoints without duplicates', asy
 test('records an error and recovers on the next successful cycle', async () => {
   const memory = store()
   let fail = true
-  const observer = await createPaperObserver({ store: memory, now: () => new Date('2026-09-22T15:00:00Z'), fetchBars: async () => { if (fail) throw new Error('temporary Alpaca failure'); return { provider: 'ALPACA HISTORICAL', candles: candles(), candleCount: 16 } } })
+  const observer = await createPaperObserver({ store: memory, now: () => new Date('2026-09-22T16:00:00Z'), fetchBars: async () => { if (fail) throw new Error('temporary Alpaca failure'); return { provider: 'ALPACA HISTORICAL', candles: candles(), candleCount: 30 } } })
   const failed = await observer.processOnce()
   assert.equal(failed.status, 'ERROR')
   fail = false

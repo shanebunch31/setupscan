@@ -130,3 +130,123 @@ button { border: 0; cursor: pointer; color: inherit; }
 .research-comparison-result { margin-top: 22px; border-top: 1px solid var(--line); }.research-comparison-result-heading { align-items: baseline; padding: 15px 0 8px; }.research-comparison-result-heading h3 { margin: 0; font-size: 15px; }.research-comparison-result-heading p { margin: 0; color: var(--muted); font: 10px var(--mono); overflow-wrap: anywhere; }.research-comparison-provenance, .research-comparison-matched, .research-comparison-unmatched, .research-comparison-notes { padding: 14px 0; border-bottom: 1px solid var(--line); }.research-comparison-result h4 { margin: 0 0 9px; font-size: 12px; }.research-comparison-provenance p { margin: 5px 0; color: var(--muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }.research-comparison-matched > ul, .research-comparison-unmatched > ul, .research-comparison-notes > ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }.research-comparison-pair, .research-comparison-unmatched-item { padding: 12px; border: 1px solid var(--line); border-radius: 5px; background: #fff; }.research-comparison-pair-heading { align-items: baseline; margin-bottom: 10px; }.research-comparison-pair-heading strong { font-size: 11px; }.research-comparison-pair-heading span { color: var(--muted); font-size: 10px; }.research-comparison-evidence-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }.research-comparison-evidence-side { min-width: 0; padding: 10px; background: #f7f8f4; }.research-comparison-evidence-side h5, .research-comparison-compatibility-group h5, .research-comparison-unmatched-item h5 { margin: 0 0 7px; font-size: 10px; }.research-comparison-evidence-id { margin: 0 0 8px; color: var(--muted); font: 9px var(--mono); overflow-wrap: anywhere; }.research-comparison-evidence-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 0; }.research-comparison-metrics { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 8px 0 0; padding: 0; list-style: none; color: var(--ink); font: 9px var(--mono); }.research-comparison-compatibility { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }.research-comparison-compatibility-group { min-width: 0; padding: 9px; background: #f7f8f4; }.research-comparison-compatibility-group ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }.research-comparison-compatibility-group li { display: grid; gap: 3px; color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }.research-comparison-compatibility-group li strong { color: var(--ink); }.research-comparison-family-note { margin-top: 9px; padding: 8px 10px; border-left: 2px solid var(--line); color: var(--muted); font-size: 10px; }.research-comparison-family-note p { margin: 3px 0; }.research-comparison-family-note strong { color: var(--ink); }.research-comparison-unmatched-item h5 { color: var(--ink); }.research-comparison-unmatched-item > .research-comparison-evidence-side { margin-top: 8px; }.research-comparison-unmatched-item > .research-comparison-compatibility-group { margin-top: 8px; }.research-comparison-notes > ul > li { display: grid; gap: 5px; padding: 9px 10px; border-left: 2px solid var(--line); background: #fff; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }.research-comparison-notes strong { color: var(--ink); }
 @media (max-width: 760px) { .research-comparison-selectors { grid-template-columns: 1fr; }.research-comparison-compatibility { grid-template-columns: 1fr; } }
 @media (max-width: 560px) { .research-comparison { padding: 18px 15px 28px; }.research-comparison-heading, .research-comparison-result-heading { align-items: flex-start; flex-direction: column; }.research-comparison-run-meta, .research-comparison-evidence-grid, .research-comparison-evidence-meta { grid-template-columns: 1fr 1fr; }.research-comparison-result-heading p { overflow-wrap: anywhere; } }
+
+/* Watchlist manager */
+.watchlist-manager {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - 32px));
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+  padding: 22px;
+  z-index: 1000;
+}
+
+.watchlist-manager > div:first-child {
+  margin-bottom: 18px;
+}
+
+.watchlist-manager strong {
+  display: block;
+  font-size: 17px;
+  margin-bottom: 5px;
+}
+
+.watchlist-manager small {
+  color: var(--muted);
+}
+
+.watchlist-manager > div:nth-child(2) {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.watchlist-manager input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+
+.watchlist-manager input:focus {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+}
+
+.watchlist-manager > div:nth-child(2) button {
+  height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--green);
+  color: white;
+  font-weight: 700;
+}
+
+.watchlist-manager > div:nth-child(3) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.watchlist-manager > div:nth-child(3) button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.watchlist-manager > div:nth-child(3) button:hover {
+  border-color: var(--green);
+}
+
+.watchlist-manager > button {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.watchlist-manager > button:hover {
+  background: var(--mint);
+  color: var(--ink);
+}
+
+@media (max-width: 650px) {
+  .watchlist-manager {
+    padding: 18px;
+  }
+
+  .watchlist-manager > div:nth-child(2) {
+    flex-direction: column;
+  }
+
+  .watchlist-manager > div:nth-child(2) button {
+    width: 100%;
+  }
+}

@@ -20,7 +20,62 @@ const averageValues = (values) =>
   values.length
     ? values.reduce((total, value) => total + value, 0) / values.length
     : 0
+const RSI_PERIOD = 14
 
+function rsiSeries(candles, period = RSI_PERIOD) {
+  const values = candles.map((candle) => Number(candle?.close))
+  const output = Array(values.length).fill(null)
+
+  if (values.length <= period) return output
+
+  let gainSum = 0
+  let lossSum = 0
+
+  for (let index = 1; index <= period; index += 1) {
+    const change = values[index] - values[index - 1]
+
+    if (change > 0) {
+      gainSum += change
+    } else {
+      lossSum += Math.abs(change)
+    }
+  }
+
+  let averageGain = gainSum / period
+  let averageLoss = lossSum / period
+
+  const firstRelativeStrength = averageLoss
+    ? averageGain / averageLoss
+    : averageGain
+      ? Infinity
+      : 0
+
+  output[period] =
+    100 - 100 / (1 + firstRelativeStrength)
+
+  for (let index = period + 1; index < values.length; index += 1) {
+    const change = values[index] - values[index - 1]
+    const gain = Math.max(0, change)
+    const loss = Math.max(0, -change)
+
+    averageGain =
+      ((averageGain * (period - 1)) + gain) / period
+
+    averageLoss =
+      ((averageLoss * (period - 1)) + loss) / period
+
+    const relativeStrength = averageLoss
+      ? averageGain / averageLoss
+      : averageGain
+        ? Infinity
+        : 0
+
+    output[index] =
+      100 - 100 / (1 + relativeStrength)
+  }
+
+  return output
+}
 export const EMA_CONTRACT_VERSION =
   'setupscan-ema-sma-seeded-recursive-v1'
 
@@ -99,9 +154,11 @@ function historicalFetchRange(range = {}, timeframe = '1Hour') {
 export function enrichHistoricalCandles(candles) {
   const ema9Series = emaSeries(candles, 9)
   const ema21Series = emaSeries(candles, 21)
+  const rsiValues = rsiSeries(candles)
 
-  let cumulativeTypicalPrice = 0
+  let cumulativePriceVolume = 0
   let cumulativeVolume = 0
+  let currentSessionKey = null
 
   return candles.map((candle, index) => {
     const priorStart = Math.max(0, index - 20)
@@ -109,9 +166,42 @@ export function enrichHistoricalCandles(candles) {
 
     const typicalPrice =
       (candle.high + candle.low + candle.close) / 3
+    const easternParts = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  weekday: 'short',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  hour12: false,
+}).formatToParts(new Date(candle.timestamp))
 
-    cumulativeTypicalPrice += typicalPrice
-    cumulativeVolume += candle.volume
+   const eastern = Object.fromEntries(
+  easternParts
+    .filter(({ type }) => type !== 'literal')
+    .map(({ type, value }) => [type, value]),
+)
+
+   const easternHour = Number(eastern.hour)
+
+   const isRegularSessionBar =
+  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(eastern.weekday) &&
+  easternHour >= 10 &&
+  easternHour <= 15
+
+   const sessionKey =
+  `${eastern.year}-${eastern.month}-${eastern.day}`
+
+if (isRegularSessionBar && sessionKey !== currentSessionKey) {
+  currentSessionKey = sessionKey
+  cumulativePriceVolume = 0
+  cumulativeVolume = 0
+}
+
+if (isRegularSessionBar) {
+  cumulativePriceVolume += typicalPrice * candle.volume
+  cumulativeVolume += candle.volume
+}
 
     const usePrecomputedEma =
       candle?.[emaPrecomputedMarker] === EMA_CONTRACT_VERSION
@@ -127,50 +217,6 @@ export function enrichHistoricalCandles(candles) {
     let totalGain = 0
     let totalLoss = 0
     let changeCount = 0
-
-    for (
-      let priorIndex = priorStart + 1;
-      priorIndex < index;
-      priorIndex += 1
-    ) {
-      const currentClose =
-        candles[priorIndex].close
-
-      const previousClose =
-        candles[priorIndex - 1].close
-
-      const change =
-        currentClose - previousClose
-
-      if (change > 0) {
-        totalGain += change
-      } else if (change < 0) {
-        totalLoss += -change
-      }
-
-      changeCount += 1
-    }
-
-    const averageGain =
-      changeCount
-        ? totalGain / changeCount
-        : 0
-
-    const averageLoss =
-      changeCount
-        ? totalLoss / changeCount
-        : 0
-
-    const relativeStrength = averageLoss
-      ? averageGain / averageLoss
-      : averageGain
-        ? Infinity
-        : 0
-
-    const rsi =
-      100 -
-      100 / (1 + relativeStrength)
-
     let priorHigh = -Infinity
 
     for (
@@ -195,18 +241,17 @@ export function enrichHistoricalCandles(candles) {
       timeframe: '1h',
       price: candle.close,
 
-      // Same cumulative-average calculation as before,
-      // without rebuilding the full history array each candle.
-      vwap:
-        cumulativeTypicalPrice /
-        (index + 1),
+     vwap:
+       cumulativeVolume
+         ? cumulativePriceVolume / cumulativeVolume
+         : candle.close,
 
       ema9,
       ema21,
 
-      rsi: Number.isFinite(rsi)
-        ? Math.round(rsi)
-        : 100,
+      rsi: Number.isFinite(rsiValues[index])
+        ? Math.round(rsiValues[index])
+  : null,
 
       relativeVolume:
         averageVolume
@@ -317,7 +362,7 @@ function buildHistoricalMarketDataResult(
           precomputed?.ema21 ?? null,
         trend:
           !Number.isFinite(
-            precomputed?.ema9,
+            precomputed?.ema9
           ) ||
           !Number.isFinite(
             precomputed?.ema21,

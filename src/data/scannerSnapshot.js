@@ -36,8 +36,12 @@ export async function fetchScannerSnapshot(symbols, range, fetchData = fetchHist
           volume: latest.volume,
         },
       }
-    } catch {
-      return { symbol, available: false }
+          } catch (error) {
+        return {
+          symbol,
+          available: false,
+          error: error?.message ?? 'Unknown scanner error',
+        }
     }
   }))
 }

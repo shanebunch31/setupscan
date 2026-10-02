@@ -216,7 +216,7 @@ export function runTrailingStopBacktest(
     .filter(
       ({ signal, index }) =>
         signal.score >= options.minimumScore &&
-        signal.status === 'Bullish' &&
+        signal.qualifiedSetup === true &&
         index >= 0 &&
         index < candles.length - 1,
     )
@@ -284,7 +284,7 @@ export function runSetupScanBacktest(candles, settings = {}) {
 	const options = { ...setupScanBacktestDefaults, ...settings }
 	const splitIndex = options.splitIndex ?? Math.floor(candles.length * options.splitRatio)
 	const signals = scanSetups(candles)
-	const trades = signals.map((signal) => ({ signal, index: candles.findIndex((candle) => candle.timestamp === signal.timestamp) })).filter(({ signal, index }) => signal.score >= options.minimumScore && signal.status === 'Bullish' && index >= 0 && index < candles.length - 1).map(({ signal, index }) => createTrade(signal, candles[index + 1], candles, index, options)).sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+	const trades = signals.map((signal) => ({ signal, index: candles.findIndex((candle) => candle.timestamp === signal.timestamp) })).filter(({ signal, index }) => signal.score >= options.minimumScore && signal.qualifiedSetup === true && index >= 0 && index < candles.length - 1).map(({ signal, index }) => createTrade(signal, candles[index + 1], candles, index, options)).sort((a, b) => a.timestamp.localeCompare(b.timestamp))
 	const { inSample, outOfSample, excludedCrossBoundaryTradeCount } = partitionTradesByEntryAndOutcome(trades, candles, splitIndex)
 	return { candles, settings: { ...options, splitIndex }, trades, partitions: { inSample, outOfSample }, excludedCrossBoundaryTradeCount, metrics: getMetrics(trades), inSampleMetrics: getMetrics(inSample), outOfSampleMetrics: getMetrics(outOfSample) }
 }

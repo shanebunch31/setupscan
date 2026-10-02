@@ -43,7 +43,7 @@ import { listResearchRuns } from './research/researchRunHistory.js'
 import { projectResearchComparisonRuns, ResearchWorkspace } from './research/ResearchWorkspace.js'
 import './styles.css'
 
-const watchlist = ['SPY', 'QQQ', 'IWM', 'NVDA', 'TSLA', 'AAPL', 'AMD', 'META', 'AMZN']
+const DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'IWM', 'NVDA', 'TSLA', 'AAPL', 'AMD', 'META', 'AMZN']
 const robustnessSymbols = ['SPY', 'QQQ', 'IWM']
 const navItems = [
   { id: 'scan', label: 'Scan' },
@@ -423,6 +423,19 @@ function App() {
   const initialRoute = readAppRoute()
 const [view, setView] = useState(initialRoute.view)
 const [navOpen, setNavOpen] = useState(false)
+const [watchlist, setWatchlist] = useState(DEFAULT_WATCHLIST)
+const [watchlistSymbol, setWatchlistSymbol] = useState('')
+const addToWatchlist = (symbol) => {
+  const normalized = symbol.trim().toUpperCase()
+
+  if (!normalized || watchlist.includes(normalized)) return
+
+  setWatchlist((current) => [...current, normalized])
+}
+
+const removeFromWatchlist = (symbol) => {
+  setWatchlist((current) => current.filter((item) => item !== symbol))
+}
 const [researchTab, setResearchTab] = useState('robustness')
 const [researchWorkspaceView, setResearchWorkspaceView] = useState(
   initialRoute.researchWorkspaceView,
@@ -476,48 +489,82 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
   }, [])
 
   useEffect(() => {
-    let active = true
-    setScanLoading(true)
-    fetchScannerSnapshot(watchlist, scanRange).then((entries) => {
+  if (view !== 'scan') {
+    setScanLoading(false)
+    return undefined
+  }
+
+  let active = true
+  setScanLoading(true)
+
+  fetchScannerSnapshot(watchlist, scanRange)
+    .then((entries) => {
       if (!active) return
-      setScanSnapshot(entries.filter((entry) => entry.available).map((entry) => entry.snapshot))
-      setScanUnavailable(entries.filter((entry) => !entry.available).map((entry) => entry.symbol))
+
+      setScanSnapshot(
+        entries
+          .filter((entry) => entry.available)
+          .map((entry) => entry.snapshot),
+      )
+
+      setScanUnavailable(
+        entries
+          .filter((entry) => !entry.available)
+          .map((entry) => entry.symbol),
+      )
+
       setScanLoading(false)
     })
-    return () => {
-      active = false
-    }
-  }, [scanRange])
+    .catch(() => {
+      if (!active) return
+      setScanLoading(false)
+    })
+
+  return () => {
+    active = false
+  }
+}, [view, scanRange, watchlist])
   const results = useMemo(() => scanSetups(scanSnapshot), [scanSnapshot])
   useEffect(() => {
-    let active = true
-    fetchHistoricalMarketData('SPY', '1Hour', historicalRange)
-      .then((data) => {
-        if (!active) return
-        if (!data.complete) {
-          const expectedCandleMessage = data.minimumExpectedCandles
-            ? `expected at least ${data.minimumExpectedCandles}`
-            : 'the response did not include an expected minimum candle count'
-          setHistoricalError(
-            `Historical dataset incomplete: received ${data.candleCount} candles; ${expectedCandleMessage}.`,
-          )
-          setHistoricalStatus('DATA ERROR')
-          setHistoricalData({ ...data, candles: [] })
-          return
-        }
-        setHistoricalData(data)
-        setHistoricalStatus('ALPACA HISTORICAL')
-      })
-      .catch((error) => {
-        if (!active) return
-        setHistoricalError(error.message)
-        setHistoricalStatus('DEMO')
-        setHistoricalData(getDemoHistoricalData())
-      })
-    return () => {
-      active = false
-    }
-  }, [historicalRange])
+  if (view !== 'backtest') return undefined
+
+  let active = true
+
+  setHistoricalStatus('LOADING HISTORICAL')
+  setHistoricalError(null)
+
+  fetchHistoricalMarketData(selectedSymbol, '1Hour', historicalRange)
+    .then((data) => {
+      if (!active) return
+
+      if (!data.complete) {
+        const expectedCandleMessage = data.minimumExpectedCandles
+          ? `expected at least ${data.minimumExpectedCandles}`
+          : 'the response did not include an expected minimum candle count'
+
+        setHistoricalError(
+          `Historical dataset incomplete: received ${data.candleCount} candles; ${expectedCandleMessage}.`,
+        )
+        setHistoricalStatus('DATA ERROR')
+        setHistoricalData({ ...data, candles: [] })
+        return
+      }
+
+      setHistoricalData(data)
+      setHistoricalStatus('ALPACA HISTORICAL')
+    })
+    .catch((error) => {
+      if (!active) return
+
+      setHistoricalError(error.message)
+      setHistoricalStatus('DEMO')
+      setHistoricalData(getDemoHistoricalData())
+    })
+
+  return () => {
+    active = false
+  }
+}, [view, selectedSymbol, historicalRange]) 
 
 
   useEffect(() => {
@@ -927,7 +974,10 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                       <button
                         className={selectedSymbol === symbol ? 'active' : ''}
                         key={symbol}
-                        onClick={() => setSelectedSymbol(symbol)}
+                        onClick={() => {
+  setSelectedSymbol(symbol)
+  setView('scan')
+}}
                       >
                         {symbol}
                       </button>
@@ -1142,15 +1192,52 @@ const handleResearchWorkspaceNavigate = (nextView) => {
         </footer>
       </main>
       {watchlistOpen && (
-        <div className="toast">
-          <span>Watchlist is ready for provider settings.</span>
-          <button onClick={() => setWatchlistOpen(false)} aria-label="Close">
-            <X size={16} />
-          </button>
-        </div>
-      )}
+  <div className="watchlist-manager">
+    <div>
+      <strong>Manage watchlist</strong>
+      <small>Add symbols to scan or remove symbols you no longer want to monitor.</small>
     </div>
-  )
+
+    <div>
+      <input
+        value={watchlistSymbol}
+        onChange={(event) => setWatchlistSymbol(event.target.value.toUpperCase())}
+        placeholder="Enter symbol"
+        aria-label="Add symbol to watchlist"
+      />
+
+      <button
+        onClick={() => {
+          addToWatchlist(watchlistSymbol)
+          setWatchlistSymbol('')
+        }}
+      >
+        Add
+      </button>
+    </div>
+
+    <div>
+      {watchlist.map((symbol) => (
+        <button
+          key={symbol}
+          onClick={() => removeFromWatchlist(symbol)}
+          aria-label={`Remove ${symbol} from watchlist`}
+        >
+          {symbol} ×
+        </button>
+      ))}
+    </div>
+
+    <button
+      onClick={() => setWatchlistOpen(false)}
+      aria-label="Close watchlist manager"
+    >
+      <X size={16} />
+    </button>
+  </div>
+)}
+</div>
+) 
 }
 
 createRoot(document.getElementById('root')).render(<App />)
