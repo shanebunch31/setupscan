@@ -6,7 +6,7 @@ const MAX_HOLDING_BARS = 12
 const STOP_DISTANCE_PERCENT = 0.005
 const TARGET_R = 2
 const DEFAULT_TRAILING_STOP = {
-  enabled: false,
+  enabled: true,
   activationR: 1,
   trailDistancePercent: 0.003,
 }
@@ -110,16 +110,42 @@ function updateTrade(
       candle.high,
     )
 
-    let stopPrice = updated.stopPrice
-    let trailingStopActive =
-      updated.trailingStopActive ?? false
-
     const riskPerShare =
       updated.entryPrice * STOP_DISTANCE_PERCENT
 
     const currentR =
       (highestPrice - updated.entryPrice) /
       riskPerShare
+
+    // Use the stop that was already active before this candle.
+    if (candle.low <= updated.stopPrice) {
+      return closeTrade(
+        updated,
+        candle,
+        updated.stopPrice,
+        updated.trailingStopActive
+          ? 'Trailing Stop'
+          : 'Stop',
+        offset,
+      )
+    }
+
+    // If both target and stop are touched, the stop check above wins.
+    if (candle.high >= updated.targetPrice) {
+      return closeTrade(
+        updated,
+        candle,
+        updated.targetPrice,
+        'Target',
+        offset,
+      )
+    }
+
+    // The current candle's high can activate or ratchet the
+    // trailing stop, but only for future candles.
+    let stopPrice = updated.stopPrice
+    let trailingStopActive =
+      updated.trailingStopActive ?? false
 
     if (
       trailingStop.enabled &&
@@ -144,28 +170,6 @@ function updateTrade(
       trailingStopActive,
       holdingTime: offset * 60,
     }
-
-    if (candle.low <= stopPrice) {
-      return closeTrade(
-        updated,
-        candle,
-        stopPrice,
-        trailingStopActive
-          ? 'Trailing Stop'
-          : 'Stop',
-        offset,
-      )
-    }
-
-    if (candle.high >= updated.targetPrice) {
-      return closeTrade(
-        updated,
-        candle,
-        updated.targetPrice,
-        'Target',
-        offset,
-      )
-    }
   }
 
   if (
@@ -186,7 +190,6 @@ function updateTrade(
 
   return updated
 }
-
 export function createPaperTradingEngine({
   state = { trades: [] },
   saveState = () => {},

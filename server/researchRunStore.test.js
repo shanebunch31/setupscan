@@ -10,6 +10,7 @@ function cloneState(state) {
   return {
     runs: new Map(state.runs),
     datasets: new Map(state.datasets),
+    historicalCache: new Map(state.historicalCache),
     experiments: new Map([...state.experiments].map(([key, rows]) => [key, [...rows]])),
     investigations: new Map([...state.investigations].map(([key, row]) => [key, { ...row }])),
     investigationRuns: state.investigationRuns.map((row) => ({ ...row })),
@@ -22,7 +23,14 @@ function rowKey(runId, experimentId) {
 
 class MemoryResearchPool {
   constructor() {
-    this.state = { runs: new Map(), datasets: new Map(), experiments: new Map(), investigations: new Map(), investigationRuns: [] }
+    this.state = {
+  runs: new Map(),
+  datasets: new Map(),
+  historicalCache: new Map(),
+  experiments: new Map(),
+  investigations: new Map(),
+  investigationRuns: [],
+}
     this.failExperimentId = null
     this.committedTransactions = 0
     this.rolledBackTransactions = 0
@@ -96,6 +104,47 @@ class MemoryResearchPool {
       const row = state.datasets.get(values[0])
       return { rows: row ? [{ ...row }] : [] }
     }
+        if (text.startsWith('INSERT INTO research_historical_cache')) {
+      const [
+        cacheKey,
+        provider,
+        symbol,
+        timeframe,
+        adjustmentMode,
+        requestedStart,
+        requestedEnd,
+        actualStart,
+        actualEnd,
+        candleCount,
+        complete,
+        candles,
+      ] = values
+
+      state.historicalCache.set(cacheKey, {
+        cache_key: cacheKey,
+        provider,
+        symbol,
+        timeframe,
+        adjustment_mode: adjustmentMode,
+        requested_start: requestedStart,
+        requested_end: requestedEnd,
+        actual_start: actualStart,
+        actual_end: actualEnd,
+        candle_count: candleCount,
+        complete,
+        candles: JSON.parse(candles),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+
+      return { rows: [] }
+    }
+
+    if (text.includes('FROM research_historical_cache')) {
+      const row = state.historicalCache.get(values[0])
+        return { rows: row ? [{ ...row }] : [] }
+    }
+
     if (text.startsWith('INSERT INTO research_runs')) {
       const [runId, requestedAt, status, fetchStatus, symbols, timeframe, requestedStart, requestedEnd,
         requestedExperiments, emaContractVersion, adjustmentMode, codeRevision, effectiveDateProvenance,
@@ -438,6 +487,49 @@ test('reuses an immutable dataset for multiple runs and retrieves it by datasetI
   const dataset = await store.getResearchDataset(first.dataset.datasetId)
   assert.equal(dataset.datasetId, first.dataset.datasetId)
   assert.equal(dataset.calculationSeries[0].candles[0].timestamp, '2021-12-31T23:00:00.000Z')
+})
+
+test('saves and retrieves historical cache entries by cacheKey', async () => {
+  const pool = new MemoryResearchPool()
+  const store = createResearchRunStore({ pool })
+
+  const entry = {
+    cacheKey: 'historical_SPY_1Hour_test',
+    provider: 'ALPACA HISTORICAL',
+    symbol: 'SPY',
+    timeframe: '1Hour',
+    adjustmentMode: 'split',
+    requestedStart: '2022-01-01T00:00:00Z',
+    requestedEnd: '2026-09-26T00:00:00Z',
+    actualStart: '2022-01-03T14:00:00Z',
+    actualEnd: '2026-09-25T20:00:00Z',
+    candleCount: 1234,
+    complete: true,
+    candles: [
+      {
+        symbol: 'SPY',
+        timeframe: '1Hour',
+        timestamp: '2022-01-03T14:00:00Z',
+        open: 100,
+        high: 101,
+        low: 99,
+        close: 100.5,
+        volume: 5000,
+      },
+    ],
+  }
+
+  await store.saveResearchHistoricalCache(entry)
+
+  const retrieved =
+    await store.getResearchHistoricalCache(entry.cacheKey)
+
+  assert.equal(retrieved.cacheKey, entry.cacheKey)
+  assert.equal(retrieved.symbol, 'SPY')
+  assert.equal(retrieved.timeframe, '1Hour')
+  assert.equal(retrieved.complete, true)
+  assert.equal(retrieved.candleCount, 1234)
+  assert.deepEqual(retrieved.candles, entry.candles)
 })
 
 test('keeps a historical run readable when it has no canonical dataset row', async () => {

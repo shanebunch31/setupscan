@@ -14,7 +14,6 @@ export function PaperTradeRow({ row }) {
     h('td', null, trade.signalScore),
     h('td', null, trade.setupType),
     h('td', null, formatMoney(trade.theoreticalEntryPrice)),
-    h('td', null, trade.observedMarketPrice ? formatMoney(trade.observedMarketPrice) : '—'),
     h(
   'td',
   null,

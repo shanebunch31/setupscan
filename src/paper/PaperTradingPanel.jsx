@@ -39,9 +39,8 @@ export function PaperTradingPanel() {
         <th>Entry · ET <TermHelp term="Entry" explanation="Modeled entry: the next bar's open." /></th>
         <th>Score</th><th>Setup</th>
         <th>Theoretical entry <TermHelp term="Theoretical entry" explanation="Modeled entry: the next bar's open." /></th>
-        <th>Observed market <TermHelp term="Observed market" explanation="Observed bar-open price; this is not a real fill price." /></th>
         <th>Stop</th>
-        <th>Risk status</th>
+        <th>Protection</th>
         <th>Exit <TermHelp term="Exit" explanation="The simulated trade closing event; Stop, Target, or Trailing Stop describes why it closed." /></th>
         <th>Close / expiration · ET</th>
         <th>R <TermHelp term="R" explanation="One unit of planned risk. In this paper model, 1R = $100." /></th>

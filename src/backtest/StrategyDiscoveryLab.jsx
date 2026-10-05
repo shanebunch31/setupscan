@@ -162,7 +162,7 @@ function FamilyResult({ result }) {
       <p className="robustness-muted">Batch A result (real Alpaca historical data, causal signal generation, next-candle entry):</p>
       <div className="robustness-table-wrap">
         <table className="robustness-table">
-          <thead><tr><th>Sample size</th><th>Win rate</th><th>Profit factor</th><th>Expectancy</th><th>Average R</th><th>Median R</th><th>Max drawdown</th><th>Avg hold (bars)</th><th>Avg MFE</th><th>Avg MAE</th></tr></thead>
+          <thead><tr><th>Signals tested</th><th>Win rate</th><th>Profit factor</th><th>Average result</th><th>Average R</th><th>Median R</th><th>Max drawdown</th><th>Avg hold</th><th>Best move</th><th>Worst move</th></tr></thead>
           <tbody>
             <tr>
               <td>{summary.overall.occurrenceCount}</td>
@@ -211,7 +211,7 @@ function FamilyCard({ family, result, dataUnavailableReason }) {
     <div className="robustness-section">
       <div className="panel-heading compact">
         <div>
-          <p className="eyebrow">CANDIDATE FAMILY</p>
+          <p className="eyebrow">SETUP IDEA</p>
           <h3>{family.label}</h3>
         </div>
         <span className="coming-soon">{family.experimentId ? 'BATCH A · IMPLEMENTED' : 'HYPOTHESIS ONLY · NOT YET TESTED'}</span>
@@ -238,7 +238,7 @@ function FamilyCard({ family, result, dataUnavailableReason }) {
           </p>
           <div className="robustness-table-wrap">
             <table className="robustness-table">
-              <thead><tr><th>Sample size</th><th>Win rate</th><th>Profit factor</th><th>Expectancy</th><th>Average R</th><th>Max drawdown</th><th>By year</th><th>By symbol</th><th>Cost sensitivity</th><th>In-sample / out-of-sample</th></tr></thead>
+              <thead><tr><th>Signals tested</th><th>Win rate</th><th>Profit factor</th><th>Average result</th><th>Average R</th><th>Max drawdown</th><th>By year</th><th>By symbol</th><th>Cost sensitivity</th><th>In-sample / out-of-sample</th></tr></thead>
               <tbody>
                 <tr>
                   <td>{NOT_YET_RUN}</td><td>{NOT_YET_RUN}</td><td>{NOT_YET_RUN}</td><td>{NOT_YET_RUN}</td><td>{NOT_YET_RUN}</td>
@@ -298,7 +298,7 @@ function DimensionSection({ dimension }) {
       <h3>{dimension.label}</h3>
       <div className="robustness-table-wrap">
         <table className="robustness-table">
-          <thead><tr><th>Bucket</th><th>Occurrences</th><th>Evidence</th><th>Win rate</th><th>PF</th><th>Expectancy</th><th>Median R</th><th>Total R</th><th>Max DD</th><th>Avg hold</th><th>Avg MFE</th><th>Avg MAE</th></tr></thead>
+          <thead><tr><th>Bucket</th><th>Occurrences</th><th>Evidence</th><th>Win rate</th><th>PF</th><th>Average result</th><th>Median R</th><th>Total R</th><th>Max DD</th><th>Avg hold</th><th>Best move</th><th>Worst move</th></tr></thead>
           <tbody>{dimension.buckets.map((bucket) => (
             <tr key={bucket.label}>
               <td>{bucket.label}</td>
@@ -365,16 +365,32 @@ function BreakoutContextResearchSection({ datasets }) {
   return (
     <section className="robustness-lab panel">
       <div className="panel-heading compact">
-        <div><p className="eyebrow">RESEARCH · STRATEGY DISCOVERY · BATCH B</p><h2>Batch B — Breakout Context Research</h2></div>
-        <span className="coming-soon">DESCRIPTIVE ONLY · FROZEN BASELINE</span>
-      </div>
+  <div>
+    <p className="eyebrow">RESEARCH · STRATEGY DISCOVERY · BATCH B</p>
+    <h2>Batch B — Market Conditions</h2>
+  </div>
+  <span className="coming-soon">CONTEXT RESEARCH · SAME SIGNALS</span>
+</div>
       <p className="robustness-disclaimer">
-        Investigates which market/context conditions are historically associated with different behavior of the frozen Batch A
-        Momentum Breakout signal. The breakout definition itself \u2014 signal detection, entry, stop, and outcome windows \u2014 is
-        reused completely unmodified; only the grouping of already-qualifying signals changes across this page. No threshold is
-        optimized, no context bucket is selected or declared a winner, and nothing here changes the production scanner, paper
-        trading, the Render worker, or the API.
+       Batch B takes the same Momentum Breakout signals from Batch A and looks at the market conditions around those signals.
+       It checks whether things like trend, volatility, time of day, VWAP, relative strength, and volume were associated with different historical results.
+       The trading rules stay exactly the same; only the surrounding conditions are compared.
       </p>
+            <div className="batch-scope">
+        <h3>8 market conditions</h3>
+        <p>These are the conditions we're checking around the same breakout signals:</p>
+        <div className="batch-scope-grid">
+          <div><strong>1. Time of Day</strong><span>When the signal happened during the trading day.</span></div>
+          <div><strong>2. Market Trend</strong><span>Whether the broader market was trending up, down, or mixed.</span></div>
+          <div><strong>3. Volatility</strong><span>Whether the market was relatively calm or volatile.</span></div>
+          <div><strong>4. Relative Strength</strong><span>Whether the stock was stronger or weaker than its peers.</span></div>
+          <div><strong>5. VWAP</strong><span>Whether the signal happened above or below VWAP.</span></div>
+          <div><strong>6. Opening Range</strong><span>Whether price had broken above the day's early range.</span></div>
+          <div><strong>7. Prior-Day High</strong><span>Whether price had also cleared the previous day's high.</span></div>
+          <div><strong>8. Volume Strength</strong><span>How strong the signal's volume was compared with the minimum requirement.</span></div>
+        </div>
+      </div>
+
       {!batchB.available ? (
         <div className="robustness-error">
           Batch B is waiting on real Alpaca historical data for {batchB.missingSymbols?.join(', ') ?? 'SPY, QQQ, IWM'}. This lab
@@ -383,7 +399,7 @@ function BreakoutContextResearchSection({ datasets }) {
       ) : (
         <>
           <ResearchFirstAnswer
-            question="Which market/context conditions were associated with outcomes of the same frozen Momentum Breakout signals?"
+            question="Which market conditions were present when the same breakout signals behaved differently?"
             sample={`${batchB.totalQualifyingSignals} qualifying signals in this sample; context buckets have different counts.`}
             takeaway={takeawayText}
             limitation="These are historical associations, not probabilities, guarantees, or a selected context rule."
@@ -486,16 +502,18 @@ function RegularSessionBreakoutSection({ datasets }) {
   return (
     <section className="robustness-lab panel">
       <div className="panel-heading compact">
-        <div><p className="eyebrow">RESEARCH \u00b7 STRATEGY DISCOVERY \u00b7 BATCH C</p><h2>Batch C \u2014 Regular Session Breakout</h2></div>
-        <span className="coming-soon">DESCRIPTIVE ONLY \u00b7 FROZEN BASELINE</span>
-      </div>
-      <p className="robustness-disclaimer">
-        This is the same frozen Momentum Breakout tested on a stricter 1H research universe containing only fully regular-session
-        bars. The breakout definition itself \u2014 signal detection, entry, stop, and outcome windows \u2014 is reused completely
-        unmodified from Batch A; only the underlying bar universe changes. Batch A remains the original full-session experiment and
-        is not altered by this page. No threshold is optimized, no session rule is searched for better results, and nothing here
-        changes the production scanner, paper trading, the Render worker, or the API.
-      </p>
+        <div>
+         <p className="eyebrow">RESEARCH · STRATEGY DISCOVERY · BATCH C</p>
+         <h2>Batch C — Regular-Hours Test</h2>
+        </div>
+        <span className="coming-soon">CONTROLLED COMPARISON · FROZEN RULES</span>
+    </div>
+
+       <p className="robustness-disclaimer">
+         Batch C runs the same Momentum Breakout rules as Batch A, but uses only bars that fall fully inside regular U.S. market hours.
+         This tests whether the choice of trading-session data changes the historical results without changing the trading rules themselves.
+       </p>
+
       {!batchC.available ? (
         <div className="robustness-error">
           Batch C is waiting on real Alpaca historical data for {batchC.missingSymbols?.join(', ') ?? 'SPY, QQQ, IWM'}. This lab
@@ -533,7 +551,7 @@ function RegularSessionBreakoutSection({ datasets }) {
             <h3>Batch C standard metrics (regular-session-only)</h3>
             <div className="robustness-table-wrap">
               <table className="robustness-table">
-                <thead><tr><th>Sample size</th><th>Win rate</th><th>Profit factor</th><th>Expectancy</th><th>Median R</th><th>Total R</th><th>Max DD</th><th>Avg hold</th><th>Avg MFE</th><th>Avg MAE</th></tr></thead>
+                <thead><tr><th>Signals tested</th><th>Win rate</th><th>Profit factor</th><th>Average result</th><th>Median R</th><th>Total R</th><th>Max DD</th><th>Avg hold</th><th>Best move</th><th>Worst move</th></tr></thead>
                 <tbody>
                   <tr>
                     <td>{batchC.summary.overall.occurrenceCount}</td>
@@ -551,6 +569,7 @@ function RegularSessionBreakoutSection({ datasets }) {
               </table>
             </div>
             <p className="robustness-muted">
+
               {batchC.summary.overall.occurrenceCount < 100 ? 'Flagged as a low-evidence sample (fewer than 100 occurrences).' : 'Sample size at or above the protocol\u2019s 100-occurrence exploratory threshold.'}
               {' '}Excluded: {batchC.summary.excluded.ambiguousCount} ambiguous, {batchC.summary.excluded.insufficientDataCount} insufficient forward data,{' '}
               {batchC.summary.excluded.outsideResearchWindowCount} outside the research windows.
@@ -575,13 +594,13 @@ function RegularSessionBreakoutSection({ datasets }) {
                       <tr><td>Occurrence count</td><td>{comparison.overall.occurrenceCount.batchA}</td><td>{comparison.overall.occurrenceCount.batchC}</td><td>{comparison.overall.occurrenceCount.diff}</td></tr>
                       <tr><td>Win rate</td><td>{formatPercent(comparison.overall.winRate.batchA)}</td><td>{formatPercent(comparison.overall.winRate.batchC)}</td><td>{(comparison.overall.winRate.diff * 100).toFixed(1)}%</td></tr>
                       <tr><td>Profit factor</td><td>{formatPf(comparison.overall.profitFactor.batchA)}</td><td>{formatPf(comparison.overall.profitFactor.batchC)}</td><td>{comparison.overall.profitFactor.diff === null ? '\u2014' : comparison.overall.profitFactor.diff.toFixed(2)}</td></tr>
-                      <tr><td>Expectancy</td><td>{formatR(comparison.overall.expectancy.batchA)}</td><td>{formatR(comparison.overall.expectancy.batchC)}</td><td>{formatR(comparison.overall.expectancy.diff)}</td></tr>
+                      <tr><td>Average result</td><td>{formatR(comparison.overall.expectancy.batchA)}</td><td>{formatR(comparison.overall.expectancy.batchC)}</td><td>{formatR(comparison.overall.expectancy.diff)}</td></tr>
                       <tr><td>Median R</td><td>{formatR(comparison.overall.medianR.batchA)}</td><td>{formatR(comparison.overall.medianR.batchC)}</td><td>{formatR(comparison.overall.medianR.diff)}</td></tr>
                       <tr><td>Total R</td><td>{formatR(comparison.overall.totalR.batchA)}</td><td>{formatR(comparison.overall.totalR.batchC)}</td><td>{formatR(comparison.overall.totalR.diff)}</td></tr>
                       <tr><td>Max drawdown</td><td>{formatR(comparison.overall.maximumDrawdown.batchA)}</td><td>{formatR(comparison.overall.maximumDrawdown.batchC)}</td><td>{formatR(comparison.overall.maximumDrawdown.diff)}</td></tr>
-                      <tr><td>Avg hold (bars)</td><td>{comparison.overall.averageHoldingBars.batchA.toFixed(1)}</td><td>{comparison.overall.averageHoldingBars.batchC.toFixed(1)}</td><td>{comparison.overall.averageHoldingBars.diff.toFixed(1)}</td></tr>
-                      <tr><td>Avg MFE</td><td>{formatR(comparison.overall.averageMfeR.batchA)}</td><td>{formatR(comparison.overall.averageMfeR.batchC)}</td><td>{formatR(comparison.overall.averageMfeR.diff)}</td></tr>
-                      <tr><td>Avg MAE</td><td>{formatR(comparison.overall.averageMaeR.batchA)}</td><td>{formatR(comparison.overall.averageMaeR.batchC)}</td><td>{formatR(comparison.overall.averageMaeR.diff)}</td></tr>
+                      <tr><td>Avg hold</td><td>{comparison.overall.averageHoldingBars.batchA.toFixed(1)}</td><td>{comparison.overall.averageHoldingBars.batchC.toFixed(1)}</td><td>{comparison.overall.averageHoldingBars.diff.toFixed(1)}</td></tr>
+                      <tr><td>Best move</td><td>{formatR(comparison.overall.averageMfeR.batchA)}</td><td>{formatR(comparison.overall.averageMfeR.batchC)}</td><td>{formatR(comparison.overall.averageMfeR.diff)}</td></tr>
+                      <tr><td>Worst move</td><td>{formatR(comparison.overall.averageMaeR.batchA)}</td><td>{formatR(comparison.overall.averageMaeR.batchC)}</td><td>{formatR(comparison.overall.averageMaeR.diff)}</td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -645,29 +664,54 @@ export function StrategyDiscoveryLab({ datasets = [] }) {
         ? 'Every implemented family with occurrences showed positive average R in this sample.'
         : 'No implemented family showed positive average R in this sample.'
     const lowEvidence = withOccurrences.filter((experiment) => experiment.summary.overall.occurrenceCount < 100).map((experiment) => experiment.label)
-    return `Across the four implemented Batch A families, occurrence counts ranged from ${Math.min(...withOccurrences.map((e) => e.summary.overall.occurrenceCount))} to ${Math.max(...withOccurrences.map((e) => e.summary.overall.occurrenceCount))} on the currently available historical data. ${mixedNote}${lowEvidence.length ? ` ${lowEvidence.join(', ')} had fewer than 100 occurrences, which the Strategy Discovery Protocol treats as a low-evidence result.` : ''} This describes what happened historically under each family\u2019s frozen first-pass rules; it is not a probability statement, not a ranking of the four families, and does not identify any family as profitable, validated, or superior.`
+   return `Across the four setup ideas tested so far, the number of historical signals ranged from ${Math.min(...withOccurrences.map((e) => e.summary.overall.occurrenceCount))} to ${Math.max(...withOccurrences.map((e) => e.summary.overall.occurrenceCount))} in the available historical data. ${mixedNote}` +
+  (lowEvidence.length
+    ? ` ${lowEvidence.join(', ')} had fewer than 100 signals, so those results have very limited evidence.`
+    : '') +
+  ` This is an early look at how each setup behaved under its first set of rules. These results are exploratory and need more testing across different time periods, market conditions, and unseen data before any setup is considered for further testing.`
   }, [batch])
-
   return (
     <>
     <section className="robustness-lab panel">
       <div className="panel-heading compact">
-        <div><p className="eyebrow">RESEARCH · STRATEGY DISCOVERY</p><h2>Strategy Discovery Lab</h2></div>
-        <span className="coming-soon">EXPLORATORY RESEARCH · BATCH A</span>
-      </div>
-      <p className="robustness-disclaimer">
-        This is a framework for systematically cataloguing and, over time, testing genuinely different trading setup families —
-        rather than continuing to only optimize the existing VWAP/EMA/RSI/RVOL score. Candidate discovery is exploratory research.
-        Batch A wires four of the eight families below to real, causal backtests on real Alpaca historical data (SPY/QQQ/IWM,
-        1-hour candles); the remaining four families have no implementation yet and stay explicitly labeled as not yet run. Nothing
-        here modifies the existing scanner, its scoring, paper trading, the Render worker, or the API. No family is claimed to be
-        profitable, validated, predictive, or superior to the existing scanner, and no family is ranked against another.
-      </p>
+  <div>
+    <p className="eyebrow">RESEARCH · STRATEGY DISCOVERY</p>
+    <h2>Batch A — New Setup Ideas</h2>
+  </div>
+
+  <span className="coming-soon">EXPLORATORY RESEARCH · BATCH A</span>
+</div>
+    <div className="batch-intro">
+  <p className="robustness-disclaimer">
+    Strategy Discovery looks for new trading ideas that could improve or complement the current SetupScan rules.
+  </p>
+
+  <p className="robustness-muted">
+    Tests different setups, filters, market conditions, and trade-management rules against real historical market data.
+    Discovery helps us find ideas worth studying further; it does not change the live scanner or place trades.
+  </p>
+</div>
+
+    <div className="batch-scope">
+<h3>8 setup ideas</h3>
+<p>These are the types of trading ideas Batch A is exploring:</p>
+  <div className="batch-scope-grid">
+    <div><strong>1. Momentum / Breakout</strong><span>Buy when price breaks through a recent high with strong volume.</span></div>
+    <div><strong>2. Mean Reversion</strong><span>Look for sharp moves that may reverse back toward an average.</span></div>
+    <div><strong>3. Market Structure</strong><span>Trade around important highs, lows, support, and resistance.</span></div>
+    <div><strong>4. Opening Range / Time of Day</strong><span>Test whether certain parts of the trading day produce different results.</span></div>
+    <div><strong>5. Relative Strength</strong><span>Look for stocks that are stronger or weaker than their peers.</span></div>
+    <div><strong>6. Volatility Expansion / Contraction</strong><span>Test whether major changes in volatility lead to different outcomes.</span></div>
+    <div><strong>7. Market Context / Regime</strong><span>Test whether the broader market's condition can act as the setup itself.</span></div>
+    <div><strong>8. Event Context</strong><span>Test whether scheduled market events affect how setups behave.</span></div>
+  </div>
+</div>
+
       <ResearchFirstAnswer
-        question="How do the predefined setup-family ideas behave on historical data before any could be considered for later validation?"
+        question="Which new types of setups are worth testing?"
         sample={batchASample}
         takeaway={takeawayText}
-        limitation="Discovery is not validation. Four families are implemented in Batch A; the remaining four are hypotheses only. No family is ranked or promoted."
+        limitation="Discovery is not validation. Four setup ideas are currently being tested in Batch A; the other four have not been tested yet. No setup idea is ranked or promoted."
       />
       {!batch.available && (
         <div className="robustness-error">
@@ -677,8 +721,8 @@ export function StrategyDiscoveryLab({ datasets = [] }) {
       )}
       <LearningDetails label="More details">
         <div className="robustness-section">
-          <h3>Candidate strategy families</h3>
-          <p className="robustness-muted">Eight hypotheses are catalogued. Four have Batch A implementations; four remain not yet run.</p>
+         <h3>Setup ideas</h3>
+<p className="robustness-muted">Eight setup ideas are catalogued. Four are currently being tested in Batch A; four have not been tested yet.</p>
         </div>
         {STRATEGY_FAMILIES.map((family) => (
           <FamilyCard

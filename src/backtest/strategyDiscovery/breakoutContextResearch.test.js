@@ -31,11 +31,15 @@ function buildBreakoutSeries(dayIndex, { outcome, volumeRatio = 3 }) {
 }
 
 test('classifyTimeOfDay buckets Eastern-time sessions correctly across both EST and EDT', () => {
-  // Winter (EST, UTC-5): 14:30 UTC = 09:30 ET, the first valid Morning minute.
-  assert.equal(classifyTimeOfDay('2023-01-15T14:30:00Z'), 'Morning (09:30\u201311:00 ET)')
-  // Summer (EDT, UTC-4): 16:30 UTC = 12:30 ET -> Midday.
-  assert.equal(classifyTimeOfDay('2023-06-15T16:30:00Z'), 'Midday (11:00\u201314:00 ET)')
-  assert.equal(classifyTimeOfDay('2023-06-15T19:30:00Z'), 'Afternoon (14:00\u201316:00 ET)')
+    // Winter (EST, UTC-5): 14:30 UTC = 09:30 ET, the first valid Morning minute.
+  assert.equal(classifyTimeOfDay('2023-01-15T14:30:00Z'), 'Morning (09:30–11:00 ET)')
+
+  // Summer (EDT, UTC-4): 16:30 UTC = 12:30 ET → Midday.
+  assert.equal(classifyTimeOfDay('2023-06-15T16:30:00Z'), 'Midday (11:00–14:00 ET)')
+
+  // Summer (EDT, UTC-4): 19:30 UTC = 15:30 ET → Afternoon.
+  assert.equal(classifyTimeOfDay('2023-06-15T19:30:00Z'), 'Afternoon (14:00–16:00 ET)')
+
   // 20:30 ET, well outside the regular session.
   assert.equal(classifyTimeOfDay('2023-06-16T00:30:00Z'), 'Outside Regular Session (Pre/Post-Market)')
 })

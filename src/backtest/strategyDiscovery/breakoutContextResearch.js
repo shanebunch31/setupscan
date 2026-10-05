@@ -31,11 +31,18 @@ function resolveGitCommit() {
 }
 
 /** Eastern-time hour/minute/calendar-day for one timestamp, via Intl (handles DST correctly, causal — reads only this timestamp). */
+const easternTimeFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  hour12: false,
+  hour: '2-digit',
+  minute: '2-digit',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
 function getEasternTimeParts(timestamp) {
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit', year: 'numeric', month: '2-digit', day: '2-digit',
-  })
-  const parts = Object.fromEntries(formatter.formatToParts(new Date(timestamp)).map((part) => [part.type, part.value]))
+  const parts = Object.fromEntries(easternTimeFormatter.formatToParts(new Date(timestamp)).map((part) => [part.type, part.value]))
   return { hour: Number(parts.hour) % 24, minute: Number(parts.minute), dateKey: `${parts.year}-${parts.month}-${parts.day}` }
 }
 

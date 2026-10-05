@@ -28,7 +28,14 @@ test('prevents duplicate trades for the same signal candle', () => {
 })
 
 test('creates an entry and calculates a target exit and R/P&L', () => {
-  const engine = createPaperTradingEngine()
+  const engine = createPaperTradingEngine({
+    trailingStop: {
+      enabled: false,
+      activationR: 1,
+      trailDistancePercent: 0.003,
+    },
+  })
+
   engine.processCandles('SPY', candles('target'))
   const trade = engine.getJournal().trades[0]
   assert.equal(trade.status, 'closed')
@@ -36,6 +43,59 @@ test('creates an entry and calculates a target exit and R/P&L', () => {
   assert.equal(trade.rMultiple, 2)
   assert.equal(trade.pnl, 200)
   assert.equal(trade.theoreticalEntryPrice, 100)
+})
+
+test('does not use the current candle high to trigger a trailing stop before its low', () => {
+  const rows = candles()
+
+  // Entry = 100, initial stop = 99.50.
+  // This candle reaches +1R, but its low is below
+  // the trailing stop that would be created from its high.
+  rows[1] = {
+    ...rows[1],
+    open: 100,
+    high: 100.6,
+    low: 100.29,
+    close: 100.4,
+    price: 100.4,
+  }
+
+  // The trailing stop created from candle 1's high
+  // should only be active for future candles.
+  rows[2] = {
+    ...rows[2],
+    open: 100.4,
+    high: 100.8,
+    low: 100.5,
+    close: 100.7,
+    price: 100.7,
+  }
+
+  // Now the ratcheted trailing stop can be hit.
+  rows[3] = {
+    ...rows[3],
+    open: 100.7,
+    high: 100.8,
+    low: 100.45,
+    close: 100.5,
+    price: 100.5,
+  }
+
+  const engine = createPaperTradingEngine({
+    trailingStop: {
+      enabled: true,
+      activationR: 1,
+      trailDistancePercent: 0.003,
+    },
+  })
+
+  engine.processCandles('SPY', rows)
+
+  const trade = engine.getJournal().trades[0]
+
+  assert.equal(trade.status, 'closed')
+  assert.equal(trade.exitReason, 'Trailing Stop')
+  assert.equal(trade.exitTimestamp, rows[3].timestamp)
 })
 
 test('persists the scanner\'s numeric score on a newly created paper trade', () => {

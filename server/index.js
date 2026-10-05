@@ -10,6 +10,8 @@ import { createResearchInvestigationApi } from './researchInvestigationApi.js'
 import { createResearchRunApi } from './researchRunApi.js'
 import { dispatchResearchRunRoute } from './researchRunRoute.js'
 import { createResearchRunStore } from './researchRunStore.js'
+import { handleHistoricalRoute } from './historicalRoute.js'
+import { createHistoricalCacheKey } from '../src/research/historicalCacheKey.js'
 
 dotenv.config()
 
@@ -209,40 +211,17 @@ const server = http.createServer(
       return
     }
 
-    try {
-      const data =
-        await fetchAlpacaHistoricalBars({
-          symbol:
-            url.searchParams.get('symbol') ||
-            'SPY',
-
-          timeframe:
-            url.searchParams.get('timeframe') ||
-            '1Hour',
-
-          start:
-            url.searchParams.get('start') ||
-            undefined,
-
-          end:
-            url.searchParams.get('end') ||
-            undefined,
-        })
-
-      sendJson(response, 200, data)
-    } catch (error) {
-      const status =
-        error.code === 'MISSING_ALPACA_ENV'
-          ? 503
-          : error.status || 502
-
-      sendJson(response, status, {
-        error: error.message,
-      })
-    }
+    await handleHistoricalRoute({
+      response,
+      url,
+      fetchHistoricalMarketBars:
+        fetchAlpacaHistoricalBars,
+      researchRunStore,
+      sendJson,
+      createHistoricalCacheKey,
+    })
   },
-)
-
+  )
 server.listen(port, () => {
   logCredentialStatus()
 

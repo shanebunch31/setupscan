@@ -26,19 +26,26 @@ function resolveGitCommit() {
   return commit || 'unavailable (not exposed by the current build/runtime)'
 }
 
-/** Eastern start-hour of one candle's timestamp, via Intl (handles DST correctly, causal — reads only this timestamp). */
+/**
+ * Eastern start-hour of one candle's timestamp, via Intl (handles DST correctly, causal - reads only this timestamp).
+ */
+const easternHourFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  hour12: false,
+  hour: '2-digit',
+})
+
 function getEasternHour(timestamp) {
-  const formatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit' })
-  return Number(formatter.format(new Date(timestamp))) % 24
+  return Number(easternHourFormatter.format(new Date(timestamp))) % 24
 }
 
 /**
- * Builds the regular-session-only series FIRST, before any breakout logic runs. Candle values are
- * never altered, reconstructed, or interpolated — bars outside the defined hours are simply
- * dropped, and the remaining bars keep their original order and values.
+ * Builds the regular-session-only series FIRST, before any breakout logic runs.
  */
 export function filterToRegularSessionBars(candles) {
-  return candles.filter((candle) => regularSessionEasternHours.includes(getEasternHour(candle.timestamp)))
+  return candles.filter((candle) =>
+    regularSessionEasternHours.includes(getEasternHour(candle.timestamp))
+  )
 }
 
 /**

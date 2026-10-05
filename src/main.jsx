@@ -53,7 +53,7 @@ const navItems = [
   { id: 'settings', label: 'Settings' },
 ]
 const researchTabs = [
-  { id: 'robustness', label: 'Strategy Robustness' },
+  { id: 'robustness', label: 'Strategy Resilience' },
   { id: 'relative-value', label: 'Relative Value' },
   { id: 'signal-quality', label: 'Signal Quality / Expected Value' },
   { id: 'frozen-score-holdout', label: 'Frozen Score Holdout' },
@@ -568,69 +568,78 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
 
 
   useEffect(() => {
-    let active = true
+  if (view !== 'research' || researchWorkspaceView !== 'labs') {
+    return undefined
+  }
 
-    async function loadRobustnessData() {
-      const datasets = []
+  let active = true
 
-      for (const symbol of robustnessSymbols) {
-        if (!active) break
+  async function loadRobustnessData() {
+    const datasets = []
 
-        try {
-          const data = await fetchHistoricalMarketData(
-            symbol,
-            '1Hour',
-            frozenScoreRange,
-          )
+    for (const symbol of robustnessSymbols) {
+      if (!active) break
 
-          const minimumExpectedCandles =
-            data.minimumExpectedCandles ?? 1000
+      try {
+        const data = await fetchHistoricalMarketData(
+          symbol,
+          '1Hour',
+          frozenScoreRange,
+        )
 
-          if (
-            data.provider !== 'ALPACA HISTORICAL' ||
-            data.complete === false ||
-            !data.candles?.length ||
-            data.candleCount < minimumExpectedCandles
-          ) {
-            datasets.push({
-              symbol,
-              status: 'UNAVAILABLE',
-              error:
-                'Real Alpaca dataset unavailable or incomplete.',
-            })
-          } else {
-            datasets.push({
-              symbol,
-              status: 'AVAILABLE',
-              data,
-            })
-          }
-        } catch (error) {
+        const minimumExpectedCandles =
+          data.minimumExpectedCandles ?? 1000
+
+        console.log('ROBUSTNESS DATA CHECK', {
+          symbol,
+          provider: data.provider,
+          candleCount: data.candleCount,
+          candleArrayLength:
+            data.candles?.length ?? 0,
+          minimumExpectedCandles,
+          complete: data.complete,
+        })
+
+        if (
+          data.provider !== 'ALPACA HISTORICAL' ||
+          data.complete === false ||
+          !data.candles?.length ||
+          data.candleCount < minimumExpectedCandles
+        ) {
           datasets.push({
             symbol,
             status: 'UNAVAILABLE',
-            error: error.message,
+            error:
+              'Real Alpaca dataset unavailable or incomplete.',
+          })
+        } else {
+          datasets.push({
+            symbol,
+            status: 'AVAILABLE',
+            data,
           })
         }
-
-        // Space the requests so one rate-limit response does not cascade.
-        await new Promise((resolve) =>
-          setTimeout(resolve, 1500),
-        )
-      }
-
-      if (active) {
-        setFrozenScoreData(datasets)
-        setRobustnessData(datasets)
+      } catch (error) {
+        datasets.push({
+          symbol,
+          status: 'UNAVAILABLE',
+          error: error.message,
+        })
       }
     }
 
-    loadRobustnessData()
-
-    return () => {
-      active = false
+    if (active) {
+      setFrozenScoreData(datasets)
+      setRobustnessData(datasets)
     }
-  }, [frozenScoreRange])
+  }
+
+  loadRobustnessData()
+
+  return () => {
+    active = false
+  }
+}, [view, researchWorkspaceView, frozenScoreRange])
 
   useEffect(() => {
     if (view !== 'research' || researchWorkspaceView !== 'comparison') return undefined

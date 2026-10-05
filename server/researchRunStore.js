@@ -45,6 +45,30 @@ CREATE TABLE IF NOT EXISTS research_datasets (
   calculation_series jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS research_historical_cache (
+  cache_key text PRIMARY KEY,
+  provider text NOT NULL,
+  symbol text NOT NULL,
+  timeframe text NOT NULL,
+  adjustment_mode text NOT NULL,
+  requested_start text,
+  requested_end text,
+  actual_start text,
+  actual_end text,
+  candle_count integer NOT NULL,
+  complete boolean NOT NULL,
+  candles jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS research_historical_cache_lookup_idx
+  ON research_historical_cache (
+    symbol,
+    timeframe,
+    adjustment_mode,
+    requested_start,
+    requested_end
+  );
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'research_runs_dataset_id_fkey') THEN
     ALTER TABLE research_runs ADD CONSTRAINT research_runs_dataset_id_fkey
@@ -555,7 +579,145 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
       createdAt: dateString(row.created_at),
     }
   }
+  async function getResearchHistoricalCache(cacheKey) {
+    await init()
 
+    const result = await clientPool.query(
+      `SELECT cache_key, provider, symbol, timeframe,
+              adjustment_mode, requested_start, requested_end,
+              actual_start, actual_end, candle_count, complete,
+              candles, created_at, updated_at
+         FROM research_historical_cache
+        WHERE cache_key = $1`,
+      [cacheKey],
+    )
+
+    const row = result.rows[0]
+    if (!row) return null
+
+    return {
+      cacheKey: row.cache_key,
+      provider: row.provider,
+      symbol: row.symbol,
+      timeframe: row.timeframe,
+      adjustmentMode: row.adjustment_mode,
+      requestedStart: row.requested_start,
+      requestedEnd: row.requested_end,
+      actualStart: row.actual_start,
+      actualEnd: row.actual_end,
+      candleCount: row.candle_count,
+      complete: row.complete,
+      candles:
+        typeof row.candles === 'string'
+          ? parseResearchJson(row.candles)
+          : row.candles,
+      createdAt: dateString(row.created_at),
+      updatedAt: dateString(row.updated_at),
+    }
+  }
+
+  async function findResearchHistoricalCacheCoverage({
+    symbol,
+    timeframe,
+    adjustmentMode = 'split',
+    requestedStart,
+  }) {
+    await init()
+
+    const result = await clientPool.query(
+      `SELECT cache_key, provider, symbol, timeframe,
+              adjustment_mode, requested_start, requested_end,
+              actual_start, actual_end, candle_count, complete,
+              candles, created_at, updated_at
+         FROM research_historical_cache
+        WHERE symbol = $1
+          AND timeframe = $2
+          AND adjustment_mode = $3
+          AND complete = true
+          AND requested_start <= $4
+        ORDER BY requested_end DESC, updated_at DESC
+        LIMIT 1`,
+      [
+        symbol,
+        timeframe,
+        adjustmentMode,
+        requestedStart ?? '',
+      ],
+    )
+
+    const row = result.rows[0]
+    if (!row) return null
+
+    return {
+      cacheKey: row.cache_key,
+      provider: row.provider,
+      symbol: row.symbol,
+      timeframe: row.timeframe,
+      adjustmentMode: row.adjustment_mode,
+      requestedStart: row.requested_start,
+      requestedEnd: row.requested_end,
+      actualStart: row.actual_start,
+      actualEnd: row.actual_end,
+      candleCount: row.candle_count,
+      complete: row.complete,
+      candles:
+        typeof row.candles === 'string'
+          ? parseResearchJson(row.candles)
+          : row.candles,
+      createdAt: dateString(row.created_at),
+      updatedAt: dateString(row.updated_at),
+    }
+  }
+
+  async function saveResearchHistoricalCache(entry) {
+    await init()
+
+    if (!entry?.cacheKey) {
+      throw new Error('Historical cache entry requires cacheKey')
+    }
+
+    await clientPool.query(
+      `INSERT INTO research_historical_cache (
+         cache_key, provider, symbol, timeframe, adjustment_mode,
+         requested_start, requested_end, actual_start, actual_end,
+         candle_count, complete, candles
+       )
+       VALUES (
+         $1, $2, $3, $4, $5,
+         $6, $7, $8, $9,
+         $10, $11, $12::jsonb
+       )
+       ON CONFLICT (cache_key) DO UPDATE SET
+         provider = EXCLUDED.provider,
+         symbol = EXCLUDED.symbol,
+         timeframe = EXCLUDED.timeframe,
+         adjustment_mode = EXCLUDED.adjustment_mode,
+         requested_start = EXCLUDED.requested_start,
+         requested_end = EXCLUDED.requested_end,
+         actual_start = EXCLUDED.actual_start,
+         actual_end = EXCLUDED.actual_end,
+         candle_count = EXCLUDED.candle_count,
+         complete = EXCLUDED.complete,
+         candles = EXCLUDED.candles,
+         updated_at = now()`,
+      [
+        entry.cacheKey,
+        entry.provider,
+        entry.symbol,
+        entry.timeframe,
+        entry.adjustmentMode,
+        entry.requestedStart ?? null,
+        entry.requestedEnd ?? null,
+        entry.actualStart ?? null,
+        entry.actualEnd ?? null,
+        entry.candleCount,
+        Boolean(entry.complete),
+        stringifyResearchJson(entry.candles ?? []),
+      ],
+    )
+
+    return getResearchHistoricalCache(entry.cacheKey)
+  }
   async function getResearchRunComparisonSnapshot(runId) {
     await init()
     const result = await clientPool.query(
@@ -713,6 +875,9 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
     createResearchInvestigation,
     getResearchInvestigation,
     listResearchInvestigations,
+    getResearchHistoricalCache,
+    findResearchHistoricalCacheCoverage,
+    saveResearchHistoricalCache,
     attachResearchRunToInvestigation,
     pool: clientPool,
   }
