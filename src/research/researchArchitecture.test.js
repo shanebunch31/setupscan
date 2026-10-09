@@ -164,7 +164,55 @@ test('robustness normalizes per-threshold metrics and preserves the native paylo
   assert.deepEqual(record.input.symbols, ['SPY'])
   assert.equal(record.input.timeframe, '1h')
 })
+test('robustness keeps multi-symbol metrics and out-of-sample partitions separate', () => {
+  const aaplCandles = [
+    makeCandle('AAPL', '1h', 't0'),
+    makeCandle('AAPL', '1h', 't1'),
+    makeCandle('AAPL', '1h', 't2'),
+  ]
+  const msftCandles = [
+    makeCandle('MSFT', '1h', 't0'),
+    makeCandle('MSFT', '1h', 't1'),
+    makeCandle('MSFT', '1h', 't2'),
+  ]
 
+  const nativePayload = {
+    thresholdResults: [
+      {
+        symbol: 'AAPL',
+        minimumScore: 75,
+        candles: aaplCandles,
+        metrics: makeStrategyJsMetrics({ totalTrades: 20, netReturn: 6 }),
+        inSampleMetrics: makeStrategyJsMetrics({ totalTrades: 14 }),
+        outOfSampleMetrics: makeStrategyJsMetrics({ totalTrades: 6 }),
+      },
+      {
+        symbol: 'MSFT',
+        minimumScore: 75,
+        candles: msftCandles,
+        metrics: makeStrategyJsMetrics({ totalTrades: 30, netReturn: 9 }),
+        inSampleMetrics: makeStrategyJsMetrics({ totalTrades: 18 }),
+        outOfSampleMetrics: makeStrategyJsMetrics({ totalTrades: 12 }),
+      },
+    ],
+    periodResults: [],
+  }
+
+  const record = createResearchRecordForExperiment('robustness', nativePayload)
+
+  assert.equal(record.status, 'completed')
+  assert.deepEqual(record.input.symbols, ['AAPL', 'MSFT'])
+  assert.equal(record.metrics['AAPL · 75+'].tradeCount, 20)
+  assert.equal(record.metrics['MSFT · 75+'].tradeCount, 30)
+  assert.equal(record.metrics['AAPL · 75+'].totalR, 6)
+  assert.equal(record.metrics['MSFT · 75+'].totalR, 9)
+
+  assert.equal(record.outOfSample.type, 'partition')
+  assert.equal(record.outOfSample.bySymbol.AAPL.inSampleMetrics.totalTrades, 14)
+  assert.equal(record.outOfSample.bySymbol.AAPL.outOfSampleMetrics.totalTrades, 6)
+  assert.equal(record.outOfSample.bySymbol.MSFT.inSampleMetrics.totalTrades, 18)
+  assert.equal(record.outOfSample.bySymbol.MSFT.outOfSampleMetrics.totalTrades, 12)
+})
 test('robustness reports unavailable when no threshold results exist (e.g. SPY missing)', () => {
   const nativePayload = { thresholdResults: [], periodResults: [] }
   const record = createResearchRecordForExperiment('robustness', nativePayload)

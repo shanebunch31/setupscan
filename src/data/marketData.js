@@ -156,6 +156,7 @@ export function enrichHistoricalCandles(candles) {
     if (enrichedHistoricalCandlesCache.has(candles)) {
     return enrichedHistoricalCandlesCache.get(candles)
   }
+
   const ema9Series = emaSeries(candles, 9)
   const ema21Series = emaSeries(candles, 21)
   const rsiValues = rsiSeries(candles)

@@ -96,12 +96,16 @@ function scoreItem(item) {
     breakoutQualified &&
     bullishTrend
 
-  const status =
-    qualifiedSetup
-      ? 'Qualified Setup'
-      : score >= 75
-        ? 'Potential Setup'
-        : 'No Setup'
+  const potentialSetup =
+  !qualifiedSetup &&
+  score >= 75
+
+const status =
+  qualifiedSetup
+    ? 'Qualified Setup'
+    : potentialSetup
+      ? 'Potential Setup'
+      : 'No Setup'
 
   const setupType =
     qualifiedSetup
@@ -111,13 +115,14 @@ function scoreItem(item) {
       : 'No qualifying setup'
 
   return {
-    ...item,
-    score,
-    status,
-    setupType,
-    qualifiedSetup,
-    reasons,
-  }
+  ...item,
+  score,
+  status,
+  setupType,
+  qualifiedSetup,
+  potentialSetup,
+  reasons,
+}
 }
 
 export function scanSetups(snapshot) {

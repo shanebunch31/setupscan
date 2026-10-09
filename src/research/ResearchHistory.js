@@ -456,6 +456,9 @@ export function ResearchHistory({
           },
           'History',
         ),
+        h('p', {
+        className: 'research-page-intro',
+        },'Review research runs you have already saved and open their results.'),
 
         h(
           'p',

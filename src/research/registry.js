@@ -16,8 +16,8 @@ const MULTI_SYMBOL_REQUIREMENTS = ['SPY', 'QQQ', 'IWM']
 const definitions = [
   {
     id: 'robustness',
-    requiredSymbols: ['SPY'],
-    title: 'Robustness',
+    requiredSymbols: [],
+    title: 'Strategy Resilience',
     category: 'baseline-validation',
     description: 'Threshold and market-condition sensitivity of the existing setup scan backtest.',
     methodology: 'Run existing threshold and market-condition research over supplied candles.',

@@ -47,13 +47,30 @@ function discoveryDatasetsFor(symbols, availableBySymbol) {
  * No executor fetches, aligns, filters, or rewrites the shared raw candles.
  */
 export const researchExperimentExecutors = Object.freeze({
-  robustness: freezeExecutor('robustness', ({ availableBySymbol }) => {
-      const candles = getEnrichedCandles(availableBySymbol.get('SPY').candles)
-      return {
-        thresholdResults: runThresholdResearch(candles),
-        periodResults: runMarketConditionResearch(candles),
-      }
-    }),
+    robustness: freezeExecutor('robustness', ({ availableBySymbol }) => {
+    const thresholdResults = []
+    const periodResults = []
+
+    for (const [symbol, source] of availableBySymbol) {
+      const candles = getEnrichedCandles(source.candles)
+
+      thresholdResults.push(
+        ...runThresholdResearch(candles).map((result) => ({
+          ...result,
+          symbol,
+        })),
+      )
+
+      periodResults.push(
+        ...runMarketConditionResearch(candles).map((result) => ({
+          ...result,
+          symbol,
+        })),
+      )
+    }
+
+    return { thresholdResults, periodResults }
+  }),
   'relative-value': freezeExecutor('relative-value', ({ availableBySymbol }) => runRelativeValueResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),
   'signal-quality': freezeExecutor('signal-quality', ({ availableBySymbol }) => runSignalQualityResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),
   'frozen-score-holdout': freezeExecutor('frozen-score-holdout', ({ availableBySymbol }) => runFrozenScoreHoldoutResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),

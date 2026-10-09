@@ -64,7 +64,7 @@ test('renders the Investigation question, status, creation time, and ordered reg
     'Does relative-value confirmation improve the baseline setup?',
     'active',
     '2026-09-20T12:00:00.000Z',
-    'Relative Value, Robustness',
+    'Relative Value, Strategy Resilience',
     'An Investigation organizes a question, experiment plan, and related Research Run IDs.',
   ]) assert.ok(html.includes(value), `expected detail to include ${value}`)
 })

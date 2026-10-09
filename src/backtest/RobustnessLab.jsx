@@ -54,7 +54,13 @@ export function StrategyRobustnessLab({ datasets }) {
   return (
     <section className="robustness-lab panel">
       <div className="panel-heading compact">
-        <div><p className="eyebrow">RESEARCH / ROBUSTNESS</p><h2>Strategy Robustness Lab</h2></div>
+      <div>
+        <p className="eyebrow">RESEARCH / RESILIENCE</p>
+        <h2>Strategy Resilience Lab</h2>
+        <p className="research-page-intro">
+          Explore focused research tests for resilience, signal quality, regimes, and other questions.
+        </p>
+      </div>
         <span className="coming-soon">NOT A VALIDATED TRADING EDGE</span>
       </div>
       <p className="robustness-disclaimer">Research / Robustness tests how the existing rules vary across score cutoffs and historical time periods. Real Alpaca historical data only; unavailable symbols are not replaced with demo data.</p>

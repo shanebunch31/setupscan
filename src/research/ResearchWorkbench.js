@@ -161,6 +161,15 @@ export function RunResultSummary({ result }) {
     ),
     h('p', { className: 'workbench-result-caveat' }, 'Historical results describe past data and do not establish future performance.'),
     h('section', { className: 'workbench-summary-section' },
+    h('h3', null, 'Research takeaway'),
+    h('p', { className: 'workbench-muted' },
+      `Research completed with ${completedCount} of ${experimentCount} experiments completed and ${evidenceCount} evidence entries.`,
+    ),
+    h('p', { className: 'workbench-muted' },
+      `Review next: ${conflicts.length} conflicts · ${unresolvedQuestions.length} unresolved questions.`,
+    ),
+  ),
+    h('section', { className: 'workbench-summary-section' },
       h('h3', null, 'Experiment execution', h(TermHelp, { term: 'Experiment', explanation: 'One registered research method tested during a run.' })),
       h('p', { className: 'workbench-muted' }, `${completedCount} of ${experimentCount} ${experimentCount === 1 ? 'experiment' : 'experiments'} completed`),
       h('details', { className: 'workbench-result-disclosure' },
@@ -265,6 +274,7 @@ function dateLabel(value) {
 
 const experimentTitles = new Map(experiments.map((experiment) => [experiment.id, experiment.title]))
 const experimentExplanations = {
+  'robustness': 'What it tests: Whether the strategy continues to work when the symbols, market conditions, or time periods change.',
   'relative-value': 'Looks at the relationship between related instruments or prices rather than one price alone.',
   'causal-regime': 'Groups results using information available at the time. It does not prove that a market condition caused the result.',
   'walk-forward-regime': 'Repeated tests that move forward through time, using earlier data for each later test.',
@@ -389,6 +399,7 @@ export function ResearchInvestigationPanel({
     h('div', { className: 'workbench-investigation-layout' },
       h('div', { className: 'workbench-investigation-create-column' },
         h('form', { className: 'workbench-investigation-create', onSubmit: onCreate, noValidate: true },
+          h('p', { className: 'workbench-muted' }, 'Create an investigation to save the question and experiment plan. Creating it does not run research.'),
           h(Field, { label: 'Research question' }, h('textarea', {
             name: 'investigationQuestion',
             value: question,
@@ -408,7 +419,22 @@ export function ResearchInvestigationPanel({
                 onChange: () => onToggleExperiment(experiment.id),
                 'aria-label': `Investigation experiment ${experiment.title}`,
               }),
-              h('span', null, experiment.title, experimentExplanations[experiment.id] ? h(TermHelp, { term: experiment.title, explanation: experimentExplanations[experiment.id] }) : null),
+                              h('div', { className: 'workbench-experiment-label' },
+                h('span', null,
+                  experiment.title,
+                  experimentExplanations[experiment.id]
+                    ? h(TermHelp, {
+                        term: experiment.title,
+                        explanation: experimentExplanations[experiment.id],
+                      })
+                    : null,
+                ),
+                experiment.id === 'robustness'
+                  ? h('small', { className: 'workbench-experiment-question' },
+                      'Try asking: Does this strategy remain effective across different symbols and market conditions?',
+                    )
+                  : null,
+              ),
             ))),
             h('p', { className: 'workbench-muted' }, `${requestedExperiments.length} selected · plan order is preserved.`),
           ),
@@ -677,12 +703,19 @@ export function ResearchWorkbench({
             checked: form.requestedExperiments.includes(experiment.id),
             onChange: () => toggleExperiment(experiment.id),
           }),
-          h('span', null, experiment.title, experimentExplanations[experiment.id] ? h(TermHelp, { term: experiment.title, explanation: experimentExplanations[experiment.id] }) : null),
+                    h('span', null,
+            experiment.title,
+            experimentExplanations[experiment.id]
+              ? h(TermHelp, {
+                  term: experiment.title,
+                  explanation: experimentExplanations[experiment.id],
+                })
+              : null,
+          ),
         ))),
-        h('p', { className: 'workbench-muted' }, `${form.requestedExperiments.length} selected · no selection runs no experiments and performs no fetch.`),
-      ),
-      formError ? h('p', { className: 'workbench-form-error', role: 'alert' }, formError) : null,
-      h('div', { className: 'workbench-actions' },
+        h('p', { className: 'workbench-muted' }, `${form.requestedExperiments.length} selected · ready to run research with the configured market data and experiment plan.`),
+        ),
+        formError ? h('p', { className: 'workbench-form-error', role: 'alert' }, formError) : null,      h('div', { className: 'workbench-actions' },
         h('button', { className: 'workbench-primary', type: 'submit', disabled: runState === 'running' },
           runState === 'running' ? h(LoaderCircle, { size: 15, className: 'workbench-spinner', 'aria-hidden': true }) : h(Play, { size: 15, 'aria-hidden': true }),
           runState === 'running' ? 'Running' : 'Run research',

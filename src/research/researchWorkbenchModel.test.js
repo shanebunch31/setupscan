@@ -66,16 +66,22 @@ test('mixed selections identify only the experiment whose requirements are unmet
   )
 })
 
-test('Robustness requires SPY, while Strategy Comparison accepts any requested symbol', () => {
-  assert.throws(
-    () => createWorkbenchRunRequest({ symbols: 'AAPL', timeframe: '1Hour', requestedExperiments: ['robustness'] }),
-    /Robustness requires SPY \(missing SPY\)/,
-  )
+test('Strategy Resilience accepts any requested symbol, while Strategy Comparison accepts any requested symbol', () => {
+  const resilience = createWorkbenchRunRequest({
+    symbols: 'AAPL',
+    timeframe: '1Hour',
+    requestedExperiments: ['robustness'],
+  })
+
+  assert.deepEqual(resilience.symbols, ['AAPL'])
+  assert.deepEqual(resilience.requestedExperiments, ['robustness'])
+
   const comparison = createWorkbenchRunRequest({
     symbols: 'AAPL, MSFT',
     timeframe: '1Hour',
     requestedExperiments: ['strategy-comparison'],
   })
+
   assert.deepEqual(comparison.symbols, ['AAPL', 'MSFT'])
 })
 

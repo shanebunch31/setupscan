@@ -155,11 +155,41 @@ test('native incomplete and unavailable markers are preserved and classified', (
 })
 
 test('robustness uses its dedicated composite executor and preserves both native result arrays', () => {
-  const result = executeResearchExperiment('robustness', makeDataset(['SPY']), {})
+  const result = executeResearchExperiment('robustness', makeDataset(['SPY']), { symbols: ['SPY'] })
   assert.equal(result.status, 'succeeded')
   assert.ok(Array.isArray(result.nativeOutput.thresholdResults))
   assert.ok(Array.isArray(result.nativeOutput.periodResults))
   assert.equal(result.nativeOutput.thresholdResults.length, 5)
+})
+
+test('robustness evaluates each selected symbol independently', () => {
+  const result = executeResearchExperiment(
+    'robustness',
+    makeDataset(['AAPL', 'MSFT']),
+    { symbols: ['AAPL', 'MSFT'] },
+  )
+
+  assert.equal(result.status, 'succeeded')
+
+  assert.deepEqual(
+    [...new Set(result.nativeOutput.thresholdResults.map(({ symbol }) => symbol))],
+    ['AAPL', 'MSFT'],
+  )
+
+  assert.deepEqual(
+    [...new Set(result.nativeOutput.periodResults.map(({ symbol }) => symbol))],
+    ['AAPL', 'MSFT'],
+  )
+
+  assert.equal(
+    result.nativeOutput.thresholdResults.filter(({ symbol }) => symbol === 'AAPL').length,
+    5,
+  )
+
+  assert.equal(
+    result.nativeOutput.thresholdResults.filter(({ symbol }) => symbol === 'MSFT').length,
+    5,
+  )
 })
 
 test('all raw-map multi-symbol experiments execute without a fetch dependency', () => {
@@ -267,6 +297,6 @@ test('registry requirements match the executor backstops, including flexible Str
   listResearchExperiments().forEach(({ id, requiredSymbols: registryRequirements }) => {
     assert.deepEqual(researchExperimentExecutors[id].requiredSymbols, registryRequirements, id)
   })
-  assert.deepEqual(researchExperimentExecutors.robustness.requiredSymbols, ['SPY'])
+  assert.deepEqual(researchExperimentExecutors.robustness.requiredSymbols, [])
   assert.deepEqual(researchExperimentExecutors['strategy-comparison'].requiredSymbols, [])
 })

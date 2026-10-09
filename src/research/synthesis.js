@@ -64,7 +64,7 @@ function evidenceId(sourceRecordId, metricsKey) {
   return `${sourceRecordId}::${metricsKey}`
 }
 
-function makeEvidence(record, metricsKey, strategyId, ruleSetVariant, metrics, partition, outOfSampleRole, strategyAssociation = 'explicit') {
+function makeEvidence(record, metricsKey, strategyId, ruleSetVariant, metrics, partition, outOfSampleRole, strategyAssociation = 'explicit', scopedSymbols = null) {
   return {
     id: evidenceId(record.id, metricsKey),
     sourceRecordId: record.id,
@@ -90,7 +90,7 @@ function makeEvidence(record, metricsKey, strategyId, ruleSetVariant, metrics, p
     // record.id) because record.id is the *experiment* id, not a unique per-run instance id — two
     // records for the same experiment (e.g. robustness run for SPY and again for QQQ) would
     // otherwise collide in an id-keyed lookup.
-    symbols: record.input?.symbols ?? [],
+    symbols: scopedSymbols ?? record.input?.symbols ?? [],
     timeframe: record.input?.timeframe ?? null,
     provider: record.input?.provider ?? null,
     emaContractVersion: record.input?.emaContractVersion ?? null,
@@ -120,33 +120,91 @@ function flattenRecord(record) {
     ))
   })
 
-  // The in-sample/out-of-sample split for a 'partition'-type outOfSample lives once at the record
-  // level, not per metrics key (adapters.js discards which metrics key it came from when building
-  // the normalized outOfSample object, and adapters.js is frozen — not modified here). Rather than
-  // assuming the split belongs to the first flattened entry (order-dependent, not verifiable),
-  // determine the strategy identity deterministically from the record's own evidence: if every
-  // other entry from this record shares exactly one strategyId, the split can only belong to that
-  // strategy (order-independent, provably correct). If the record spans more than one strategyId
-  // (e.g. strategy-comparison's control vs trendMomentum), the association is genuinely
-  // unrecoverable from the normalized record and is represented as unknown rather than guessed.
+    // Resilience can provide separate in-sample/out-of-sample partitions for each symbol.
+  // Preserve each symbol's identity instead of merging its partition into the whole record.
   if (record?.outOfSample?.type === 'partition' && entries.length) {
-    const distinctStrategyIds = new Set(entries.map((entry) => entry.strategyId))
-    const distinctRuleSetVariants = new Set(entries.map((entry) => entry.ruleSetVariant))
-    const uniform = distinctStrategyIds.size === 1
-    const inferredStrategyId = uniform ? [...distinctStrategyIds][0] : null
-    const inferredRuleSetVariant = uniform && distinctRuleSetVariants.size === 1 ? [...distinctRuleSetVariants][0] : null
-    const strategyAssociation = uniform ? 'inferred-uniform' : 'unknown'
-    if (record.outOfSample.inSampleMetrics) {
-      entries.push(makeEvidence(
-        record, '__outOfSample.inSample', inferredStrategyId, inferredRuleSetVariant,
-        normalizeMetrics(record.outOfSample.inSampleMetrics), null, 'in-sample', strategyAssociation,
-      ))
-    }
-    if (record.outOfSample.outOfSampleMetrics) {
-      entries.push(makeEvidence(
-        record, '__outOfSample.outOfSample', inferredStrategyId, inferredRuleSetVariant,
-        normalizeMetrics(record.outOfSample.outOfSampleMetrics), null, 'out-of-sample', strategyAssociation,
-      ))
+    const bySymbol = record.outOfSample.bySymbol
+
+    if (bySymbol && typeof bySymbol === 'object') {
+      Object.entries(bySymbol).forEach(([symbol, partitionMetrics]) => {
+        const symbolEntries = entries.filter((entry) => (
+          entry.outOfSampleRole === 'not-partitioned'
+          && entry.metrics?.symbol === symbol
+        ))
+        const distinctStrategyIds = new Set(symbolEntries.map((entry) => entry.strategyId))
+        const distinctRuleSetVariants = new Set(symbolEntries.map((entry) => entry.ruleSetVariant))
+        const uniform = distinctStrategyIds.size === 1
+        const inferredStrategyId = uniform ? [...distinctStrategyIds][0] : null
+        const inferredRuleSetVariant = uniform && distinctRuleSetVariants.size === 1
+          ? [...distinctRuleSetVariants][0]
+          : null
+        const strategyAssociation = uniform ? 'inferred-uniform' : 'unknown'
+
+        if (partitionMetrics?.inSampleMetrics) {
+          entries.push(makeEvidence(
+            record,
+            `__outOfSample.${symbol}.inSample`,
+            inferredStrategyId,
+            inferredRuleSetVariant,
+            normalizeMetrics(partitionMetrics.inSampleMetrics),
+            null,
+            'in-sample',
+            strategyAssociation,
+            [symbol],
+          ))
+        }
+
+        if (partitionMetrics?.outOfSampleMetrics) {
+          entries.push(makeEvidence(
+            record,
+            `__outOfSample.${symbol}.outOfSample`,
+            inferredStrategyId,
+            inferredRuleSetVariant,
+            normalizeMetrics(partitionMetrics.outOfSampleMetrics),
+            null,
+            'out-of-sample',
+            strategyAssociation,
+            [symbol],
+          ))
+        }
+      })
+    } else {
+      // Preserve the existing record-level partition behavior for other experiments
+      // and legacy single-symbol Resilience records.
+      const distinctStrategyIds = new Set(entries.map((entry) => entry.strategyId))
+      const distinctRuleSetVariants = new Set(entries.map((entry) => entry.ruleSetVariant))
+      const uniform = distinctStrategyIds.size === 1
+      const inferredStrategyId = uniform ? [...distinctStrategyIds][0] : null
+      const inferredRuleSetVariant = uniform && distinctRuleSetVariants.size === 1
+        ? [...distinctRuleSetVariants][0]
+        : null
+      const strategyAssociation = uniform ? 'inferred-uniform' : 'unknown'
+
+      if (record.outOfSample.inSampleMetrics) {
+        entries.push(makeEvidence(
+          record,
+          '__outOfSample.inSample',
+          inferredStrategyId,
+          inferredRuleSetVariant,
+          normalizeMetrics(record.outOfSample.inSampleMetrics),
+          null,
+          'in-sample',
+          strategyAssociation,
+        ))
+      }
+
+      if (record.outOfSample.outOfSampleMetrics) {
+        entries.push(makeEvidence(
+          record,
+          '__outOfSample.outOfSample',
+          inferredStrategyId,
+          inferredRuleSetVariant,
+          normalizeMetrics(record.outOfSample.outOfSampleMetrics),
+          null,
+          'out-of-sample',
+          strategyAssociation,
+        ))
+      }
     }
   }
   return entries

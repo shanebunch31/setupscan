@@ -24,7 +24,7 @@ export function PaperTradingPanel() {
   const trades = projectPaperTrades(snapshot?.trades ?? [])
   return <section className="paper-panel panel">
     <div className="panel-heading compact">
-      <div><p className="eyebrow">PAPER TRADING</p><h2>Live observation journal</h2></div>
+      <div><p className="eyebrow">PAPER TRADING</p><h2>Paper trade journal</h2></div>
       <span className="paper-mode">LIVE PAPER MODE — NO REAL ORDERS</span>
     </div>
     <PaperTradingEducation account={snapshot?.account} />

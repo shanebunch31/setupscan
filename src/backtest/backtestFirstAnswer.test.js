@@ -14,19 +14,31 @@ test('Backtest answer precedes calculation checks and preserves critical visible
   const sampleIndex = backtestBranch.indexOf('className="sample-grid"')
   const diagnosticsIndex = backtestBranch.indexOf('<BacktestDiagnostics')
 
-  assert.ok(answerIndex >= 0 && answerIndex < dataContextIndex)
+  assert.match(
+    mainSource,
+    /data\?\.complete === false[\s\S]*Historical data is incomplete; interpret these results with caution/
+  )
   assert.ok(dataContextIndex < metricsIndex)
   assert.ok(metricsIndex < sampleIndex)
   assert.ok(sampleIndex < diagnosticsIndex)
   assert.match(backtestBranch, /Historical results describe this sample; they do not predict future performance/)
-  assert.match(mainSource, /data\?\.complete === false \? <p className="data-error" role="alert">Historical data is incomplete/)
+  assert.match(
+  mainSource,
+  /data\?\.complete === false[\s\S]*Historical data is incomplete; interpret these results with caution/
+)
 })
 
 test('Backtest detailed results, recent signals, calculation checks, and glossary remain reachable', () => {
-  assert.match(backtestBranch, /<summary>More details<\/summary>/)
-  assert.match(backtestBranch, /<BacktestBreakdown backtest=\{backtest\} \/>/)
-  assert.match(backtestBranch, /<ThresholdComparison candles=\{backtest\.candles\} \/>/)
-  assert.match(backtestBranch, /<summary>Recent signals<\/summary>/)
-  assert.match(mainSource, /<summary>Show calculation details<\/summary>/)
-  assert.match(backtestBranch, /<summary>What do these terms mean\?<\/summary>/)
+  assert.match(backtestBranch, /<summary>Performance breakdown<\/summary>/)
+  assert.match(
+  backtestBranch,
+  /<BacktestBreakdown\s+backtest=\{backtest\}\s+symbol=\{historicalData\?\.symbol \?\? selectedSymbol\}\s*\/>/
+)
+  assert.match(
+  backtestBranch,
+  /<ThresholdComparison\s+candles=\{backtest\.candles\}\s+symbol=\{historicalData\?\.symbol \?\? selectedSymbol\}\s*\/>/
+)
+  assert.match(backtestBranch, /<summary>Recent trades &amp; signals<\/summary>/)
+  assert.match(mainSource, /<summary>How the results are calculated<\/summary>/)
+  assert.match(backtestBranch, /<summary>Explain the metrics<\/summary>/)
 })

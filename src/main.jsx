@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   Activity,
+  ChevronRight,
   ArrowUpRight,
   BarChart3,
   Bell,
@@ -204,14 +205,14 @@ function BreakdownTable({ title, groups }) {
   )
 }
 
-function BacktestBreakdown({ backtest }) {
+function BacktestBreakdown({ backtest, symbol }) {
   const breakdown = useMemo(() => getBacktestBreakdown(backtest), [backtest])
   const overall = [{ label: 'Overall', metrics: breakdown.overall }]
   return (
     <section className="backtest-breakdown panel">
       <div className="panel-heading compact">
         <div>
-          <p className="eyebrow">BACKTEST LAB · SPY · 1H</p>
+        <p className="eyebrow">BACKTEST LAB · {symbol} · 1H</p>
           <h2>Backtest breakdown</h2>
         </div>
         <span className="coming-soon">RESEARCH ONLY</span>
@@ -243,7 +244,7 @@ function BacktestBreakdown({ backtest }) {
 const comparisonThresholds = [75, 80, 85, 90, 95]
 const BACKTEST_GLOSSARY_DEFINITIONS = [...METRIC_DEFINITIONS, ...BACKTEST_EXTRA_DEFINITIONS]
 
-function ThresholdComparison({ candles }) {
+function ThresholdComparison({ candles, symbol }) {
   const comparisons = useMemo(
     () =>
       comparisonThresholds.map((minimumScore) => {
@@ -261,7 +262,7 @@ function ThresholdComparison({ candles }) {
     <section className="threshold-comparison panel">
       <div className="panel-heading compact">
         <div>
-          <p className="eyebrow">EXPLORATORY RESEARCH · SPY · 1H</p>
+          <p className="eyebrow">EXPLORATORY RESEARCH · {symbol} · 1H</p>
           <h2>Threshold comparison</h2>
         </div>
         <span className="coming-soon">NO WINNER SELECTED</span>
@@ -332,8 +333,15 @@ function BacktestDiagnostics({ backtest, data, error }) {
   ]
   return (
     <details className="backtest-calculation-details">
-      <summary>Show calculation details</summary>
-      <section className="calculation-checks panel">
+      <summary>How the results are calculated</summary>
+      <p className="backtest-detail-intro">
+        These checks show the historical data and calculations used to produce the backtest results above.
+      <summary>How the results are calculated</summary>
+<p className="backtest-detail-intro">
+  These checks show the historical data and calculations used to produce the backtest results above.
+</p>
+<section className="calculation-checks panel"></section></p>
+<section className="calculation-checks panel">
       <div className="panel-heading compact">
         <div>
           <p className="eyebrow">BACKTEST LAB · CALCULATION CHECKS</p>
@@ -357,12 +365,33 @@ function BacktestDiagnostics({ backtest, data, error }) {
 
 function BacktestDataSummary({ data, error }) {
   const provider = data?.provider ?? 'Data loading'
-     const status = data?.complete === false ? 'Incomplete' : data?.complete === true ? 'Complete' : error ? 'Unavailable' : 'Loading'
+  const status =
+    data?.complete === false
+      ? 'Incomplete'
+      : data?.complete === true
+        ? 'Complete'
+        : error
+          ? 'Unavailable'
+          : 'Loading'
+
   return (
     <div className="backtest-data-context" aria-label="Historical data context">
-      <p>{provider} · {data?.symbol ?? 'SPY'} · {data?.timeframe ?? '1Hour'} · {formatDate(data?.start)} – {formatDate(data?.end)} · {data?.candleCount ?? 0} candles · {status}</p>
+      <p>
+        <strong>{provider}</strong>
+        <span>
+          {formatDate(data?.start)} – {formatDate(data?.end)}
+          {' · '}
+          {(data?.candleCount ?? 0).toLocaleString()} candles
+          {' · '}
+          {status}
+        </span>
+      </p>
       {error ? <p className="data-error" role="alert">{error}</p> : null}
-      {data?.complete === false ? <p className="data-error" role="alert">Historical data is incomplete; interpret these results with caution.</p> : null}
+      {data?.complete === false ? (
+        <p className="data-error" role="alert">
+          Historical data is incomplete; interpret these results with caution.
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -434,7 +463,15 @@ const addToWatchlist = (symbol) => {
 }
 
 const removeFromWatchlist = (symbol) => {
-  setWatchlist((current) => current.filter((item) => item !== symbol))
+  setWatchlist((current) => {
+    const next = current.filter((item) => item !== symbol)
+
+    if (selectedSymbol === symbol && next.length > 0) {
+      setSelectedSymbol(next[0])
+    }
+
+    return next
+  })
 }
 const [researchTab, setResearchTab] = useState('robustness')
 const [researchWorkspaceView, setResearchWorkspaceView] = useState(
@@ -447,24 +484,26 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
   const [threshold, setThreshold] = useState(65)
   const [scannerFiltersOpen, setScannerFiltersOpen] = useState(false)
   const [selectedSymbol, setSelectedSymbol] = useState('SPY')
+  const [backtestRangeYears, setBacktestRangeYears] = useState(2)
   const [watchlistOpen, setWatchlistOpen] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [currentTime, setCurrentTime] = useState(() => new Date())
   const [historicalData, setHistoricalData] = useState(null)
   const [historicalStatus, setHistoricalStatus] = useState('LOADING HISTORICAL')
   const [historicalError, setHistoricalError] = useState(null)
+  const [backtestLoading, setBacktestLoading] = useState(false)
   const [robustnessData, setRobustnessData] = useState(
     robustnessSymbols.map((symbol) => ({ symbol, status: 'LOADING' })),
   )
   const [frozenScoreData, setFrozenScoreData] = useState(
     robustnessSymbols.map((symbol) => ({ symbol, status: 'LOADING' })),
   )
-  const historicalRange = useMemo(() => {
-    const end = new Date()
-    const start = new Date(end)
-    start.setUTCFullYear(start.getUTCFullYear() - 2)
-    return { start: start.toISOString(), end: end.toISOString() }
-  }, [])
+ const historicalRange = useMemo(() => {
+  const end = new Date()
+  const start = new Date(end)
+  start.setUTCFullYear(start.getUTCFullYear() - backtestRangeYears)
+  return { start: start.toISOString(), end: end.toISOString() }
+}, [backtestRangeYears])
 
   const frozenScoreRange = useMemo(() => {
     const end = new Date()
@@ -477,7 +516,7 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
   const scanRange = useMemo(() => {
     const end = new Date()
     const start = new Date(end)
-    start.setUTCDate(start.getUTCDate() - 30)
+    start.setUTCDate(start.getUTCDate() - 7)
     return { start: start.toISOString(), end: end.toISOString() }
   }, [])
   const [scanSnapshot, setScanSnapshot] = useState([])
@@ -501,10 +540,14 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
     .then((entries) => {
       if (!active) return
 
+      const availableEntries = entries.filter(
+        (entry) => entry.available,
+      )
+
       setScanSnapshot(
-        entries
-          .filter((entry) => entry.available)
-          .map((entry) => entry.snapshot),
+        availableEntries.map(
+          (entry) => entry.snapshot,
+        ),
       )
 
       setScanUnavailable(
@@ -513,10 +556,23 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
           .map((entry) => entry.symbol),
       )
 
+      if (availableEntries.length > 0) {
+        setHistoricalStatus('ALPACA HISTORICAL')
+        setHistoricalError(null)
+      } else {
+        setHistoricalStatus('DATA ERROR')
+        setHistoricalError(
+          'No Alpaca historical data was available for the scanner.',
+        )
+      }
+
       setScanLoading(false)
     })
-    .catch(() => {
+    .catch((error) => {
       if (!active) return
+
+      setHistoricalStatus('DATA ERROR')
+      setHistoricalError(error.message)
       setScanLoading(false)
     })
 
@@ -524,7 +580,10 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
     active = false
   }
 }, [view, scanRange, watchlist])
-  const results = useMemo(() => scanSetups(scanSnapshot), [scanSnapshot])
+
+const results = useMemo(
+  () => scanSetups(scanSnapshot),
+  [scanSnapshot],)
   useEffect(() => {
   if (view !== 'backtest') return undefined
 
@@ -532,6 +591,7 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
 
   setHistoricalStatus('LOADING HISTORICAL')
   setHistoricalError(null)
+  setBacktestLoading(true)
 
   fetchHistoricalMarketData(selectedSymbol, '1Hour', historicalRange)
     .then((data) => {
@@ -545,20 +605,23 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
         setHistoricalError(
           `Historical dataset incomplete: received ${data.candleCount} candles; ${expectedCandleMessage}.`,
         )
-        setHistoricalStatus('DATA ERROR')
         setHistoricalData({ ...data, candles: [] })
+        setBacktestLoading(false)
         return
       }
 
       setHistoricalData(data)
       setHistoricalStatus('ALPACA HISTORICAL')
+      setBacktestLoading(false)
     })
+
     .catch((error) => {
       if (!active) return
 
       setHistoricalError(error.message)
       setHistoricalStatus('DEMO')
       setHistoricalData(getDemoHistoricalData())
+      setBacktestLoading(false)
     })
 
   return () => {
@@ -666,13 +729,20 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
     [historicalData],
   )
   const backtest = useMemo(() => runSetupScanBacktest(backtestCandles), [backtestCandles])
-  const bullishCount = results.filter((item) => item.status === 'Bullish').length
   const averageScore = results.length
     ? Math.round(results.reduce((total, item) => total + item.score, 0) / results.length)
     : 0
-  const qualified = filterScannerResults(results, threshold)
-  const visibleResults = qualified
+  const scoreQualified = filterScannerResults(results, threshold)
+const qualifiedSetups = results.filter((item) => item.qualifiedSetup === true)
+const potentialSetups = results.filter(
+  (item) => item.potentialSetup === true && item.qualifiedSetup !== true
+)
+const visibleResults = scoreQualified
   const selected = visibleResults.find((item) => item.symbol === selectedSymbol) ?? visibleResults[0]
+
+  const selectedChecksPassed =
+  selected?.reasons?.filter((reason) => reason.points > 0).length ?? 0
+
   const refreshData = async () => {
     setScanLoading(true)
     try {
@@ -792,15 +862,15 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                 <div className="data-freshness">
                   <span className="status-dot" />{' '}
                   {historicalStatus === 'ALPACA HISTORICAL'
-                    ? 'ALPACA HISTORICAL · SPY · 1H'
+                    ? `MARKET DATA · ${historicalData?.symbol ?? selectedSymbol} · 1H`
                     : `${historicalStatus} data · delayed snapshot`}
-                </div>
+              </div>
                 <button className="refresh-button" onClick={refreshData} disabled={scanLoading}>
                   <RefreshCw size={15} /> Refresh <span>{formatLastRefresh(lastUpdated)}</span>
-                </button>
+               </button>
               </div>
             </section>
-            <section className="summary-grid">
+                        <section className="summary-grid">
               <div className="summary-card">
                 <div className="summary-label">
                   Scanned today <BarChart3 size={16} />
@@ -808,20 +878,23 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                 <strong>{results.length}</strong>
                 <span>symbols monitored</span>
               </div>
-              <div className="summary-card highlight">
-                <div className="summary-label">
-                  Qualified setups <TermHelp term="Qualified setups" explanation={SCANNER_TERM_EXPLANATIONS.qualified} /> <ArrowUpRight size={16} />
-                </div>
-                <strong>{qualified.length.toString().padStart(2, '0')}</strong>
-                  <span>Meets minimum setup score {threshold}</span>
-              </div>
+
               <div className="summary-card">
                 <div className="summary-label">
-                  Scanner signal mix <TermHelp term="Signal status" explanation="Score-based setup categories. Bearish does not mean SetupScan recommends a short." /> <Activity size={16} />
+                  Qualified setups <TermHelp term="Qualified setup" explanation="Meets all required trade-trigger conditions and is eligible to trigger a paper trade or live trade." /> <ArrowUpRight size={16} />
                 </div>
-                <strong>{bullishCount} / {results.length}</strong>
-                <span>Bullish statuses among available symbols</span>
+                <strong>{results.filter((item) => item.qualifiedSetup === true).length.toString().padStart(2, '0')}</strong>
+                <span>Eligible to trigger a trade</span>
               </div>
+
+              <div className="summary-card">
+                <div className="summary-label">
+                  Potential setups <TermHelp term="Potential setup" explanation="A strong score-based setup that does not meet every required trade-trigger condition." /> <Activity size={16} />
+                </div>
+                <strong>{results.filter((item) => item.status === 'Potential Setup').length.toString().padStart(2, '0')}</strong>
+                <span>Strong setups needing confirmation</span>
+              </div>
+
               <div className="summary-card">
                 <div className="summary-label">
                   Average setup score <TermHelp term="Average setup score" explanation="The mean score across available symbols in this scan." /> <LineChart size={16} />
@@ -836,6 +909,9 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                   <div>
                     <p className="eyebrow">LIVE SCAN</p>
                     <h2>Setup scanner</h2>
+                    <p className="qualified-explanation">
+  Showing {scoreQualified.length} of {results.length} symbols at score threshold {threshold}.
+                    </p>
                   </div>
                   <ScannerFiltersButton open={scannerFiltersOpen} onToggle={() => setScannerFiltersOpen((open) => !open)} />
                 </div>
@@ -936,27 +1012,33 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                 <section className="qualified-panel panel">
                   <div className="panel-heading compact">
                     <div>
-                      <p className="eyebrow">MINIMUM SETUP SCORE ≥ {threshold}</p>
-                      <h2>Qualified setups</h2>
-                      <p className="qualified-explanation">Meets the selected score cutoff; not a recommendation.</p>
-                    </div>
-                    <span className="count-badge">{qualified.length}</span>
+                      <p className="eyebrow">SCORE THRESHOLD ≥ {threshold}</p>
+                    <h2>Score-matched setups</h2>
+                      <p className="qualified-explanation">
+                        Meets the selected score threshold; does not mean trade-ready.
+                      </p>
                   </div>
-                  {qualified.length ? (
-                    qualified.map((item) => (
+                    <span className="count-badge">{scoreQualified.length}</span>
+                </div>
+                  {scoreQualified.length ?(
+                    scoreQualified.map((item) => (
                       <button
-                        className="qualified-row"
+                        className={`qualified-row ${item.qualifiedSetup ? 'qualified-match' : ''}`}
                         key={item.symbol}
                         onClick={() => setSelectedSymbol(item.symbol)}
                       >
                         <div>
                           <strong>{item.symbol}</strong>
-                          <span>{item.setupType} <TermHelp term="Setup type" explanation={SCANNER_TERM_EXPLANATIONS.setupType} /></span>
+                          <span>
+                            {item.status === 'Potential Setup' ? 'Potential setup' : item.setupType}
+                            {' '}
+                            <TermHelp term="Setup type" explanation={SCANNER_TERM_EXPLANATIONS.setupType} />
+                          </span>
                         </div>
                         <div className="qualified-score">
                           {item.score}
                           <small>/100</small>
-                          <ArrowUpRight size={14} />
+                          <ChevronRight size={15} />
                         </div>
                       </button>
                     ))
@@ -1012,6 +1094,9 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                       <h2>
                         Why {selected.symbol} received setup score {selected.score} <TermHelp term="Signal" explanation={SCANNER_TERM_EXPLANATIONS.signal} />
                       </h2>
+                      <p className="setup-check-count">
+                       {selectedChecksPassed} of 6 checks passed
+                      </p>
                     </div>
                     <TrendBadge trend={selected.trend} />
                   </div>
@@ -1026,18 +1111,26 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                     </div>
                     <div>
                       <span>Setup type</span>
-                      <strong>{selected.setupType}</strong>
+                      <strong>
+                        {selected.status === 'Qualified Setup'
+                          ? 'Breakout / reclaim confirmed'
+                          : selected.status === 'Potential Setup'
+                            ? 'Potential setup'
+                            : 'No setup'}
+                      </strong>
                       <small>
-                        {selected.status === 'No Setup'
-                          ? 'Waiting for confirmation'
-                          : 'Conditions aligned'}
+                        {selected.status === 'Qualified Setup'
+                          ? 'All trade conditions aligned'
+                          : selected.status === 'Potential Setup'
+                            ? 'Strong setup — awaiting confirmation'
+                            : 'Waiting for confirmation'}
                       </small>
                     </div>
                   </div>
                   <div className="reason-list">
                     {selected.reasons.map((reason) => (
                       <div className="reason-item" key={reason.label}>
-                        <span className={reason.points > 0 ? 'reason-positive' : 'reason-neutral'}>
+                        <span className={reason.points > 0 ? 'reason-positive' : 'reason-attention'}>
                           {reason.points > 0 ? '+' : ''}
                           {reason.points}
                         </span>
@@ -1068,11 +1161,49 @@ const handleResearchWorkspaceNavigate = (nextView) => {
               <section className="backtest-panel panel">
                 <div className="panel-heading compact">
                   <div>
-                    <p className="eyebrow">BACKTEST LAB · SPY · 1H</p>
+                    <p className="eyebrow">BACKTEST LAB · {historicalData?.symbol ?? selectedSymbol} · 1H</p>
                     <h2>Historical backtest</h2>
+                    <select
+  className="backtest-symbol-select"
+  value={selectedSymbol}
+  onChange={(event) => setSelectedSymbol(event.target.value)}
+  aria-label="Backtest symbol"
+  disabled={backtestLoading}
+>
+                     {watchlist.map((symbol) => (
+                       <option key={symbol} value={symbol}>
+                         {symbol}
+                       </option>
+                     ))}
+                   </select>
+<select
+  className="backtest-symbol-select"
+  value={backtestRangeYears}
+  onChange={(event) => setBacktestRangeYears(Number(event.target.value))}
+  aria-label="Backtest range"
+  disabled={backtestLoading}
+>
+  <option value={1}>1 year</option>
+  <option value={2}>2 years</option>
+  <option value={3}>3 years</option>
+  <option value={5}>5 years</option>
+</select>
                   </div>
-                  <span className="coming-soon">{backtest.trades.length} TRADES</span>
+                  <span className="coming-soon">
+  {backtestLoading ? 'RUNNING BACKTEST' : `${backtest.trades.length} TRADES`}
+</span>
                 </div>
+                {backtestLoading ? (
+  <div className="backtest-loading" role="status" aria-live="polite">
+    <span className="status-dot" />
+    <div>
+      <strong>Running backtest</strong>
+      <small>
+        Loading {backtestRangeYears} {backtestRangeYears === 1 ? 'year' : 'years'} of {selectedSymbol} historical data and recalculating results…
+      </small>
+    </div>
+  </div>
+) : null}
                 <BacktestDataSummary data={historicalData} error={historicalError} />
                 <p className="backtest-learning-intro">Historical results describe this sample; they do not predict future performance.</p>
                 <div className="backtest-stats">
@@ -1118,7 +1249,10 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                   </div>
                 </div>
                 <details className="backtest-recent-details">
-                  <summary>Recent signals</summary>
+                  <summary>Recent trades &amp; signals</summary>
+                  <p className="backtest-detail-intro">
+                    See the latest trades generated by this backtest and how each one performed.
+                  </p>
                   <div className="trade-ledger">
                   <div className="ledger-heading">
                     <span>Latest sample trades</span>
@@ -1153,13 +1287,22 @@ const handleResearchWorkspaceNavigate = (nextView) => {
               </section>
             </section>
             <details className="backtest-more-details">
-              <summary>More details</summary>
-              <BacktestBreakdown backtest={backtest} />
-              <ThresholdComparison candles={backtest.candles} />
+             <summary>Performance breakdown</summary>
+             <p className="backtest-detail-intro">
+               Compare results across score ranges, setup types, and sample groups.
+            </p>
+            <BacktestBreakdown
+               backtest={backtest}
+               symbol={historicalData?.symbol ?? selectedSymbol}
+            />
+              <ThresholdComparison
+                candles={backtest.candles}
+                symbol={historicalData?.symbol ?? selectedSymbol}
+              />
             </details>
             <BacktestDiagnostics backtest={backtest} data={historicalData} error={historicalError} />
             <details className="backtest-terms-disclosure">
-              <summary>What do these terms mean?</summary>
+              <summary>Explain the metrics</summary>
               <MetricsGlossary title="Backtest terms" intro="Short explanations for the metrics used on this page." definitions={BACKTEST_GLOSSARY_DEFINITIONS} />
             </details>
           </>

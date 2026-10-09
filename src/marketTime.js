@@ -27,7 +27,7 @@ export function createRefreshTimestamp(now = () => new Date()) {
 }
 
 export function formatLastRefresh(value) {
-  return value ? `Last refreshed ${formatMarketTime(value)}` : 'Not refreshed'
+  return value ? `Updated ${formatMarketTime(value)}` : 'Loading market data…'
 }
 
 export { EASTERN_TIME_ZONE }

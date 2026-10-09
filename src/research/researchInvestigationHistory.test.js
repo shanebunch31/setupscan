@@ -17,7 +17,7 @@ test('createResearchInvestigation posts question and ordered experiment plan unc
   try {
     const input = { question: '  Wording as authored? ', requestedExperiments: ['walk-forward-regime', 'robustness'] }
     assert.deepEqual(await createResearchInvestigation(input), { investigationId: 'inv-1' })
-    assert.equal(request.url, '/api/research-investigations')
+    assert.equal(request.url, 'http://localhost:3001/api/research-investigations')
     assert.equal(request.options.method, 'POST')
     assert.deepEqual(JSON.parse(request.options.body), input)
   } finally {
@@ -55,7 +55,7 @@ test('attachResearchRunToInvestigation posts only the run reference and surfaces
   }
   try {
     assert.deepEqual(await attachResearchRunToInvestigation('inv/1', 'run-1'), { runIds: ['run-1'] })
-    assert.equal(request.url, '/api/research-investigations/inv%2F1/runs')
+    assert.equal(request.url, 'http://localhost:3001/api/research-investigations/inv%2F1/runs')
     assert.deepEqual(JSON.parse(request.options.body), { runId: 'run-1' })
   } finally {
     globalThis.fetch = originalFetch

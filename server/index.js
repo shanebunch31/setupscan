@@ -30,13 +30,19 @@ const researchInvestigationApi =
     store: researchRunStore,
   })
 
-const ALLOWED_ORIGIN =
-  'https://setupscan.vercel.app'
+const ALLOWED_ORIGINS = [
+  'https://setupscan.vercel.app',
+  'http://localhost:5173',
+]
 
-function setCorsHeaders(response) {
+function setCorsHeaders(response, requestOrigin) {
+  const origin = ALLOWED_ORIGINS.includes(requestOrigin)
+    ? requestOrigin
+    : ALLOWED_ORIGINS[0]
+
   response.setHeader(
     'Access-Control-Allow-Origin',
-    ALLOWED_ORIGIN,
+    origin,
   )
 
   response.setHeader(
@@ -79,7 +85,7 @@ function sendJson(response, status, body) {
 
 const server = http.createServer(
   async (request, response) => {
-    setCorsHeaders(response)
+    setCorsHeaders(response, request.headers.origin)
 
     if (request.method === 'OPTIONS') {
       response.writeHead(204)

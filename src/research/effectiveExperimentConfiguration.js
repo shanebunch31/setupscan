@@ -36,8 +36,19 @@ function robustnessConfiguration(output) {
   return {
     thresholds: [...robustnessThresholds],
     periodCount: 4,
-    thresholdRuns: (output.thresholdResults ?? []).map(({ minimumScore, settings }) => ({ minimumScore, settings })),
-    periodRuns: (output.periodResults ?? []).map(({ label, start, end, candleCount, settings }) => ({ label, start, end, candleCount, settings })),
+    thresholdRuns: (output.thresholdResults ?? []).map(({ symbol, minimumScore, settings }) => ({
+      ...(symbol ? { symbol } : {}),
+      minimumScore,
+      settings,
+    })),
+    periodRuns: (output.periodResults ?? []).map(({ symbol, label, start, end, candleCount, settings }) => ({
+      ...(symbol ? { symbol } : {}),
+      label,
+      start,
+      end,
+      candleCount,
+      settings,
+    })),
   }
 }
 
@@ -131,9 +142,10 @@ function settingsForLength(defaults, length) {
   return { ...defaults, splitIndex: Math.floor(length * defaults.splitRatio) }
 }
 
-function expectedRobustnessConfiguration(candles) {
+function expectedRobustnessConfiguration(symbol, candles) {
   const thresholds = [...robustnessThresholds]
-  const thresholdRuns = thresholds.map((minimumScore) => ({
+    const thresholdRuns = thresholds.map((minimumScore) => ({
+    symbol,
     minimumScore,
     settings: settingsForLength({ ...setupScanBacktestDefaults, minimumScore }, candles.length),
   }))
@@ -144,6 +156,7 @@ function expectedRobustnessConfiguration(candles) {
     const periodCandles = candles.slice(index * periodSize, (index + 1) * periodSize)
     if (!periodCandles.length) continue
     periodRuns.push({
+      symbol,
       label: `Period ${index + 1}`,
       start: periodCandles[0].timestamp,
       end: periodCandles.at(-1).timestamp,
@@ -159,13 +172,27 @@ const strategyDiscoveryMetas = [momentumBreakoutMeta, meanReversionMeta, priorDa
 function currentConfigurationFor(experimentId, dataset, codeRevision) {
   let output
   if (experimentId === 'robustness') {
-    const candles = dataset?.rawSeriesBySymbol?.SPY ?? []
-    const expected = expectedRobustnessConfiguration(candles)
-    output = {
-      thresholdResults: expected.thresholdRuns,
-      periodResults: expected.periodRuns,
-    }
-  } else if (experimentId === 'relative-value') output = { options: relativeValueDefaults }
+  const requestedSymbols = dataset?.requestedSymbols?.length
+    ? dataset.requestedSymbols
+    : Object.keys(dataset?.rawSeriesBySymbol ?? {})
+
+  const thresholdResults = []
+  const periodResults = []
+
+  requestedSymbols.forEach((symbol) => {
+    const candles = dataset?.rawSeriesBySymbol?.[symbol] ?? []
+    const fetchResult = dataset?.fetchResultsBySymbol?.[symbol]
+
+    if (!candles.length || fetchResult?.complete === false) return
+
+    const expected = expectedRobustnessConfiguration(symbol, candles)
+    thresholdResults.push(...expected.thresholdRuns)
+    periodResults.push(...expected.periodRuns)
+  })
+
+  output = { thresholdResults, periodResults }
+}
+  else if (experimentId === 'relative-value') output = { options: relativeValueDefaults }
   else if (experimentId === 'signal-quality') output = { options: signalQualityDefaults }
   else if (experimentId === 'frozen-score-holdout') output = { options: frozenScoreHoldoutDefaults }
   else if (experimentId === 'yearly-regime') output = { options: yearlyRegimeDefaults }

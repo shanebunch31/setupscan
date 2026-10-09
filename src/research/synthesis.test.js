@@ -547,7 +547,74 @@ test('robustness partition OOS association is inferred from strategy-id uniformi
     assert.equal(entry.strategyAssociation, 'explicit')
   })
 })
+test('multi-symbol robustness keeps out-of-sample evidence scoped to each symbol', () => {
+  const aaplCandles = [
+    makeCandle('AAPL', '1h', 't0'),
+    makeCandle('AAPL', '1h', 't1'),
+    makeCandle('AAPL', '1h', 't2'),
+  ]
+  const msftCandles = [
+    makeCandle('MSFT', '1h', 't0'),
+    makeCandle('MSFT', '1h', 't1'),
+    makeCandle('MSFT', '1h', 't2'),
+  ]
 
+  const record = createResearchRecordForExperiment('robustness', {
+    thresholdResults: [
+      {
+        symbol: 'AAPL',
+        minimumScore: 75,
+        candles: aaplCandles,
+        metrics: makeStrategyJsMetrics({ totalTrades: 20, netReturn: 6 }),
+        inSampleMetrics: makeStrategyJsMetrics({ totalTrades: 14 }),
+        outOfSampleMetrics: makeStrategyJsMetrics({ totalTrades: 6 }),
+      },
+      {
+        symbol: 'MSFT',
+        minimumScore: 75,
+        candles: msftCandles,
+        metrics: makeStrategyJsMetrics({ totalTrades: 30, netReturn: 9 }),
+        inSampleMetrics: makeStrategyJsMetrics({ totalTrades: 18 }),
+        outOfSampleMetrics: makeStrategyJsMetrics({ totalTrades: 12 }),
+      },
+    ],
+    periodResults: [],
+  })
+
+  const result = synthesizeResearch([record])
+  const evidence = result.strategyGroups.flatMap((group) => group.evidence)
+
+  const aaplInSample = evidence.find(
+    (entry) => entry.metricsKey === '__outOfSample.AAPL.inSample',
+  )
+  const aaplOutOfSample = evidence.find(
+    (entry) => entry.metricsKey === '__outOfSample.AAPL.outOfSample',
+  )
+  const msftInSample = evidence.find(
+    (entry) => entry.metricsKey === '__outOfSample.MSFT.inSample',
+  )
+  const msftOutOfSample = evidence.find(
+    (entry) => entry.metricsKey === '__outOfSample.MSFT.outOfSample',
+  )
+
+  assert.ok(aaplInSample)
+  assert.ok(aaplOutOfSample)
+  assert.ok(msftInSample)
+  assert.ok(msftOutOfSample)
+
+  assert.deepEqual(aaplInSample.symbols, ['AAPL'])
+  assert.deepEqual(aaplOutOfSample.symbols, ['AAPL'])
+  assert.deepEqual(msftInSample.symbols, ['MSFT'])
+  assert.deepEqual(msftOutOfSample.symbols, ['MSFT'])
+
+  assert.equal(aaplInSample.metrics.tradeCount, 14)
+  assert.equal(aaplOutOfSample.metrics.tradeCount, 6)
+  assert.equal(msftInSample.metrics.tradeCount, 18)
+  assert.equal(msftOutOfSample.metrics.tradeCount, 12)
+
+  assert.equal(aaplInSample.strategyId, 'setup-scan-baseline')
+  assert.equal(msftInSample.strategyId, 'setup-scan-baseline')
+})
 // --- Strategy-comparison partition OOS association: control and trendMomentum are two different
 // strategies, and nothing in the normalized record ties the split to either one specifically. ---
 test('strategy-comparison partition OOS association is unknown, never guessed from control being listed first', () => {

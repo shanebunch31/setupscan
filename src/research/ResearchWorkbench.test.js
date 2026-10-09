@@ -368,7 +368,7 @@ test('selected Investigation metadata and associated IDs render without copying 
     savedRunId: null,
   }
   const html = renderToStaticMarkup(React.createElement(ResearchInvestigationPanel, props))
-  for (const value of [investigation.question, investigation.status, investigation.createdAt, investigation.updatedAt, 'Relative Value', 'Robustness', 'persisted-run-1', 'Associated runs']) {
+  for (const value of [investigation.question, investigation.status, investigation.createdAt, investigation.updatedAt, 'Relative Value', 'Strategy Resilience', 'persisted-run-1', 'Associated runs']) {
     assert.ok(html.includes(value), `expected Investigation UI to show ${value}`)
   }
   assert.doesNotMatch(html, /RAW_INVESTIGATION_CANDLES|RAW_INVESTIGATION_NATIVE|RAW_COMPLETE_RUN|rawSeriesBySymbol|nativePayload|nativeOutput/)

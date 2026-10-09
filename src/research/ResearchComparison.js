@@ -181,7 +181,11 @@ export function ResearchComparisonView({
 
   return h('section', { className: 'research-comparison', 'aria-labelledby': 'research-comparison-title' },
     h('header', { className: 'research-comparison-heading' },
-      h('div', null, h('p', { className: 'workbench-eyebrow' }, 'PERSISTED EVIDENCE'), h('h2', { id: 'research-comparison-title' }, 'Compare research runs')),
+      h('div', null,
+    h('p', { className: 'workbench-eyebrow' }, 'PERSISTED EVIDENCE'),
+    h('h2', { id: 'research-comparison-title' }, 'Compare research runs'),
+   h('p', { className: 'research-page-intro' }, 'Compare evidence from two saved research runs without rerunning them.'),
+),
       h('div', { className: `research-comparison-state research-comparison-state-${displayState}`, role: displayState === 'error' ? 'alert' : 'status' },
         loading && !error ? h(LoaderCircle, { size: 15, className: 'workbench-spinner', 'aria-hidden': true }) : null,
         error ? 'Error' : loading ? 'Comparing' : result ? 'Complete' : 'Ready',

@@ -47,8 +47,15 @@ function deriveMetadataFromPayload(payload) {
   if (payload?.bySymbol && typeof payload.bySymbol === 'object' && !Array.isArray(payload.bySymbol)) {
     return { symbols: Object.keys(payload.bySymbol) }
   }
-  if (Array.isArray(payload?.thresholdResults) && payload.thresholdResults[0]?.candles) {
-    return firstCandleMeta(payload.thresholdResults[0].candles)
+    if (Array.isArray(payload?.thresholdResults) && payload.thresholdResults[0]?.candles) {
+    const metadata = firstCandleMeta(payload.thresholdResults[0].candles)
+    const symbols = [...new Set(payload.thresholdResults
+      .map((result) => result.symbol ?? result.candles?.[0]?.symbol)
+      .filter(Boolean))]
+    return {
+      ...metadata,
+      ...(symbols.length ? { symbols } : {}),
+    }
   }
   if (payload?.control?.candles) return firstCandleMeta(payload.control.candles)
   if (Array.isArray(payload?.universe)) {
@@ -206,17 +213,56 @@ export function adaptStandardResearchOutput(definition, payload, context = {}) {
  */
 export function adaptRobustnessOutput(definition, payload, context = {}) {
   const thresholdResults = Array.isArray(payload?.thresholdResults) ? payload.thresholdResults : []
-  const metrics = Object.fromEntries(thresholdResults.map((result) => [
-    `${result.minimumScore}+`,
-    withStrategy(normalizeMetrics(result.metrics), STRATEGY_IDS.baseline, `threshold-${result.minimumScore}`),
-  ]))
+  const symbolForResult = (result) => result.symbol ?? result.candles?.[0]?.symbol ?? null
+  const symbols = [...new Set(thresholdResults.map(symbolForResult).filter(Boolean))]
+  const requestedSymbols = context.symbols?.length
+    ? context.symbols
+    : context.input?.symbols ?? []
+  const multiSymbol = new Set([...symbols, ...requestedSymbols]).size > 1
+
+  const metrics = Object.fromEntries(thresholdResults.map((result) => {
+    const symbol = symbolForResult(result)
+    const key = multiSymbol && symbol
+      ? `${symbol} · ${result.minimumScore}+`
+      : `${result.minimumScore}+`
+
+    return [
+      key,
+      withStrategy({
+        ...normalizeMetrics(result.metrics),
+        ...(symbol ? { symbol } : {}),
+      }, STRATEGY_IDS.baseline, `threshold-${result.minimumScore}`),
+    ]
+  }))
+
+  const outOfSampleBySymbol = Object.fromEntries(symbols.map((symbol) => {
+    const baseline = thresholdResults.find((result) => symbolForResult(result) === symbol)
+    return [symbol, {
+      inSampleMetrics: baseline?.inSampleMetrics ?? null,
+      outOfSampleMetrics: baseline?.outOfSampleMetrics ?? null,
+    }]
+  }))
+
   const baseline = thresholdResults[0] ?? null
-  const outOfSample = baseline
-    ? { type: 'partition', inSampleMetrics: baseline.inSampleMetrics, outOfSampleMetrics: baseline.outOfSampleMetrics }
-    : null
+  const outOfSample = multiSymbol
+    ? { type: 'partition', bySymbol: outOfSampleBySymbol }
+    : baseline
+      ? {
+          type: 'partition',
+          inSampleMetrics: baseline.inSampleMetrics,
+          outOfSampleMetrics: baseline.outOfSampleMetrics,
+        }
+      : null
+
   const available = context.available ?? (thresholdResults.length > 0)
   const costModel = context.costModel ?? withCostStatus('not-modeled', payload)
-  return createAdaptedRecord(definition, payload, { ...context, available, costModel, outOfSample: context.outOfSample ?? outOfSample }, metrics)
+
+  return createAdaptedRecord(
+    definition,
+    payload,
+    { ...context, available, costModel, outOfSample: context.outOfSample ?? outOfSample },
+    metrics,
+  )
 }
 
 // Variant A is the unmodified baseline; B/C/D are genuinely different rule constructions, not
