@@ -4,7 +4,11 @@ export const robustnessThresholds = [75, 80, 85, 90, 95]
 
 export function runThresholdResearch(candles) {
   return robustnessThresholds.map((minimumScore) => {
-    const result = runSetupScanBacktest(candles, { minimumScore })
+    const result = runSetupScanBacktest(candles, {
+      minimumScore,
+      includePotentialSetups: true,
+    })
+
     return { minimumScore, ...result }
   })
 }
@@ -15,7 +19,10 @@ export function runMarketConditionResearch(candles, periodCount = 4, minimumScor
   for (let index = 0; index < periodCount; index += 1) {
     const periodCandles = candles.slice(index * periodSize, (index + 1) * periodSize)
     if (!periodCandles.length) continue
-    const result = runSetupScanBacktest(periodCandles, { minimumScore })
+    const result = runSetupScanBacktest(periodCandles, {
+  minimumScore,
+  includePotentialSetups: true,
+})
     periods.push({ label: `Period ${index + 1}`, start: periodCandles[0].timestamp, end: periodCandles[periodCandles.length - 1].timestamp, candleCount: periodCandles.length, ...result })
   }
   return periods

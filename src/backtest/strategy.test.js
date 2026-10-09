@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { runSetupScanBacktest } from './strategy.js'
+import { runThresholdResearch } from './robustness.js'
 
 function candles(length, signalIndices = []) {
   const signals = new Set(signalIndices)
@@ -134,4 +135,32 @@ test('trailing stop activates after +1R and ratchets upward without same-bar opt
   assert.ok(trade.stopPrice > 99.5)
   assert.ok(trade.exitPrice > 99.5)
   assert.ok(trade.rMultiple > -1)
+})
+
+test('Resilience thresholds change trade eligibility for potential setups', () => {
+  const rows = candles(12, [2])
+
+  // Score 93: all confirmations except the volume qualification threshold.
+  rows[2].relativeVolume = 1.1
+
+  const results = runThresholdResearch(rows)
+
+  assert.deepEqual(
+    results.map(({ minimumScore }) => minimumScore),
+    [75, 80, 85, 90, 95],
+  )
+
+  // Score 93 passes thresholds through 90, but fails threshold 95.
+  assert.deepEqual(
+    results.map(({ trades }) => trades.length),
+    [1, 1, 1, 1, 0],
+  )
+
+  assert.ok(
+    results.slice(0, 4).every(({ trades }) => trades[0]?.score === 93),
+  )
+
+  assert.ok(
+    results.every(({ settings }) => settings.includePotentialSetups === true),
+  )
 })

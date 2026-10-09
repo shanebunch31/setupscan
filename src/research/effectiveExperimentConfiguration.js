@@ -147,7 +147,11 @@ function expectedRobustnessConfiguration(symbol, candles) {
     const thresholdRuns = thresholds.map((minimumScore) => ({
     symbol,
     minimumScore,
-    settings: settingsForLength({ ...setupScanBacktestDefaults, minimumScore }, candles.length),
+    settings: settingsForLength({
+  ...setupScanBacktestDefaults,
+  minimumScore,
+  includePotentialSetups: true,
+}, candles.length),
   }))
   const periodCount = 4
   const periodSize = Math.ceil(candles.length / periodCount)
@@ -161,7 +165,11 @@ function expectedRobustnessConfiguration(symbol, candles) {
       start: periodCandles[0].timestamp,
       end: periodCandles.at(-1).timestamp,
       candleCount: periodCandles.length,
-      settings: settingsForLength({ ...setupScanBacktestDefaults, minimumScore: 75 }, periodCandles.length),
+      settings: settingsForLength({
+  ...setupScanBacktestDefaults,
+  minimumScore: 75,
+  includePotentialSetups: true,
+}, periodCandles.length),
     })
   }
   return { thresholds, periodCount, thresholdRuns, periodRuns }

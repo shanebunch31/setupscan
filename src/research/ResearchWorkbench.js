@@ -27,7 +27,49 @@ function evidencePartitionLabel(partition) {
   if (typeof partition === 'string') return partition
   return partition?.label ?? partition?.type ?? null
 }
+function workbenchEvidenceTitle(evidence) {
+  const key = String(evidence.metricsKey ?? 'Metrics')
 
+  if (evidence.experimentId === 'robustness' || evidence.sourceRecordId === 'robustness') {
+    const partition = key.match(/^__outOfSample\.([^.]+)\.(inSample|outOfSample)$/)
+    if (partition) {
+      const label = partition[2] === 'inSample' ? 'In-Sample Results' : 'Out-of-Sample Results'
+      return `${partition[1]} — ${label}`
+    }
+
+    const multiSymbolThreshold = key.match(/^(.+?) · (\d+)\+$/)
+    if (multiSymbolThreshold) return `${multiSymbolThreshold[1]} — Score ≥ ${multiSymbolThreshold[2]}`
+
+    const threshold = key.match(/^(\d+)\+$/)
+    if (threshold) return `Score ≥ ${threshold[1]}`
+  }
+
+  return key
+}
+
+function evidenceMetricLabel(key) {
+  const labels = {
+    tradeCount: 'Trades',
+    winRate: 'Win rate',
+    profitFactor: 'Profit factor',
+    expectancy: 'Expectancy (R)',
+    averageR: 'Average R',
+    totalR: 'Net return (R)',
+    maximumDrawdown: 'Max drawdown (R)',
+  }
+
+  return labels[key] ?? key.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/^./, (character) => character.toUpperCase())
+}
+
+function formatEvidenceMetric(key, value) {
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (typeof value !== 'number' || !Number.isFinite(value)) return String(value)
+  if (key === 'winRate') return `${(value * 100).toFixed(1)}%`
+  if (key === 'tradeCount') return Math.round(value).toLocaleString()
+
+  return value.toLocaleString(undefined, { maximumFractionDigits: 2 })
+}
 const statusLabels = {
   idle: 'Ready',
   running: 'Running',
@@ -177,9 +219,14 @@ export function RunResultSummary({ result }) {
         h(ExperimentStatusList, { results: experimentResults }),
       ),
     ),
-    h('section', { className: 'workbench-summary-section' },
-      h('h3', null, 'Synthesis coverage', h(TermHelp, { term: 'Synthesis coverage', explanation: 'Shows which requested research was available and evaluated.' })),
-      h('p', { className: 'workbench-muted' }, `${requested.length} requested · ${evaluated.length} evaluated · ${unavailable.length} unavailable · ${incomplete.length} incomplete`),
+            h('section', { className: 'workbench-summary-section' },
+      h('h3', null, 'Synthesis coverage', h(TermHelp, {
+        term: 'Synthesis coverage',
+        explanation: 'Shows which requested research was available and evaluated.',
+      })),
+      h('p', { className: 'workbench-muted' },
+        `${requested.length} requested \u00b7 ${evaluated.length} evaluated \u00b7 ${unavailable.length} unavailable \u00b7 ${incomplete.length} incomplete`,
+      ),
       h('details', { className: 'workbench-result-disclosure' },
         h('summary', null, 'More details'),
         h('p', null, h('strong', null, 'Requested experiment identifiers: '), requested.join(', ') || 'None'),
@@ -187,8 +234,7 @@ export function RunResultSummary({ result }) {
         h('p', null, h('strong', null, 'Unavailable experiment identifiers: '), unavailable.join(', ') || 'None'),
         h('p', null, h('strong', null, 'Incomplete experiment identifiers: '), incomplete.join(', ') || 'None'),
       ),
-    ),
-    h('section', { className: 'workbench-summary-section' },
+    ),h('section', { className: 'workbench-summary-section' },
       h('h3', null, 'Unresolved questions', h(TermHelp, { term: 'Unresolved questions', explanation: 'Evidence gaps or limitations the current research did not settle.' })),
       unresolvedQuestions.length
         ? h('ul', { className: 'workbench-plain-list' }, unresolvedQuestions.map((question, index) => h('li', { key: `${index}-${question}` }, question)))
@@ -219,20 +265,46 @@ export function RunResultSummary({ result }) {
             return h('li', { key: String(group.strategyId ?? groupIndex) },
               h('details', { className: 'workbench-result-disclosure workbench-result-group' },
                 h('summary', null, h('strong', null, group.strategyId ?? 'Unknown strategy'), h('span', null, `${groupEvidence.length} evidence entries`)),
-                groupEvidence.length
-                  ? h('ul', { className: 'research-detail-evidence' }, groupEvidence.map((evidence, evidenceIndex) => h('li', { key: evidence.id ?? `${evidence.sourceRecordId}-${evidence.metricsKey}-${evidenceIndex}` },
-                    h('strong', null, evidence.sourceRecordId ?? evidence.experimentId ?? 'Evidence'),
-                    h('span', null, evidence.metricsKey ?? 'Metrics'),
-                    evidencePartitionLabel(evidence.partition) ? h('span', null, evidencePartitionLabel(evidence.partition)) : null,
-                    evidence.metrics ? h('details', { className: 'research-detail-metric-details' },
-                      h('summary', null, 'More metric details'),
-                      h('p', null, Object.entries(evidence.metrics)
-                        .filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
+                                groupEvidence.length
+                  ? h('ul', { className: 'research-detail-evidence' },
+                    groupEvidence.map((evidence, evidenceIndex) => {
+                      const experimentId = evidence.experimentId ?? evidence.sourceRecordId
+                      const experimentLabel = experimentTitles.get(experimentId)
+                        ?? evidence.sourceRecordId
+                        ?? evidence.experimentId
+                        ?? 'Evidence'
+                      const metricEntries = Object.entries(evidence.metrics ?? {})
+                        .filter(([key, value]) => (
+                          key !== 'symbol' &&
+                          ['string', 'number', 'boolean'].includes(typeof value)
+                        ))
                         .slice(0, 8)
-                        .map(([key, value]) => `${key}: ${value}`)
-                        .join(' · ')),
-                    ) : null,
-                  )))
+
+                      return h('li', {
+                        key: evidence.id ?? `${evidence.sourceRecordId}-${evidence.metricsKey}-${evidenceIndex}`,
+                      },
+                        h('strong', null, experimentLabel),
+                        h('span', null, workbenchEvidenceTitle(evidence)),
+                        evidencePartitionLabel(evidence.partition)
+                          ? h('span', null, evidencePartitionLabel(evidence.partition))
+                          : null,
+                        metricEntries.length
+                          ? h('details', { className: 'research-detail-metric-details' },
+                            h('summary', null, 'View metrics'),
+                            h('dl', { className: 'research-detail-metric-grid' },
+                              metricEntries.map(([key, value]) => h('div', {
+                                className: 'research-detail-metric-card',
+                                key,
+                              },
+                                h('dt', null, evidenceMetricLabel(key)),
+                                h('dd', null, formatEvidenceMetric(key, value)),
+                              )),
+                            ),
+                          )
+                          : null,
+                      )
+                    }),
+                  )
                   : h('p', { className: 'workbench-muted' }, 'No evidence entries.'),
                 families.length ? h('p', { className: 'workbench-muted' }, `Shared evidence families: ${families.map((family) => family.id).join(', ')}`) : null,
               ),

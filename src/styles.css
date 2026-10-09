@@ -540,3 +540,53 @@ button { border: 0; cursor: pointer; color: inherit; }
   font: italic 11px/1.5 var(--sans);
   max-width: 70ch;
 }
+
+/* Readable Strategy Resilience evidence metrics */
+.research-detail-metric-details {
+  width: 100%;
+  min-width: 0;
+}
+
+.research-detail-metric-details > summary {
+  color: var(--green);
+  font: 600 11px var(--sans);
+  cursor: pointer;
+  padding: 5px 0;
+}
+
+.research-detail-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  margin: 8px 0 2px;
+  padding: 0;
+}
+
+.research-detail-metric-card {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.research-detail-metric-card dt {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font: 10px var(--sans);
+}
+
+.research-detail-metric-card dd {
+  margin: 0;
+  color: var(--ink);
+  font: 600 14px var(--sans);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 850px) {
+  .research-detail-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
