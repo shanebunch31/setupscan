@@ -83,14 +83,33 @@ test('explicitly incomplete fetch data follows the existing unavailable-data gat
   assert.equal(calls, 0)
 })
 
-test('every registered multi-symbol executor requires SPY, QQQ, and IWM', () => {
+test('multi-symbol executors enforce their symbol requirements appropriately', () => {
+  assert.deepEqual(
+    researchExperimentExecutors['relative-value'].requiredSymbols,
+    [],
+  )
+  assert.deepEqual(
+    listResearchExperiments().find(({ id }) => id === 'relative-value').requiredSymbols,
+    [],
+  )
+
   const expected = [
-    'relative-value', 'signal-quality', 'frozen-score-holdout', 'yearly-regime',
-    'causal-regime', 'walk-forward-regime', 'volatility-aware-variants', 'strategy-discovery',
+    'signal-quality',
+    'frozen-score-holdout',
+    'yearly-regime',
+    'causal-regime',
+    'walk-forward-regime',
+    'volatility-aware-variants',
+    'strategy-discovery',
   ]
+
   expected.forEach((experimentId) => {
     assert.deepEqual(researchExperimentExecutors[experimentId].requiredSymbols, requiredSymbols)
-    assert.deepEqual(listResearchExperiments().find(({ id }) => id === experimentId).requiredSymbols, requiredSymbols)
+    assert.deepEqual(
+      listResearchExperiments().find(({ id }) => id === experimentId).requiredSymbols,
+      requiredSymbols,
+    )
+
     const result = executeResearchExperiment(experimentId, makeDataset(['SPY', 'QQQ']), {})
     assert.equal(result.status, 'unavailable', experimentId)
   })
@@ -203,7 +222,11 @@ test('all raw-map multi-symbol experiments execute without a fetch dependency', 
       'relative-value', 'signal-quality', 'frozen-score-holdout', 'yearly-regime',
       'causal-regime', 'walk-forward-regime', 'volatility-aware-variants',
     ]) {
-      const result = executeResearchExperiment(experimentId, dataset, {})
+      const result = executeResearchExperiment(
+  experimentId,
+  dataset,
+  experimentId === 'relative-value' ? { symbols: requiredSymbols } : {},
+)
       assert.equal(result.status, 'succeeded', `${experimentId}: ${result.error?.message ?? ''}`)
       assert.ok(result.nativeOutput)
     }
@@ -214,6 +237,18 @@ test('all raw-map multi-symbol experiments execute without a fetch dependency', 
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('relative-value works with selected symbols outside the default ETF universe', () => {
+  const symbols = ['AAPL', 'MSFT', 'NVDA']
+  const dataset = Object.fromEntries(
+    symbols.map((symbol) => [symbol, makeCandles(symbol)]),
+  )
+
+  const result = executeResearchExperiment('relative-value', dataset, { symbols })
+
+  assert.equal(result.status, 'succeeded', result.error?.message ?? '')
+  assert.ok(result.nativeOutput)
 })
 
 test('volatility-aware variants execute from the shared dataset without walk-forward output', () => {

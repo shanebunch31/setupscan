@@ -25,7 +25,7 @@ const definitions = [
   },
   {
     id: 'relative-value',
-    requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
+    requiredSymbols: [],
     title: 'Relative Value',
     category: 'context-regime',
     description: 'Relative-value confirmation and pair diagnostics.',

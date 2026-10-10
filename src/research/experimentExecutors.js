@@ -11,7 +11,7 @@ import { runWalkForwardRegimeResearch } from '../backtest/walkForwardRegimeBackt
 import { runYearlyRegimeResearch } from '../backtest/yearlyRegimeBacktest.js'
 import { getResearchExperiment } from './registry.js'
 
-const MULTI_SYMBOL_UNIVERSE = getResearchExperiment('relative-value').requiredSymbols
+const MULTI_SYMBOL_UNIVERSE = ['SPY', 'QQQ', 'IWM']
 const enrichedByRawCandles = new WeakMap()
 
 function getEnrichedCandles(rawCandles) {
@@ -71,7 +71,16 @@ export const researchExperimentExecutors = Object.freeze({
 
     return { thresholdResults, periodResults }
   }),
-  'relative-value': freezeExecutor('relative-value', ({ availableBySymbol }) => runRelativeValueResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),
+    'relative-value': freezeExecutor('relative-value', ({ availableBySymbol, requestedSymbols }) => {
+    const symbols = requestedSymbols.filter((symbol) => availableBySymbol.has(symbol))
+    if (symbols.length < 2) {
+      return {
+        available: false,
+        reason: 'Relative Value requires at least two selected symbols with available data.',
+      }
+    }
+    return runRelativeValueResearch(rawSeriesFor(symbols, availableBySymbol))
+  }),
   'signal-quality': freezeExecutor('signal-quality', ({ availableBySymbol }) => runSignalQualityResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),
   'frozen-score-holdout': freezeExecutor('frozen-score-holdout', ({ availableBySymbol }) => runFrozenScoreHoldoutResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),
   'yearly-regime': freezeExecutor('yearly-regime', ({ availableBySymbol }) => runYearlyRegimeResearch(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol))),
@@ -161,7 +170,8 @@ export function createResearchExperimentDispatcher(executorLookup = researchExpe
     const requestedSymbols = Array.isArray(context.symbols)
       ? [...new Set(context.symbols.filter((symbol) => typeof symbol === 'string').map((symbol) => symbol.trim().toUpperCase()).filter(Boolean))]
       : []
-    const symbolsToValidate = executor.requiredSymbols ?? []
+    const usesSelectedSymbols = experimentId === 'relative-value' || experimentId === 'strategy-comparison'
+    const symbolsToValidate = usesSelectedSymbols ? [] : executor.requiredSymbols ?? []
     const availableBySymbol = new Map()
     symbolsToValidate.forEach((symbol) => {
       const entry = datasetSymbolEntry(dataset, symbol)
@@ -178,9 +188,12 @@ export function createResearchExperimentDispatcher(executorLookup = researchExpe
       availableBySymbol.set(symbol, entry)
       return true
     })
-    if (experimentId === 'strategy-comparison' && requestedAvailableSymbols.length === 0) {
-      return executionResult(experimentId, 'unavailable')
-    }
+    if (
+      (experimentId === 'strategy-comparison' && requestedAvailableSymbols.length === 0) ||
+      (experimentId === 'relative-value' && requestedAvailableSymbols.length < 2)
+) {
+  return executionResult(experimentId, 'unavailable')
+}
 
     try {
       const nativeOutput = executor.execute({

@@ -44,27 +44,28 @@ test('compatible experiment selections accept their required symbols', () => {
   assert.deepEqual(request.symbols, ['SPY', 'QQQ', 'IWM'])
 })
 
-test('incompatible experiment selections are rejected with experiment and symbol details', () => {
+test('Relative Value accepts alternative symbols without requiring SPY, QQQ, or IWM', () => {
+  const request = createWorkbenchRunRequest({
+    symbols: 'AAPL, MSFT, NVDA',
+    timeframe: '1Hour',
+    requestedExperiments: ['relative-value'],
+  })
+
+  assert.deepEqual(request.symbols, ['AAPL', 'MSFT', 'NVDA'])
+})
+
+
+test('mixed selections still enforce requirements for experiments that need specific symbols', () => {
   assert.throws(
     () => createWorkbenchRunRequest({
       symbols: 'SPY, QQQ',
       timeframe: '1Hour',
-      requestedExperiments: ['relative-value'],
+      requestedExperiments: ['relative-value', 'strategy-discovery'],
     }),
-    /Relative Value requires SPY, QQQ, IWM \(missing IWM\)/,
+    /Strategy Discovery requires SPY, QQQ, IWM \(missing IWM\)/,
   )
 })
 
-test('mixed selections identify only the experiment whose requirements are unmet', () => {
-  assert.throws(
-    () => createWorkbenchRunRequest({
-      symbols: 'SPY',
-      timeframe: '1Hour',
-      requestedExperiments: ['robustness', 'relative-value'],
-    }),
-    /Relative Value requires SPY, QQQ, IWM \(missing QQQ, IWM\)/,
-  )
-})
 
 test('Strategy Resilience accepts any requested symbol, while Strategy Comparison accepts any requested symbol', () => {
   const resilience = createWorkbenchRunRequest({
