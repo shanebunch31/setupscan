@@ -567,6 +567,47 @@ test('executeResearchRun fetches three requested symbols once each in caller ord
   assert.deepEqual(calls, ['IWM', 'SPY', 'QQQ'])
 })
 
+
+
+test('executeResearchRun passes alternative symbols and their market data to the experiment dispatcher', async () => {
+  const symbols = ['AAPL', 'MSFT', 'NVDA']
+  const fetchCalls = []
+  let dispatchedDataset
+  let dispatchedContext
+
+  const result = await executeResearchRun(
+    makeRunContext({
+      symbols,
+      requestedExperiments: ['relative-value'],
+    }),
+    runOptions(
+      async (symbol) => {
+        fetchCalls.push(symbol)
+        return makeRunFetchResult(symbol)
+      },
+      async (experimentId, dataset, runContext) => {
+        assert.equal(experimentId, 'relative-value')
+        dispatchedDataset = dataset
+        dispatchedContext = runContext
+
+        return {
+          experimentId,
+          status: 'succeeded',
+          nativeOutput: { complete: true },
+          error: null,
+        }
+      },
+    ),
+  )
+
+  assert.deepEqual(fetchCalls, symbols)
+  assert.deepEqual(dispatchedContext.symbols, symbols)
+  assert.deepEqual(Object.keys(dispatchedDataset.rawSeriesBySymbol), symbols)
+  assert.equal(result.status, 'completed')
+  assert.equal(result.experimentResults.length, 1)
+})
+
+
 test('executeResearchRun preserves the same timeframe and requested date range for every fetch', async () => {
   const calls = []
   const context = makeRunContext({ symbols: ['QQQ', 'SPY'], requestedStart: '2024-02-01T00:00:00Z', requestedEnd: '2025-03-01T00:00:00Z' })
