@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { executeResearchExperiment } from './experimentExecutors.js'
 import { test } from 'node:test'
 import { createDatasetId, createResearchRunContext, createRunId, executeResearchRun } from './orchestration.js'
 import { listResearchExperiments } from './registry.js'
@@ -558,14 +559,56 @@ test('executeResearchRun fetches one requested symbol exactly once with shared a
   assert.equal(result.status, 'completed')
 })
 
-test('executeResearchRun fetches three requested symbols once each in caller order', async () => {
-  const calls = []
-  await executeResearchRun(
-    makeRunContext({ symbols: ['IWM', 'SPY', 'QQQ'] }),
-    runOptions(async (symbol) => { calls.push(symbol); return makeRunFetchResult(symbol) }),
+
+test('executeResearchRun runs the real Relative Value experiment with alternative symbols', async () => {
+  const symbols = ['AAPL', 'MSFT', 'NVDA']
+  const fetchCalls = []
+
+  const result = await executeResearchRun(
+    makeRunContext({
+      symbols,
+      requestedExperiments: ['relative-value'],
+    }),
+    runOptions(
+      async (symbol) => {
+        fetchCalls.push(symbol)
+        const candles = Array.from({ length: 220 }, (_, index) => {
+          const timestamp = new Date(Date.UTC(2024, 0, 1) + index * 3600000).toISOString()
+          const base = symbol === 'AAPL' ? 180 : symbol === 'MSFT' ? 400 : 120
+          const close = base + index * 0.08 + Math.sin(index / 5) * 2
+
+          return {
+            symbol,
+            timeframe: '1Hour',
+            timestamp,
+            open: close,
+            high: close * 1.01,
+            low: close * 0.99,
+            close,
+            volume: 1000 + index,
+          }
+        })
+
+        return makeRunFetchResult(symbol, { candles })
+      },
+      executeResearchExperiment,
+    ),
   )
-  assert.deepEqual(calls, ['IWM', 'SPY', 'QQQ'])
+
+  assert.deepEqual(fetchCalls, symbols)
+  assert.equal(result.status, 'completed')
+  assert.equal(result.experimentResults.length, 1)
+
+  const experimentResult = result.experimentResults[0]
+  assert.equal(experimentResult.experimentId, 'relative-value')
+  assert.equal(
+    experimentResult.status,
+    'succeeded',
+    experimentResult.error?.message ?? 'Relative Value experiment did not succeed',
+  )
+  assert.ok(experimentResult.nativeOutput)
 })
+
 
 
 
