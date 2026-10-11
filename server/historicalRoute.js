@@ -49,8 +49,28 @@ export async function handleHistoricalRoute({
   const end =
     url.searchParams.get('end') || undefined
 
+  const filterCandlesToRange = (candles = []) => {
+    return candles.filter((candle) => {
+      const timestamp =
+        candle?.timestamp ??
+        candle?.t ??
+        candle?.time ??
+        null
+
+      const timeMs = Date.parse(timestamp)
+
+      if (!Number.isFinite(timeMs)) return false
+
+      if (start && timeMs < Date.parse(start)) return false
+      if (end && timeMs > Date.parse(end)) return false
+
+      return true
+    })
+  }
+
+
   try {
-        const cacheKey = createHistoricalCacheKey({
+      const cacheKey = createHistoricalCacheKey({
       symbol,
       timeframe,
       adjustmentMode: 'split',
@@ -96,14 +116,18 @@ if (
             symbol: covered.symbol,
             timeframe: covered.timeframe,
             adjustmentMode: covered.adjustmentMode,
-            start: covered.actualStart,
-            end: covered.actualEnd,
-            candleCount: covered.candleCount,
+            start:
+              filterCandlesToRange(covered.candles)[0]?.timestamp ??
+              covered.actualStart,
+            end:
+              filterCandlesToRange(covered.candles).at(-1)?.timestamp ??
+              covered.actualEnd,
+            candleCount: filterCandlesToRange(covered.candles).length,
             requestedStart: start,
             requestedEnd: end,
             minimumExpectedCandles: 0,
             complete: covered.complete,
-            candles: covered.candles,
+            candles: filterCandlesToRange(covered.candles),
           })
 
           return
@@ -136,11 +160,13 @@ if (
           mergedByTime.set(key, candle)
         }
 
-        const mergedCandles = [...mergedByTime.values()].sort(
-          (a, b) =>
-            String(getCandleTime(a)).localeCompare(
-              String(getCandleTime(b)),
-            ),
+                const mergedCandles = filterCandlesToRange(
+          [...mergedByTime.values()].sort(
+            (a, b) =>
+              String(getCandleTime(a)).localeCompare(
+                String(getCandleTime(b)),
+              ),
+          ),
         )
 
         const mergedData = {

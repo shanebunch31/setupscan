@@ -51,7 +51,7 @@ test('fully covered historical requests reuse the cached series', async () => {
       return covered
     },
 
-    async saveResearchHistoricalCache() {
+  async saveResearchHistoricalCache() {
       throw new Error('Should not save when cache already covers request')
     },
   }
@@ -62,7 +62,7 @@ test('fully covered historical requests reuse the cached series', async () => {
   }
 
   const firstUrl = new URL(
-    'http://localhost/api/historical?symbol=SPY&timeframe=1Hour&start=2026-01-01T00:00:00Z&end=2026-01-02T00:00:00Z',
+    'http://localhost/api/historical?symbol=SPY&timeframe=1Hour&start=2026-01-01T00:00:00Z&end=2026-01-02T16:00:00Z',
   )
 
   const secondUrl = new URL(
@@ -381,4 +381,74 @@ test('fully covered historical cache avoids a new historical fetch', async () =>
     responses[0].body.candles,
     covered.candles,
   )
+})
+
+test('cached historical requests return only candles within the requested date range', async () => {
+  const responses = []
+
+  const covered = {
+    provider: 'ALPACA HISTORICAL',
+    symbol: 'SPY',
+    timeframe: '1Hour',
+    adjustmentMode: 'split',
+    requestedStart: '2021-12-02T00:00:00Z',
+    requestedEnd: '2026-10-09T20:00:00Z',
+    actualStart: '2021-12-02T13:00:00Z',
+    actualEnd: '2026-10-09T20:00:00Z',
+    candleCount: 3,
+    complete: true,
+    candles: [
+      {
+        symbol: 'SPY',
+        timeframe: '1Hour',
+        timestamp: '2021-12-02T13:00:00Z',
+        close: 100,
+      },
+      {
+        symbol: 'SPY',
+        timeframe: '1Hour',
+        timestamp: '2026-09-15T14:00:00Z',
+        close: 200,
+      },
+      {
+        symbol: 'SPY',
+        timeframe: '1Hour',
+        timestamp: '2026-10-09T20:00:00Z',
+        close: 210,
+      },
+    ],
+  }
+
+  const researchRunStore = {
+    async findResearchHistoricalCacheCoverage() {
+      return covered
+    },
+  }
+
+  const fetchHistoricalMarketBars = async () => {
+    throw new Error('A fully covered request should use the cache')
+  }
+
+  await handleHistoricalRoute({
+    response: {},
+    url: new URL(
+      'http://localhost/api/historical?symbol=SPY&timeframe=1Hour&start=2026-09-11T21:35:55Z&end=2026-10-11T21:35:55Z',
+    ),
+    fetchHistoricalMarketBars,
+    researchRunStore,
+    sendJson: (_response, status, body) => {
+      responses.push({ status, body })
+    },
+    createHistoricalCacheKey,
+  })
+
+  assert.equal(responses[0].status, 200)
+  assert.deepEqual(
+    responses[0].body.candles.map((candle) => candle.timestamp),
+    [
+      '2026-09-15T14:00:00Z',
+      '2026-10-09T20:00:00Z',
+    ],
+  )
+  assert.equal(responses[0].body.candleCount, 2)
 })

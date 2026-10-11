@@ -304,7 +304,24 @@ function buildHistoricalMarketDataResult(
   fetchedCandles,
 ) {
   const ema9ByBar = emaSeries(fetchedCandles, 9)
+  const breakoutByTimestamp = new Map()
+
+for (let index = 0; index < fetchedCandles.length; index += 1) {
+  const priorStart = Math.max(0, index - 20)
+  const priorCandles = fetchedCandles.slice(priorStart, index)
+  const priorHigh = priorCandles.reduce(
+    (highest, candle) => Math.max(highest, candle.high),
+    -Infinity,
+  )
+
+  breakoutByTimestamp.set(
+    fetchedCandles[index].timestamp,
+    priorCandles.length >= 20 &&
+      fetchedCandles[index].close > priorHigh,
+  )
+}
   const ema21ByBar = emaSeries(fetchedCandles, 21)
+  const rsiByBar = rsiSeries(fetchedCandles)
 
   const requestedStartTime =
     fetchRange.requestedStart
@@ -337,34 +354,40 @@ function buildHistoricalMarketDataResult(
         })
       : fetchedCandles
 
-  const requestedEnriched =
-    enrichHistoricalCandles(
-      requestedRawCandles,
-    )
+  const enrichedCalculationCandles =
+  enrichHistoricalCandles(fetchedCandles)
+
+ const requestedEnriched =
+  enrichHistoricalCandles(requestedRawCandles)
 
   const emaByTimestamp = new Map(
-    fetchedCandles.map((candle, index) => [
-      candle.timestamp,
-      {
-        ema9: ema9ByBar[index],
-        ema21: ema21ByBar[index],
-      },
-    ]),
-  )
+  fetchedCandles.map((candle, index) => [
+    candle.timestamp,
+    {
+      ema9: ema9ByBar[index],
+      ema21: ema21ByBar[index],
+      rsi: rsiByBar[index],
+    },
+  ]),
+)
 
   const requestedCandles =
     requestedEnriched.map((candle) => {
-      const precomputed =
-        emaByTimestamp.get(
-          candle.timestamp,
-        )
+  const precomputed =
+    emaByTimestamp.get(
+    candle.timestamp,
+    )
 
-      const withEma = {
-        ...candle,
-        ema9:
-          precomputed?.ema9 ?? null,
-        ema21:
-          precomputed?.ema21 ?? null,
+  const withEma = {
+    ...candle,
+    ema9:
+    precomputed?.ema9 ?? null,
+    ema21:
+    precomputed?.ema21 ?? null,
+    rsi:
+    precomputed?.rsi ?? null,
+    breakout:
+    breakoutByTimestamp.get(candle.timestamp) ?? false,
         trend:
           !Number.isFinite(
             precomputed?.ema9

@@ -150,3 +150,97 @@ test('historical pre-roll seeds EMAs but only requested-range candles are return
     globalThis.fetch = previousFetch
   }
 })
+
+test('historical pre-roll provides RSI context for the first requested candle', async () => {
+  const requestedStart = '2026-02-01T00:00:00.000Z'
+  const requestedEnd = '2026-02-02T00:00:00.000Z'
+
+  const preRoll = candles(
+    Array.from({ length: 25 }, (_, index) => 100 + index),
+    { start: '2026-01-30T00:00:00.000Z' },
+  )
+
+  const responseCandles = [
+    ...preRoll,
+    ...candles([130, 131], { start: requestedStart }),
+  ]
+
+  const previousFetch = globalThis.fetch
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      provider: 'ALPACA HISTORICAL',
+      symbol: 'SPY',
+      timeframe: '1Hour',
+      start: responseCandles[0].timestamp,
+      end: responseCandles.at(-1).timestamp,
+      candleCount: responseCandles.length,
+      complete: true,
+      minimumExpectedCandles: 2,
+      candles: responseCandles,
+    }),
+  })
+
+  try {
+    const result = await fetchHistoricalMarketData(
+      'SPY',
+      '1Hour',
+      { start: requestedStart, end: requestedEnd },
+    )
+
+    assert.equal(result.candles.length, 2)
+    assert.ok(Number.isFinite(result.candles[0].ema21))
+    assert.ok(Number.isFinite(result.candles[0].rsi))
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('historical pre-roll preserves breakout context for requested candles', async () => {
+  const requestedStart = '2026-02-01T00:00:00.000Z'
+  const requestedEnd = '2026-02-02T00:00:00.000Z'
+
+  const preRoll = candles(
+    Array(25).fill(100),
+    { start: '2026-01-30T00:00:00.000Z' },
+  ).map((candle) => ({
+    ...candle,
+    high: 105,
+  }))
+
+  const responseCandles = [
+    ...preRoll,
+    ...candles([110, 111], { start: requestedStart }),
+  ]
+
+  const previousFetch = globalThis.fetch
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      provider: 'ALPACA HISTORICAL',
+      symbol: 'SPY',
+      timeframe: '1Hour',
+      start: responseCandles[0].timestamp,
+      end: responseCandles.at(-1).timestamp,
+      candleCount: responseCandles.length,
+      complete: true,
+      minimumExpectedCandles: 2,
+      candles: responseCandles,
+    }),
+  })
+
+  try {
+    const result = await fetchHistoricalMarketData(
+      'SPY',
+      '1Hour',
+      { start: requestedStart, end: requestedEnd },
+    )
+
+    assert.equal(result.candles.length, 2)
+    assert.equal(result.candles[0].breakout, true)
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
