@@ -365,3 +365,67 @@ test('composed synthesis remains neutral and does not add verdicts or rankings',
   }
   check(composed.synthesis)
 })
+
+
+test('strategy discovery qualification is included in the composed result', () => {
+  const discoveryPayload = {
+    available: true,
+    experiments: [{
+      experimentId: 'momentum-breakout-v1',
+      label: 'Momentum Breakout',
+      summary: {
+        overall: {
+          occurrenceCount: 250,
+          expectancy: 1.5,
+        },
+        byPeriod: [
+          { label: 'Development', occurrenceCount: 100 },
+          { label: 'Out-of-Sample', occurrenceCount: 100 },
+          { label: 'Holdout (2026 YTD)', occurrenceCount: 50 },
+        ],
+        costTiers: [{ label: 'Moderate' }],
+      },
+    }],
+  };
+
+  const runResult = makeRunResult({
+    requestedExperiments: ['strategy-discovery'],
+    experimentResults: [
+      result('strategy-discovery', 'succeeded', discoveryPayload),
+    ],
+  });
+
+  const composed = composeResearchRunResult(runResult);
+
+  assert.equal(composed.qualification.status, 'Completed');
+  assert.equal(composed.qualification.candidates.length, 1);
+  assert.equal(
+    composed.qualification.candidates[0].experimentId,
+    'momentum-breakout-v1',
+  );
+  assert.equal(
+    composed.qualification.candidates[0].status,
+    'Promising Candidate',
+  );
+
+  // Existing research outputs remain available.
+  assert.equal(composed.records[0].nativePayload, discoveryPayload);
+  assert.ok(composed.synthesis);
+});
+
+test('missing strategy discovery produces unavailable qualification', () => {
+  const runResult = makeRunResult({
+    requestedExperiments: ['robustness'],
+    experimentResults: [
+      result('robustness', 'succeeded', robustnessOutput()),
+    ],
+  });
+
+  const composed = composeResearchRunResult(runResult);
+
+  assert.equal(composed.qualification.status, 'Unavailable');
+  assert.deepEqual(composed.qualification.candidates, []);
+  assert.equal(composed.records[0].id, 'robustness');
+  assert.ok(composed.synthesis);
+});
+

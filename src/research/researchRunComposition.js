@@ -1,5 +1,6 @@
 import { adaptResearchExecutionResult } from './executionBridge.js'
 import { synthesizeResearch } from './synthesis.js'
+import { qualifyStrategyDiscovery } from './strategyQualification.js'
 
 /** Creates a composition function with injectable bridge/synthesis dependencies for tests. */
 export function createResearchRunComposer({
@@ -28,7 +29,22 @@ export function createResearchRunComposer({
       codeRevision: executionRunResult.runContext.codeRevision ?? null,
     })
 
-    return { ...executionRunResult, records, synthesis }
+    
+    const discoveryRecord = records.find(
+      (record) => record.id === 'strategy-discovery',
+    )
+
+    const qualification = qualifyStrategyDiscovery(
+      discoveryRecord?.nativePayload ?? null,
+    )
+
+    return {
+      ...executionRunResult,
+      records,
+      synthesis,
+      qualification,
+    }
+
   }
 }
 

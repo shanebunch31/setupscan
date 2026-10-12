@@ -70,7 +70,7 @@ test('minimal valid request returns the complete composed result without fetchin
   assert.equal(fetchCalls, 0)
   assert.deepEqual(Object.keys(result), [
     'runContext', 'status', 'fetchStatus', 'fetchIssues', 'dataset', 'experimentResults', 'effectiveDateProvenance',
-    'effectiveExperimentConfiguration', 'records', 'synthesis',
+    'effectiveExperimentConfiguration', 'records', 'synthesis', 'qualification'
   ])
   assert.equal(result.status, 'completed')
   assert.equal(result.fetchStatus, 'not-requested')

@@ -158,11 +158,14 @@ function ExperimentStatusList({ results }) {
 }
 
 export function RunResultSummary({ result }) {
+  const [riskAmount, setRiskAmount] = useState(100)
+
   if (!result) return null
   const runContext = result.runContext ?? {}
   const synthesis = result.synthesis ?? {}
   const coverage = synthesis.coverage ?? {}
   const experimentResults = result.experimentResults ?? []
+  const qualification = result.qualification ?? null
   const requested = coverage.requested?.length ? coverage.requested : runContext.requestedExperiments ?? []
   const evaluated = coverage.evaluated ?? []
   const unavailable = coverage.unavailable ?? []
@@ -210,17 +213,169 @@ export function RunResultSummary({ result }) {
     h('p', { className: 'workbench-muted' },
       `Review next: ${conflicts.length} conflicts · ${unresolvedQuestions.length} unresolved questions.`,
     ),
+
   ),
+    
     h('section', { className: 'workbench-summary-section' },
-      h('h3', null, 'Experiment execution', h(TermHelp, { term: 'Experiment', explanation: 'One registered research method tested during a run.' })),
-      h('p', { className: 'workbench-muted' }, `${completedCount} of ${experimentCount} ${experimentCount === 1 ? 'experiment' : 'experiments'} completed`),
-      h('details', { className: 'workbench-result-disclosure' },
-        h('summary', null, 'More details'),
-        h(ExperimentStatusList, { results: experimentResults }),
-      ),
+      h('h3', null, 'Strategy Evidence Review',
+        h(TermHelp, {
+          term: 'Strategy Evidence Review',
+          explanation: 'Checks whether a strategy has enough historical evidence to deserve more testing. It does not predict future profits or approve a strategy for trading.',
+        })),
+      !qualification || qualification.status === 'Unavailable'
+        ? h('p', { className: 'workbench-muted' },
+          'Strategy review is unavailable because the required research results were not available.')
+        : qualification.status !== 'Completed'
+          ? h('p', { className: 'workbench-muted' },
+            'No strategy review could be completed. More research results are needed.')
+          : qualification.candidates.length
+            ? h(React.Fragment, null,
+              h('p', { className: 'workbench-muted' },
+                'These checks help identify strategies that deserve further investigation. Passing them does not mean a strategy will make money.'),
+              h('div', { className: 'workbench-risk-estimator' },
+  h('label', { htmlFor: 'research-risk-amount' },
+    h('strong', null, 'Assumed risk per trade ($)'),
+    h(TermHelp, {
+      term: 'Assumed risk per trade',
+      explanation: 'A hypothetical dollar amount used to translate historical R results into dollars. It is not a recommended position size or a prediction.',
+    })),
+  h('input', {
+    id: 'research-risk-amount',
+    type: 'number',
+    min: '1',
+    step: '1',
+    value: riskAmount,
+    onChange: (event) => {
+      const value = Number(event.target.value)
+      if (Number.isFinite(value) && value >= 1) {
+        setRiskAmount(value)
+      }
+    },
+  }),
+  h('p', { className: 'workbench-muted' },
+    'Dollar figures below are hypothetical historical averages. They do not represent actual account results or guaranteed future profits.')
+),
+                h('ul', { className: 'workbench-plain-list' },
+                qualification.candidates.map((candidate, index) =>
+                  h('li', { key: candidate.experimentId ?? index },
+                    h('h4', null, candidate.label),
+                    h('p', null,
+                      h('strong', null, 'Review result: '),
+                      candidate.status === 'Promising Candidate'
+                        ? 'Promising candidate - passed the initial evidence checks; more testing is still required.'
+                        : candidate.status === 'Needs More Testing'
+                          ? 'Needs more testing - enough historical examples are available for an initial review, but important checks may still be missing.'
+                          : 'Not enough evidence yet - more historical examples or research results are needed.'),
+                    h('p', null,
+                      h('strong', null, 'Completed historical examples: '),
+                      String(candidate.occurrenceCount ?? 0)),
+                    h('p', null,
+                      h('strong', null, 'Average historical result (R per trade): '),
+                      candidate.expectancy === null || candidate.expectancy === undefined
+                        ? 'Unavailable'
+                        : candidate.expectancy.toFixed(3)),
+                        h('p', null,
+  h('strong', null, 'Estimated average result per historical trade: '),
+  candidate.expectancy === null || candidate.expectancy === undefined
+    ? 'Unavailable'
+    : new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+      }).format(candidate.expectancy * riskAmount)),
+h('p', null,
+  h('strong', null, 'Estimated average after modeled costs: ')),
+h('ul', { className: 'workbench-plain-list' },
+  (candidate.costTiers ?? []).map((tier, tierIndex) =>
+    h('li', { key: `${tier.label}-${tierIndex}` },
+      `${tier.label}: `,
+      tier.expectancy === null
+        ? 'Unavailable'
+        : new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD',
+          }).format(tier.expectancy * riskAmount)
+    )
+  )
+),
+                    h('p', { className: 'workbench-muted' },
+                      'R measures a result against the amount initially risked. For example, +1R means a gain equal to the amount risked, while -1R means a loss equal to that amount. This is a historical average, not a prediction of future trades.'),
+                    
+h('details', { className: 'workbench-result-disclosure' },
+  h('summary', null, 'Period-by-Period Results'),
+  h('p', { className: 'workbench-muted' },
+    'Compare performance across separate historical periods. R is measured relative to the amount initially risked.'),
+  (candidate.periodMetrics ?? []).length
+    ? h('ul', { className: 'workbench-plain-list' },
+        candidate.periodMetrics.map((period, periodIndex) =>
+          h('li', { key: `${period.label}-${periodIndex}` },
+            h('h4', null, period.label),
+            h('p', null,
+              h('strong', null, 'Completed examples: '),
+              String(period.occurrenceCount ?? 0)),
+            h('p', null,
+              h('strong', null, 'Win rate: '),
+              period.winRate === null
+                ? 'Unavailable'
+                : `${(period.winRate * 100).toFixed(1)}%`),
+            h('p', null,
+              h('strong', null, 'Average result per trade: '),
+              period.expectancy === null
+                ? 'Unavailable'
+                : `${period.expectancy.toFixed(3)}R`),
+            h('p', null,
+              h('strong', null, 'Profit factor: '),
+              period.profitFactor === null
+                ? 'Unavailable'
+                : period.profitFactor.toFixed(2)),
+            h('p', null,
+              h('strong', null, 'Maximum drawdown: '),
+              period.maximumDrawdown === null
+                ? 'Unavailable'
+                : `${period.maximumDrawdown.toFixed(2)}R`)
+          )
+        )
+      )
+             : h('p', { className: 'workbench-muted' },
+               'Period-by-period metrics are not available for this result.')
     ),
-            h('section', { className: 'workbench-summary-section' },
-      h('h3', null, 'Synthesis coverage', h(TermHelp, {
+                      h('p', null,
+                      h('strong', null, 'What has been tested')),
+                    h('ul', { className: 'workbench-plain-list' },
+                      h('li', null,
+                        `Initial research: ${candidate.evidence?.developmentAvailable ? 'Available' : 'Missing'}`,
+                        h('p', { className: 'workbench-muted' },
+                          'Checks how the strategy performed during the period used to develop it.')),
+                      h('li', null,
+                        `Testing on separate historical data: ${candidate.evidence?.outOfSampleAvailable ? 'Available' : 'Missing'}`,
+                        h('p', { className: 'workbench-muted' },
+                          'Checks whether the strategy also worked on data that was not used to develop it.')),
+                      h('li', null,
+                        `Final reserved test: ${candidate.evidence?.holdoutAvailable ? 'Available' : 'Missing'}`,
+                        h('p', { className: 'workbench-muted' },
+                          'Checks performance on data kept separate for a final review. Missing means this check has not been confirmed.')),
+                      h('li', null,
+                        `Estimated trading costs: ${candidate.evidence?.costTiersAvailable ? 'Available' : 'Missing'}`,
+                        h('p', { className: 'workbench-muted' },
+                          'Checks results using estimated trading costs, which can reduce gains or increase losses.'))
+                    )
+                  )
+                )
+              ),
+              h('p', { className: 'workbench-result-caveat' },
+                'This is a research assessment, not a buy or sell signal. It does not authorize paper trading or live trading.')
+            )
+            : h('p', { className: 'workbench-muted' },
+              'No strategy candidates were available to review.'),
+              h('h3', null, 'Experiment execution',
+              h(TermHelp, { term: 'Experiment', explanation: 'One registered research method tested during a run.' })),
+              h('p', { className: 'workbench-muted' }, `${completedCount} of ${experimentCount} ${experimentCount === 1 ? 'experiment' : 'experiments'} completed`),
+              h('details', { className: 'workbench-result-disclosure' },
+              h('summary', null, 'More details'),
+              h(ExperimentStatusList, { results: experimentResults }),
+         ),
+        ),
+              h('section', { className: 'workbench-summary-section' },
+              h('h3', null, 'Synthesis coverage', h(TermHelp, {
         term: 'Synthesis coverage',
         explanation: 'Shows which requested research was available and evaluated.',
       })),
