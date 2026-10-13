@@ -127,17 +127,67 @@ export function qualifyStrategyDiscovery(payload) {
 
     const expectancy = finiteNumber(overall.expectancy);
 
+    const periodExpectancies = [
+      { label: 'Development', period: development },
+      { label: 'Out-of-Sample', period: outOfSample },
+      { label: 'Holdout (2026 YTD)', period: holdout },
+    ];
+
+    const periodResultsValid = periodExpectancies.every(
+      ({ period }) =>
+        period !== null &&
+        finiteNumber(period.expectancy) !== null &&
+        period.expectancy > 0
+    );
+
+    const costTiers = Array.isArray(summary.costTiers)
+      ? summary.costTiers
+      : [];
+
+    const costTierResultsValid =
+      costTiers.length > 0 &&
+      costTiers.every(
+        (tier) =>
+          finiteNumber(tier.metrics?.expectancy) !== null
+      );
+
     if (expectancy === null) {
       reasons.push('Overall expectancy is missing or invalid.');
     } else if (expectancy <= 0) {
       reasons.push(
-        'Overall expectancy is not positive after the costs ' +
-        'represented by this summary.'
+        'Overall expectancy is not positive after the costs represented by this summary.'
       );
     } else {
       reasons.push(
-        'Overall expectancy is positive, but that alone does ' +
-        'not establish a reliable strategy.'
+        'Overall expectancy is positive, but this alone does not establish a reliable strategy.'
+      );
+    }
+
+    for (const { label, period } of periodExpectancies) {
+      const periodExpectancy = finiteNumber(period?.expectancy);
+
+      if (!period) {
+        reasons.push(`${label} results are missing.`);
+      } else if (periodExpectancy === null) {
+        reasons.push(`${label} expectancy is missing or invalid.`);
+      } else if (periodExpectancy <= 0) {
+        reasons.push(
+          `${label} expectancy is not positive; more investigation is needed.`
+        );
+      } else {
+        reasons.push(`${label} expectancy is positive.`);
+      }
+    }
+
+    if (costTiers.length === 0) {
+      reasons.push('Cost-tier results are missing.');
+    } else if (!costTierResultsValid) {
+      reasons.push(
+        'One or more cost tiers have missing or invalid expectancy metrics.'
+      );
+    } else {
+      reasons.push(
+        'Cost-tier expectancy metrics are present; their values should be reviewed before further qualification.'
       );
     }
 
@@ -155,19 +205,14 @@ export function qualifyStrategyDiscovery(payload) {
 
     if (
       eligibleForExploratoryConsideration &&
-      development &&
-      outOfSample &&
-      holdout &&
-      Array.isArray(summary.costTiers) &&
-      summary.costTiers.length > 0 &&
+      periodResultsValid &&
+      costTierResultsValid &&
       expectancy !== null &&
       expectancy > 0
     ) {
       status = 'Promising Candidate';
       reasons.push(
-        'This candidate meets these initial evidence checks. ' +
-        'It still requires stability, cost-resilience, and ' +
-        'adversarial review before any promotion.'
+        'Initial evidence checks passed. Stability, cost-resilience, and further independent review are still required.'
       );
     }
 

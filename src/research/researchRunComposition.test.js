@@ -378,12 +378,31 @@ test('strategy discovery qualification is included in the composed result', () =
           occurrenceCount: 250,
           expectancy: 1.5,
         },
+        
         byPeriod: [
-          { label: 'Development', occurrenceCount: 100 },
-          { label: 'Out-of-Sample', occurrenceCount: 100 },
-          { label: 'Holdout (2026 YTD)', occurrenceCount: 50 },
+          {
+            label: 'Development',
+            occurrenceCount: 100,
+            expectancy: 1.0,
+          },
+          {
+            label: 'Out-of-Sample',
+            occurrenceCount: 100,
+            expectancy: 0.8,
+          },
+          {
+            label: 'Holdout (2026 YTD)',
+            occurrenceCount: 50,
+            expectancy: 0.6,
+          },
         ],
-        costTiers: [{ label: 'Moderate' }],
+
+        costTiers: [{
+          label: 'Moderate',
+          metrics: {
+            expectancy: 0.5,
+          },
+        }],
       },
     }],
   };

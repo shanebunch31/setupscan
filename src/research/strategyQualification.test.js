@@ -6,6 +6,7 @@ import {
   qualifyStrategyDiscovery,
 } from './strategyQualification.js';
 
+
 function makeExperiment({
   occurrenceCount = 250,
   expectancy = 1.5,
@@ -13,6 +14,10 @@ function makeExperiment({
   includeOutOfSample = true,
   includeHoldout = true,
   includeCostTiers = true,
+  developmentExpectancy = 1,
+  outOfSampleExpectancy = 1,
+  holdoutExpectancy = 1,
+  costTierExpectancy = 0.8,
 } = {}) {
   const byPeriod = [];
 
@@ -20,7 +25,7 @@ function makeExperiment({
     byPeriod.push({
       label: 'Development',
       occurrenceCount: 100,
-      expectancy: 1,
+      expectancy: developmentExpectancy,
     });
   }
 
@@ -28,7 +33,7 @@ function makeExperiment({
     byPeriod.push({
       label: 'Out-of-Sample',
       occurrenceCount: 100,
-      expectancy: 1,
+      expectancy: outOfSampleExpectancy,
     });
   }
 
@@ -36,7 +41,7 @@ function makeExperiment({
     byPeriod.push({
       label: 'Holdout (2026 YTD)',
       occurrenceCount: 50,
-      expectancy: 1,
+      expectancy: holdoutExpectancy,
     });
   }
 
@@ -50,7 +55,12 @@ function makeExperiment({
       },
       byPeriod,
       costTiers: includeCostTiers
-        ? [{ label: 'Moderate' }]
+        ? [{
+            label: 'Moderate',
+            metrics: {
+              expectancy: costTierExpectancy,
+            },
+          }]
         : [],
     },
   };
@@ -189,4 +199,47 @@ test('qualification never authorizes trading', () => {
 
   assert.equal('liveTradingAuthorized' in result, false);
   assert.equal('paperTradingAuthorized' in result, false);
+});
+
+
+test('negative out-of-sample expectancy cannot produce a promising candidate', () => {
+  const result = qualifyStrategyDiscovery({
+    available: true,
+    experiments: [
+      makeExperiment({ outOfSampleExpectancy: -0.5 }),
+    ],
+  });
+
+  assert.notEqual(
+    result.candidates[0].status,
+    'Promising Candidate'
+  );
+});
+
+test('missing cost-tier expectancy cannot produce a promising candidate', () => {
+  const result = qualifyStrategyDiscovery({
+    available: true,
+    experiments: [
+      makeExperiment({ costTierExpectancy: 'invalid' }),
+    ],
+  });
+
+  assert.notEqual(
+    result.candidates[0].status,
+    'Promising Candidate'
+  );
+});
+
+test('negative overall expectancy cannot produce a promising candidate', () => {
+  const result = qualifyStrategyDiscovery({
+    available: true,
+    experiments: [
+      makeExperiment({ expectancy: -0.5 }),
+    ],
+  });
+
+  assert.notEqual(
+    result.candidates[0].status,
+    'Promising Candidate'
+  );
 });
