@@ -6,6 +6,8 @@ import {
   relativeValueDefaults,
 } from './relativeValueBacktest.js'
 import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
+import { hasPerformanceObservations } from './labEvidence.js'
+import { AmbiguousCandleDisclosure, ResearchDataStatus } from './LabEvidence.jsx'
 import './robustness.css'
 
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -37,15 +39,16 @@ const RELATIVE_VALUE_HOW_TO_READ = [
 
 
 function MetricCells({ metrics }) {
+  const hasTrades = hasPerformanceObservations(metrics)
   return (
     <>
       <td>{metrics.tradeCount}</td>
-      <td>{formatPercent(metrics.winRate)}</td>
-      <td>{metrics.profitFactor === Infinity ? '∞' : metrics.profitFactor.toFixed(2)}</td>
-      <td>{formatR(metrics.expectancy)}</td>
-      <td>{formatR(metrics.totalR)}</td>
-      <td>{formatR(metrics.maximumDrawdown)}</td>
-      <td>{metrics.averageHoldingTime.toFixed(0)}m</td>
+      <td>{hasTrades ? formatPercent(metrics.winRate) : '—'}</td>
+      <td>{hasTrades ? (metrics.profitFactor === Infinity ? '∞' : metrics.profitFactor.toFixed(2)) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.expectancy) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.totalR) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.maximumDrawdown) : '—'}</td>
+      <td>{hasTrades ? `${metrics.averageHoldingTime.toFixed(0)}m` : '—'}</td>
     </>
   )
 }
@@ -71,12 +74,14 @@ function VariantSection({ variantKey, label, description, summary }) {
           </tbody>
         </table>
       </div>
+      <AmbiguousCandleDisclosure metrics={summary.overallBeforeCosts} />
       <div className="robustness-table-wrap">
         <table className="robustness-table">
           <thead><tr><th>Symbol</th><th>Trades</th><th>Win rate</th><th>Profit factor</th><th>Expectancy</th><th>Total R</th><th>Max DD</th><th>Avg hold</th></tr></thead>
           <tbody>{summary.bySymbol.map((row) => <tr key={row.symbol}><td>{row.symbol}</td><MetricCells metrics={row.beforeCosts} /></tr>)}</tbody>
         </table>
       </div>
+      <p className="robustness-muted">Market periods group signals by their signal date. The tested forward outcome can extend beyond the named period, so these are signal-period cohorts rather than outcomes fully contained within each period.</p>
       <div className="robustness-table-wrap">
         <table className="robustness-table">
           <thead><tr><th>Market period</th><th>Trades</th><th>Win rate</th><th>Profit factor</th><th>Expectancy</th><th>Total R</th><th>Max DD</th><th>Avg hold</th></tr></thead>
@@ -129,7 +134,7 @@ export function RelativeValueResearchLab({ datasets }) {
         No variant is selected as a winner; all results are reported side by side.
       </p>
       {!hasAllSymbols ? (
-        <div className="robustness-error">Waiting for real Alpaca historical data for SPY, QQQ, and IWM. This experiment never substitutes demo data.</div>
+        <ResearchDataStatus datasets={datasets} requiredSymbols={['SPY', 'QQQ', 'IWM']} />
       ) : (
         <>
           <ResearchFirstAnswer
@@ -159,10 +164,11 @@ export function RelativeValueResearchLab({ datasets }) {
 
           <div className="robustness-section">
             <h3>Mean-reversion test — divergences reverting within {forwardHorizon} bars</h3>
+            <p className="robustness-muted">Rows group divergences by their signal candle. Each forward check runs for up to {forwardHorizon} later bars and may finish after the signal-period date range.</p>
             <div className="robustness-table-wrap">
               <table className="robustness-table">
                 <thead><tr><th>Pair</th><th>Divergences</th><th>Evaluated</th><th>Reverted</th><th>Reversion rate</th></tr></thead>
-                <tbody>{meanReversion.map((row) => <tr key={row.pair}><td>{row.pair}</td><td>{row.divergenceCount}</td><td>{row.evaluatedCount}</td><td>{row.revertedCount}</td><td>{formatPercent(row.reversionRate)}</td></tr>)}</tbody>
+                <tbody>{meanReversion.map((row) => <tr key={row.pair}><td>{row.pair}</td><td>{row.divergenceCount}</td><td>{row.evaluatedCount}</td><td>{row.revertedCount}</td><td>{row.evaluatedCount > 0 ? formatPercent(row.reversionRate) : '—'}</td></tr>)}</tbody>
               </table>
             </div>
           </div>

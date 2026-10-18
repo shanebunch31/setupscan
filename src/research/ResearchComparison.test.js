@@ -74,6 +74,12 @@ test('component renders available runs without automatically comparing', () => {
   assert.match(html, /Choose two runs to begin/)
 })
 
+test('comparison evidence labels missing methodology versions as legacy unknown', () => {
+  const html = renderToStaticMarkup(React.createElement(ResearchComparisonResult, { result: comparisonResult() }))
+  assert.match(html, /Methodology version/)
+  assert.match(html, /Legacy \/ unknown/)
+})
+
 test('Compare remains disabled until two distinct runs are selected', () => {
   const buttonFor = (selectedRunIdA, selectedRunIdB) => findElement(ResearchComparisonView({
     runs, selectedRunIdA, selectedRunIdB,
@@ -157,6 +163,39 @@ test('matched evidence and normalized metadata render without object dumps', () 
   }
   assert.match(html, /<summary>More evidence details<\/summary>/)
   assert.doesNotMatch(html, /\[object Object\]|<pre/)
+})
+
+test('matched results disclose each experiment ambiguity policy and format available ambiguity rates', () => {
+  const result = comparisonResult()
+  result.comparisons[0].evidenceA.evidence.metrics = {
+    tradeCount: 4,
+    ambiguousTradeCount: 1,
+    ambiguityRateDenominator: 4,
+    ambiguousTradeRate: 0.25,
+  }
+  result.comparisons[0].evidenceB.evidence.experimentId = 'strategy-discovery'
+  result.comparisons[0].evidenceB.evidence.metrics = {
+    tradeCount: 10,
+    ambiguousInResearchWindowCount: 2,
+    classifiableInResearchWindowCount: 8,
+    ambiguousInResearchWindowRate: 0.25,
+  }
+  const html = renderToStaticMarkup(React.createElement(ResearchComparisonResult, { result }))
+  assert.match(html, /Same-candle policy: Stop-first; ambiguous candles counted/)
+  assert.match(html, /Same-candle policy: Ambiguous outcomes excluded and counted/)
+  assert.match(html, /not an actual trade fill|not actual trade execution/)
+  assert.match(html, /ambiguousInResearchWindowRate: 25\.0%/)
+  assert.match(html, /Ambiguous trades: 1 of 4 simulated trades \(25\.0%\)/)
+  assert.match(html, /Ambiguous trades: 2 of 8 classifiable in-window outcomes \(25\.0%\)/)
+})
+
+test('comparison does not turn missing legacy ambiguity data into a zero count', () => {
+  const result = comparisonResult()
+  result.comparisons[0].evidenceA.evidence.experimentId = 'robustness'
+  result.comparisons[0].evidenceA.evidence.metrics = { tradeCount: 4 }
+  const html = renderToStaticMarkup(React.createElement(ResearchComparisonResult, { result }))
+  assert.match(html, /Counts are unavailable in this saved evidence/)
+  assert.match(html, /Ambiguity count and percentage are unavailable in this saved result/)
 })
 
 test('unmatched evidence from both sides is displayed with unknown status kept neutral', () => {

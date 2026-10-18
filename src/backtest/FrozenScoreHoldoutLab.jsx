@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react'
 import { runFrozenScoreHoldoutResearch, assessScoreMonotonicity } from './frozenScoreHoldoutBacktest.js'
 import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
+import { hasPerformanceObservations } from './labEvidence.js'
+import { AmbiguousCandleDisclosure, ResearchDataStatus } from './LabEvidence.jsx'
 import './robustness.css'
 
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -10,9 +12,9 @@ const formatDate = (value) => (value ? new Date(value).toLocaleDateString('en-US
 
 const FROZEN_SCORE_DEFINITIONS = [
   { term: 'Frozen score', description: 'The existing SetupScan scoring formula, used here exactly as-is \u2014 no weights, thresholds, or rules are changed or re-tuned for this test.' },
-  { term: 'Development period', description: 'The portion of the historical data outside the holdout window \u2014 the comparison baseline against which the holdout results are checked.' },
-  { term: 'Holdout period', description: 'A separate, fixed historical window carved out and analyzed on its own, using the same frozen scoring rules, to see if results look similar to the development period.' },
-  { term: 'Out-of-sample', description: 'Results from data that was not used to build or tune the rules. Here, the holdout window plays that role \u2014 it\u2019s still historical, not a guarantee.' },
+  { term: 'Development period', description: 'In this experiment, development uses data after the fixed 2022\u20132024 window. It is later in time than the window labeled holdout.' },
+  { term: 'Holdout period', description: 'The fixed 2022\u20132024 historical window. It is an older retrospective comparison slice, not a forward-in-time test against later data.' },
+  { term: 'Out-of-sample', description: 'Here this only means that the 2022\u20132024 window is separated from the later development data in this calculation. The code cannot establish whether people had already inspected this period while choosing the experiment.' },
   { term: 'Score bucket', description: 'A range of SetupScan scores (e.g. 75-79, 95-100) grouped together so trades that scored similarly can be compared as a set.' },
   { term: 'Trade count', description: 'How many trades fell into a bucket, period, or variant. Small counts make any other statistic less reliable.' },
   { term: 'Win rate', description: 'The share of trades that closed as winners. On its own it doesn\u2019t say how big the wins or losses were.' },
@@ -22,23 +24,24 @@ const FROZEN_SCORE_DEFINITIONS = [
 ]
 
 const FROZEN_SCORE_HOW_TO_READ = [
-  'The scoring rules are frozen \u2014 held completely unchanged \u2014 so that this test checks whether the existing rules hold up on data they were never adjusted around, instead of testing a rule set re-tuned to look good.',
-  'The holdout period is kept separate from the development period on purpose: if a result only looks good in the period the rules were built around, that is a very different finding than a result that also holds up on a period set aside from that process.',
+  'The scoring rules are frozen for this calculation. The fixed holdout slice is 2022\u20132024, while development uses later data, so this is a retrospective comparison and not a forward-in-time test.',
+  'The code keeps the two date ranges separate, but it cannot show whether the older 2022\u20132024 period was previously inspected when this experiment was selected. Treat it as a historical comparison, not as an untouched future-period holdout.',
   'Comparing development to holdout side by side shows whether the bucket-to-outcome pattern looks similar in both, not just in one.',
   'A bucket or variant with few trades in either period is less reliable than one with many, even if its numbers look stronger.',
   'This is historical research only. It does not prove future performance, and it does not automatically change production scoring, thresholds, or trade construction.',
 ]
 
 function MetricCells({ metrics }) {
+  const hasTrades = hasPerformanceObservations(metrics)
   return (
     <>
       <td>{metrics.tradeCount}</td>
-      <td>{formatPercent(metrics.winRate)}</td>
-      <td>{formatPf(metrics.profitFactor)}</td>
-      <td>{formatR(metrics.expectancy)}</td>
-      <td>{formatR(metrics.totalR)}</td>
-      <td>{formatR(metrics.maximumDrawdown)}</td>
-      <td>{metrics.averageHoldingTime.toFixed(0)}m</td>
+      <td>{hasTrades ? formatPercent(metrics.winRate) : '—'}</td>
+      <td>{hasTrades ? formatPf(metrics.profitFactor) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.expectancy) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.totalR) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.maximumDrawdown) : '—'}</td>
+      <td>{hasTrades ? `${metrics.averageHoldingTime.toFixed(0)}m` : '—'}</td>
     </>
   )
 }
@@ -50,7 +53,7 @@ function BucketTable({ title, buckets, monotonicity }) {
       <div className="robustness-table-wrap">
         <table className="robustness-table">
           <thead><tr><th>Bucket</th><th>Trades</th><th>Win rate</th><th>PF</th><th>Expectancy</th><th>Avg R</th><th>Median R</th><th>Total R</th><th>Max DD</th><th>Avg hold</th></tr></thead>
-          <tbody>{buckets.map((bucket) => <tr key={bucket.label}><td>{bucket.label}</td><td>{bucket.overall.tradeCount}</td><td>{formatPercent(bucket.overall.winRate)}</td><td>{formatPf(bucket.overall.profitFactor)}</td><td>{formatR(bucket.overall.expectancy)}</td><td>{formatR(bucket.overall.averageR)}</td><td>{formatR(bucket.overall.medianR)}</td><td>{formatR(bucket.overall.totalR)}</td><td>{formatR(bucket.overall.maximumDrawdown)}</td><td>{bucket.overall.averageHoldingTime.toFixed(0)}m</td></tr>)}</tbody>
+          <tbody>{buckets.map((bucket) => { const hasTrades = hasPerformanceObservations(bucket.overall); return <tr key={bucket.label}><td>{bucket.label}</td><td>{bucket.overall.tradeCount}</td><td>{hasTrades ? formatPercent(bucket.overall.winRate) : '—'}</td><td>{hasTrades ? formatPf(bucket.overall.profitFactor) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.expectancy) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.averageR) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.medianR) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.totalR) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.maximumDrawdown) : '—'}</td><td>{hasTrades ? `${bucket.overall.averageHoldingTime.toFixed(0)}m` : '—'}</td></tr>})}</tbody>
         </table>
       </div>
       <p className="robustness-muted">
@@ -133,20 +136,21 @@ export function FrozenScoreHoldoutLab({ datasets }) {
         <span className="coming-soon">RESEARCH ONLY · DOES NOT AFFECT PAPER TRADING OR SCORING</span>
       </div>
       <p className="robustness-disclaimer">
-        Tests whether the existing, unmodified SetupScan score/threshold relationship survives on a genuinely held-out historical
-        window, using the existing baseline entry/exit methodology on synchronized SPY/QQQ/IWM data. No scoring weights, thresholds,
+        Compares the existing, unmodified SetupScan score/threshold relationship across an older retrospective 2022–2024 window
+        and later development data, using the existing baseline entry/exit methodology on synchronized SPY/QQQ/IWM data. This is not
+        a forward-in-time test, and the code cannot establish that the older window was never previously inspected. No scoring weights, thresholds,
         or trade construction rules were changed or optimized for this test. Descriptive research only — does not change production
         scoring, paper trading, the Render worker, or Supabase. No winner is auto-selected.
       </p>
       {!hasAllSymbols ? (
-        <div className="robustness-error">Waiting for real Alpaca historical data for SPY, QQQ, and IWM. This experiment never substitutes demo data.</div>
+        <ResearchDataStatus datasets={datasets} requiredSymbols={['SPY', 'QQQ', 'IWM']} />
       ) : (
         <>
           <ResearchFirstAnswer
-            question="Did the existing frozen score rule show similar results in its separate development and holdout periods?"
+            question="How did the existing frozen score rule compare across an older 2022–2024 slice and later development data?"
             sample={`${research.developmentBaseline.overall.tradeCount} development trades and ${research.holdoutBaseline.overall.tradeCount} holdout trades.`}
             takeaway={takeawayText}
-            limitation="Both periods are historical. Holdout results are a check, not proof of future performance."
+            limitation="This is a retrospective historical comparison, not a forward-in-time holdout. It does not prove future performance."
           />
           <LearningDetails label="More details">
           <div className="robustness-section">
@@ -171,6 +175,8 @@ export function FrozenScoreHoldoutLab({ datasets }) {
             developmentSummary={research.developmentBaseline}
             holdoutSummary={research.holdoutBaseline}
           />
+          <AmbiguousCandleDisclosure label="Development baseline" metrics={research.developmentBaseline.overall} />
+          <AmbiguousCandleDisclosure label="Retrospective comparison baseline" metrics={research.holdoutBaseline.overall} />
           <VariantComparisonTable
             title="RV-confirmed (75+ AND relative-value confirmation) — development vs. holdout"
             developmentSummary={research.developmentRvConfirmed}

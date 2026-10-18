@@ -5,6 +5,8 @@ import {
   runStrategyComparison,
   trendMomentumParameters,
 } from './strategyComparison.js'
+import { hasPerformanceObservations } from './labEvidence.js'
+import { AmbiguousCandleDisclosure, ResearchDataStatus } from './LabEvidence.jsx'
 
 const formatPercent = (value) =>
   `${(value * 100).toFixed(1)}%`
@@ -20,19 +22,20 @@ const formatDate = (value) =>
     : '—'
 
 function MetricCells({ metrics }) {
+  const hasTrades = hasPerformanceObservations(metrics)
   return (
     <>
       <td>{metrics.totalTrades}</td>
-      <td>{formatPercent(metrics.winRate)}</td>
+      <td>{hasTrades ? formatPercent(metrics.winRate) : '—'}</td>
       <td>
-        {metrics.profitFactor === Infinity
+        {!hasTrades ? '—' : metrics.profitFactor === Infinity
           ? '∞'
           : metrics.profitFactor.toFixed(2)}
       </td>
-      <td>{formatR(metrics.expectancy)}</td>
-      <td>{formatR(metrics.averageR)}</td>
-      <td>{formatR(metrics.maximumDrawdown)}</td>
-      <td>{metrics.averageHoldingTime.toFixed(0)}m</td>
+      <td>{hasTrades ? formatR(metrics.expectancy) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.averageR) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.maximumDrawdown) : '—'}</td>
+      <td>{hasTrades ? `${metrics.averageHoldingTime.toFixed(0)}m` : '—'}</td>
     </>
   )
 }
@@ -238,6 +241,8 @@ function PeriodComparisonTable({
   })
 
   return (
+    <>
+    <p className="robustness-muted">Periods are grouped by the signal candle. Trades entered in one period can exit later, so these are signal-period cohorts rather than outcomes fully contained within each date range.</p>
     <div className="robustness-table-wrap">
       <table className="robustness-table">
         <thead>
@@ -284,6 +289,7 @@ function PeriodComparisonTable({
         </tbody>
       </table>
     </div>
+    </>
   )
 }
 
@@ -450,17 +456,16 @@ export function StrategyComparisonLab({
     [datasets],
   )
 
+  const requiredSymbols = datasets.map((dataset) => dataset.symbol)
   if (!comparisons.length) {
     return (
-      <div className="robustness-error">
-        Strategy comparison unavailable
-        until real Alpaca datasets load.
-      </div>
+      <ResearchDataStatus datasets={datasets} requiredSymbols={requiredSymbols.length ? requiredSymbols : ['SPY', 'QQQ', 'IWM']} />
     )
   }
 
   return (
     <div className="strategy-comparison">
+      <ResearchDataStatus datasets={datasets} requiredSymbols={requiredSymbols} allowPartial />
       <div className="comparison-strategy-definition">
         <strong>
           RESEARCH ONLY — NOT PRODUCTION
@@ -497,6 +502,10 @@ export function StrategyComparisonLab({
       <ComparisonTable
         comparisons={comparisons}
       />
+      {comparisons.flatMap((comparison) => [
+        <AmbiguousCandleDisclosure key={`${comparison.symbol}-fixed`} label={`${comparison.symbol} fixed-stop baseline`} metrics={comparison.baseline.metrics} />,
+        <AmbiguousCandleDisclosure key={`${comparison.symbol}-trailing`} label={`${comparison.symbol} trailing-stop baseline`} metrics={comparison.trailingStop.metrics} />,
+      ])}
 
       <h4>
         Fixed Stop vs Trailing Stop ·

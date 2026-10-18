@@ -1,6 +1,10 @@
 import React, { useMemo } from 'react'
 import { runYearlyRegimeResearch } from './yearlyRegimeBacktest.js'
 import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
+import { hasPerformanceObservations } from './labEvidence.js'
+import { InspectableBarChart } from './LabsCharts.jsx'
+import { buildYearlyExpectancyObservations } from './labChartData.js'
+import { AmbiguousCandleDisclosure, ResearchDataStatus } from './LabEvidence.jsx'
 import './robustness.css'
 
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -27,15 +31,16 @@ const YEARLY_REGIME_HOW_TO_READ = [
 ]
 
 function MetricCells({ metrics }) {
+  const hasTrades = hasPerformanceObservations(metrics)
   return (
     <>
       <td>{metrics.tradeCount}</td>
-      <td>{formatPercent(metrics.winRate)}</td>
-      <td>{formatPf(metrics.profitFactor)}</td>
-      <td>{formatR(metrics.expectancy)}</td>
-      <td>{formatR(metrics.totalR)}</td>
-      <td>{formatR(metrics.maximumDrawdown)}</td>
-      <td>{metrics.averageHoldingTime.toFixed(0)}m</td>
+      <td>{hasTrades ? formatPercent(metrics.winRate) : '—'}</td>
+      <td>{hasTrades ? formatPf(metrics.profitFactor) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.expectancy) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.totalR) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.maximumDrawdown) : '—'}</td>
+      <td>{hasTrades ? `${metrics.averageHoldingTime.toFixed(0)}m` : '—'}</td>
     </>
   )
 }
@@ -62,7 +67,7 @@ function YearBuckets({ year, smallSampleThreshold }) {
       <div className="robustness-table-wrap">
         <table className="robustness-table">
           <thead><tr><th>Bucket</th><th>Trades</th><th>Win rate</th><th>PF</th><th>Expectancy</th><th>Avg R</th><th>Max DD</th><th>Small sample</th></tr></thead>
-          <tbody>{year.buckets.map((bucket) => <tr key={bucket.label}><td>{bucket.label}</td><td>{bucket.overall.tradeCount}</td><td>{formatPercent(bucket.overall.winRate)}</td><td>{formatPf(bucket.overall.profitFactor)}</td><td>{formatR(bucket.overall.expectancy)}</td><td>{formatR(bucket.overall.averageR)}</td><td>{formatR(bucket.overall.maximumDrawdown)}</td><td>{bucket.smallSample ? `< ${smallSampleThreshold}` : '—'}</td></tr>)}</tbody>
+          <tbody>{year.buckets.map((bucket) => { const hasTrades = hasPerformanceObservations(bucket.overall); return <tr key={bucket.label}><td>{bucket.label}</td><td>{bucket.overall.tradeCount}</td><td>{hasTrades ? formatPercent(bucket.overall.winRate) : '—'}</td><td>{hasTrades ? formatPf(bucket.overall.profitFactor) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.expectancy) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.averageR) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.maximumDrawdown) : '—'}</td><td>{hasTrades && bucket.smallSample ? `< ${smallSampleThreshold}` : '—'}</td></tr>})}</tbody>
         </table>
       </div>
       <p className="robustness-muted">
@@ -95,6 +100,10 @@ export function YearlyRegimeLab({ datasets }) {
   const hasAllSymbols = ['SPY', 'QQQ', 'IWM'].every((symbol) => rawSeriesBySymbol[symbol]?.length)
 
   const research = useMemo(() => (hasAllSymbols ? runYearlyRegimeResearch(rawSeriesBySymbol) : null), [hasAllSymbols, rawSeriesBySymbol])
+  const yearlyExpectancyObservations = useMemo(
+    () => buildYearlyExpectancyObservations(research?.years),
+    [research],
+  )
 
   const takeawayText = useMemo(() => {
     if (!research) return null
@@ -123,14 +132,8 @@ export function YearlyRegimeLab({ datasets }) {
         <div><p className="eyebrow">RESEARCH EXPERIMENT #4</p><h2>Research Experiment — Yearly / Regime Stability</h2></div>
         <span className="coming-soon">RESEARCH ONLY · DOES NOT AFFECT PAPER TRADING OR SCORING</span>
       </div>
-      <p className="robustness-disclaimer">
-        Tests whether the existing, frozen SetupScan scanner behaves consistently across individual calendar years and across
-        descriptive market regimes, using the existing baseline entry/exit methodology on synchronized SPY/QQQ/IWM data. No scoring
-        weights, thresholds, or trade construction rules were changed for this test. Descriptive research only — does not change
-        production scoring, paper trading, the Render worker, or Supabase. No winner is auto-selected.
-      </p>
       {!hasAllSymbols ? (
-        <div className="robustness-error">Waiting for real Alpaca historical data for SPY, QQQ, and IWM. This experiment never substitutes demo data.</div>
+        <ResearchDataStatus datasets={datasets} requiredSymbols={['SPY', 'QQQ', 'IWM']} />
       ) : (
         <>
           <ResearchFirstAnswer
@@ -139,10 +142,28 @@ export function YearlyRegimeLab({ datasets }) {
             takeaway={takeawayText}
             limitation="Year and regime groupings describe this historical sample; they do not forecast future conditions."
           />
+          <section className="research-primary-visual">
+            <InspectableBarChart
+              id="yearly-expectancy"
+              title="How did average trade results vary by signal year?"
+              question="Expectancy is the average simulated result per trade, measured in R. Baseline and RV-confirmed use the same signal-year periods and trade construction; RV-confirmed is a filtered subset, not an independent sample. A year with fewer than the stated threshold of trades is flagged as a small sample."
+              observations={yearlyExpectancyObservations}
+              series={[
+                { key: 'baseline', label: 'Baseline', metricLabel: 'Expectancy (R/trade)' },
+                { key: 'rv-confirmed', label: 'RV-confirmed', metricLabel: 'Expectancy (R/trade)' },
+              ]}
+              sampleThreshold={research.options.smallSampleThreshold}
+              xAxisLabel="Signal year (UTC)"
+              formatValue={formatR}
+              layout="grouped"
+            />
+          </section>
           <LearningDetails label="More details">
+          <p className="robustness-muted">Trades are grouped by the year of the signal candle. A simulated trade near year-end can finish in the following year; year labels describe signal cohorts, not exit-date windows.</p>
           <YearlyVariantTable title="Baseline (75+ bullish) by year" years={research.years} variantKey="baseline" />
           <YearlyVariantTable title="RV-confirmed (75+ AND relative-value confirmation) by year" years={research.years} variantKey="rvConfirmed" />
           <YearRegimeProxy years={research.years} />
+          <AmbiguousCandleDisclosure label="Combined baseline" metrics={research.combinedBaseline.overall} />
           <div className="robustness-section">
             <h3>Score bucket stability by year</h3>
             {research.years.map((year) => <YearBuckets key={year.year} year={year} smallSampleThreshold={research.options.smallSampleThreshold} />)}
@@ -169,6 +190,7 @@ export function YearlyRegimeLab({ datasets }) {
       <LearningDetails label="How was this tested?">
         <HowToReadResults title="How to read this test" items={YEARLY_REGIME_HOW_TO_READ} />
       </LearningDetails>
+      <LearningDetails label="Research scope and safeguards"><p className="robustness-disclaimer">This uses synchronized SPY/QQQ/IWM data and the existing baseline entry/exit methodology. No scoring weights, thresholds, or trade construction rules were changed. No result automatically selects a winner or changes production scoring, paper trading, workers, or stored records.</p></LearningDetails>
       <p className="research-note">Descriptive historical research only; results do not change production scoring or predict future performance.</p>
     </section>
   )

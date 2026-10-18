@@ -12,6 +12,7 @@ const researchViews = [
   { id: 'labs', label: 'Labs' },
 ]
 
+
 export function projectResearchComparisonRuns(runs) {
   if (!Array.isArray(runs)) return []
   return runs.map((run) => ({
@@ -26,19 +27,21 @@ export function projectResearchComparisonRuns(runs) {
 
 export function ResearchWorkspace({
   activeView = 'workbench',
-  onNavigate = () => {},
+  onNavigate = () => { },
   existingLabs = null,
   selectedRunId = null,
-  onRunSelected = () => {},
+  onRunSelected = () => { },
   runs = [],
   comparisonRunsLoading = false,
   comparisonRunsError = null,
   workbenchProps = {},
   historyProps = {},
   comparisonProps = {},
+  MetricsGlossaryComponent = null,
 }) {
   let content = existingLabs
   if (activeView === 'workbench') content = h(ResearchWorkbench, workbenchProps)
+
   if (activeView === 'history') content = h(ResearchHistory, {
     ...historyProps,
     initialSelectedRunId: selectedRunId,

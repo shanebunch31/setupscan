@@ -56,6 +56,15 @@ function evidenceMetricLabel(key) {
     averageR: 'Average R',
     totalR: 'Net return (R)',
     maximumDrawdown: 'Max drawdown (R)',
+    ambiguousCount: 'Ambiguous outcomes (all periods)',
+    ambiguousInResearchWindowCount: 'Ambiguous outcomes (research windows)',
+    classifiableInResearchWindowCount: 'Classifiable outcomes (research windows)',
+    ambiguousInResearchWindowRate: 'Ambiguous share (research windows)',
+    ambiguousTradeCount: 'Ambiguous trades',
+    ambiguityRateDenominator: 'Trades in ambiguity percentage',
+    ambiguousTradeRate: 'Ambiguous share of trades',
+    periodBoundaryCount: 'Outcomes excluded at period boundaries',
+    excursionPeriodBoundaryCount: 'Excursion windows excluded at period boundaries',
   }
 
   return labels[key] ?? key.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -66,6 +75,8 @@ function formatEvidenceMetric(key, value) {
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
   if (typeof value !== 'number' || !Number.isFinite(value)) return String(value)
   if (key === 'winRate') return `${(value * 100).toFixed(1)}%`
+  if (key === 'ambiguousInResearchWindowRate') return `${(value * 100).toFixed(1)}%`
+  if (key === 'ambiguousTradeRate') return `${(value * 100).toFixed(1)}%`
   if (key === 'tradeCount') return Math.round(value).toLocaleString()
 
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 })
@@ -167,6 +178,12 @@ export function RunResultSummary({ result }) {
   const experimentResults = result.experimentResults ?? []
   const qualification = result.qualification ?? null
   const requested = coverage.requested?.length ? coverage.requested : runContext.requestedExperiments ?? []
+  const policyExperimentIds = requested.length
+    ? requested
+    : experimentResults.map((item) => item.experimentId)
+  const policyExperiments = [...new Set(policyExperimentIds)]
+    .map((id) => experiments.find((experiment) => experiment.id === id))
+    .filter((experiment) => experiment?.ambiguityPolicy)
   const evaluated = coverage.evaluated ?? []
   const unavailable = coverage.unavailable ?? []
   const incomplete = coverage.incomplete ?? []
@@ -175,6 +192,9 @@ export function RunResultSummary({ result }) {
   const unresolvedQuestions = synthesis.unresolvedQuestions ?? []
   const compatibilityNotes = synthesis.compatibilityNotes ?? []
   const fetchIssues = result.fetchIssues ?? []
+  const candleQualityBySymbol = Object.entries(result.dataset?.fetchResultsBySymbol ?? {})
+    .filter(([, fetchResult]) => fetchResult?.dataQuality)
+    .map(([symbol, fetchResult]) => ({ symbol, ...fetchResult.dataQuality }))
   const evidenceCount = strategyGroups.reduce((total, group) => total + (group.evidence?.length ?? 0), 0)
   const completedCount = experimentResults.filter((item) => item.status === 'succeeded' || item.status === 'completed').length
   const experimentCount = requested.length || experimentResults.length
@@ -205,6 +225,23 @@ export function RunResultSummary({ result }) {
       h('div', null, h('dt', null, 'Fetch issues'), h('dd', null, String(fetchIssues.length))),
     ),
     h('p', { className: 'workbench-result-caveat' }, 'Historical results describe past data and do not establish future performance.'),
+    h('p', { className: 'workbench-result-caveat' }, 'Research uses underlying-stock prices, not option-contract quotes or fills. Cost tiers are modeled assumptions, not historical bid/ask or actual execution replay. A large search across variants is more likely to produce a chance result than a small search; this review does not provide a complete cross-run variant count.'),
+    h('section', { className: 'workbench-result-ambiguity', 'aria-label': 'Same-candle outcome policies' },
+      h('h3', null, 'How same-candle stop and target outcomes are handled'),
+      h('p', { className: 'workbench-result-caveat' }, 'A historical candle records its high and low but not the order in which prices occurred. This is uncertainty in the candle data, not a description of an actual trade fill.'),
+      policyExperiments.length
+        ? h('ul', { className: 'workbench-plain-list' }, policyExperiments.map((experiment) => h('li', { key: experiment.id },
+          h('strong', null, `${experiment.title}: ${experiment.ambiguityPolicy.label}. `),
+          experiment.ambiguityPolicy.explanation,
+          h('p', { className: 'workbench-muted' }, experiment.ambiguityPolicy.countStatus === 'reported'
+            ? 'This experiment reports ambiguity counts in its detailed result metrics.'
+            : 'This experiment does not separately report how often both barriers were touched.'),
+        )))
+        : h('p', { className: 'workbench-muted' }, 'The selected experiment policy is unavailable.'),
+    ),
+    candleQualityBySymbol.length
+      ? h('p', { className: 'workbench-result-caveat' }, 'Historical candle checks: ', candleQualityBySymbol.map((entry) => `${entry.symbol}: ${entry.acceptedCandleCount} accepted, ${entry.outOfOrderCandleCount} reordered, ${entry.duplicateCandleCount} duplicates skipped, ${entry.rejectedCandleCount} rejected, ${entry.requestedEndExcludedCandleCount ?? 'unavailable'} excluded because the bar interval ended after the requested end.`).join(' '))
+      : null,
     h('section', { className: 'workbench-summary-section' },
     h('h3', null, 'Research takeaway'),
     h('p', { className: 'workbench-muted' },
@@ -261,8 +298,8 @@ export function RunResultSummary({ result }) {
                     h('h4', null, candidate.label),
                     h('p', null,
                       h('strong', null, 'Review result: '),
-                      candidate.status === 'Promising Candidate'
-                        ? 'Promising candidate - passed the initial evidence checks; more testing is still required.'
+                      candidate.status === 'Initial Evidence Passed'
+                        ? 'Initial evidence checks passed. This describes the historical evidence reviewed; it does not guarantee future results, and more testing is still required.'
                         : candidate.status === 'Needs More Testing'
                           ? 'Needs more testing - enough historical examples are available for an initial review, but important checks may still be missing.'
                           : 'Not enough evidence yet - more historical examples or research results are needed.'),
@@ -352,11 +389,11 @@ h('details', { className: 'workbench-result-disclosure' },
                       h('li', null,
                         `Final reserved test: ${candidate.evidence?.holdoutAvailable ? 'Available' : 'Missing'}`,
                         h('p', { className: 'workbench-muted' },
-                          'Checks performance on data kept separate for a final review. Missing means this check has not been confirmed.')),
+                          'Checks performance on data kept separate for a final review. This does not by itself prove the period was never inspected or that it is later in time. Missing means this check has not been confirmed.')),
                       h('li', null,
                         `Estimated trading costs: ${candidate.evidence?.costTiersAvailable ? 'Available' : 'Missing'}`,
                         h('p', { className: 'workbench-muted' },
-                          'Checks results using estimated trading costs, which can reduce gains or increase losses.'))
+                          'Checks results using modeled cost assumptions, which can reduce gains or increase losses; these are not actual bid/ask quotes or fills.'))
                     )
                   )
                 )
@@ -433,13 +470,14 @@ h('details', { className: 'workbench-result-disclosure' },
                           key !== 'symbol' &&
                           ['string', 'number', 'boolean'].includes(typeof value)
                         ))
-                        .slice(0, 8)
+                        .slice(0, 12)
 
                       return h('li', {
                         key: evidence.id ?? `${evidence.sourceRecordId}-${evidence.metricsKey}-${evidenceIndex}`,
                       },
                         h('strong', null, experimentLabel),
                         h('span', null, workbenchEvidenceTitle(evidence)),
+                        h('span', { className: 'research-methodology-version' }, `Methodology: ${evidence.methodologyVersion ?? 'Legacy / unknown'}`),
                         evidencePartitionLabel(evidence.partition)
                           ? h('span', null, evidencePartitionLabel(evidence.partition))
                           : null,
@@ -509,6 +547,7 @@ const experimentExplanations = {
   'strategy-discovery': 'Tests predefined strategy ideas historically; discovery is not validation.',
   'strategy-comparison': 'Places predefined strategies side by side using the same research evidence.',
   'yearly-regime': 'Groups results by year and experiment-specific labels for observed market conditions.',
+  'frozen-score-holdout': 'Compares the frozen score across an older 2022–2024 historical window and later development data. This is a retrospective comparison, not a forward-in-time test.',
 }
 
 export function ResearchInvestigationPanel({

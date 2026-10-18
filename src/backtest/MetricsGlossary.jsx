@@ -12,8 +12,9 @@ export const METRIC_DEFINITIONS = [
   { term: 'Expectancy', description: 'The average result per trade, measured in R. For example, +0.30R expectancy means the strategy made an average of 0.30R per trade across this historical sample. Positive expectancy means the average result was profitable.' },
   { term: 'Average R', description: 'The average amount gained or lost per trade compared with the amount originally risked. For example, +0.50R means the strategy gained an average of half the planned risk per trade across this historical sample.' },
   { term: 'Max drawdown', description: 'The largest drop from a previous high point to a later low point in the cumulative results. For example, a 5R max drawdown means the strategy went as much as 5R below a previous high during this historical sample.' },
-    { term: 'In-sample', description: 'Results from the historical data used to build or adjust the strategy rules. Because the strategy was developed using this data, these results can look better than performance on new data.' },
-  { term: 'Out-of-sample', description: 'Results from historical data that was not used to build or adjust the strategy rules. This gives a better test of how the strategy performs on data it has not seen before.' },
+  { term: 'Average holding period', description: 'The average time or number of candles that simulated trades stayed open. It describes this backtest’s trade timing, not how long a real order would take to fill.' },
+  { term: 'In-sample', description: 'Results from historical data used to build or adjust strategy rules. These results can look better than results on other data.' },
+  { term: 'Out-of-sample', description: 'Results from a separate historical period. This is a stronger check only when that period was not used to choose the rules or experiment; it is still not a future result.' },
 ]
 
 export function MetricsGlossary({ title = 'What does this mean?', intro = 'Plain-English explanations for the metrics used throughout this research.', definitions = METRIC_DEFINITIONS }) {
@@ -64,13 +65,20 @@ export function PlainEnglishTakeaway({ title = 'Plain-English takeaway', childre
 export function ResearchFirstAnswer({ question, sample, takeaway, limitation }) {
   return (
     <section className="research-first-answer">
-      <div>
-        <h3>What we’re testing</h3>
-        <p>{question}</p>
+      <div className="research-first-answer-question">
+        <p className="research-first-answer-kicker">Research question</p>
+        <h3>{question}</h3>
       </div>
-      {sample ? <p className="research-first-answer-sample"><strong>Evidence available:</strong> {sample}</p> : null}
-      {takeaway ? <PlainEnglishTakeaway title="What this means">{takeaway}</PlainEnglishTakeaway> : null}
+      <div className="research-first-answer-grid">
+        {sample ? <div className="research-first-answer-evidence"><span>Evidence in this run</span><p>{sample}</p></div> : null}
+        <div className="research-first-answer-finding"><span>What the evidence shows</span><p>{takeaway ?? 'A conclusion is unavailable until the required historical data and resolved observations are available.'}</p></div>
+      </div>
       {limitation ? <p className="research-first-answer-limitation">{limitation}</p> : null}
+      <details className="research-first-answer-boundaries">
+        <summary>Evidence boundaries and limitations</summary>
+        <p>These tests measure historical underlying-stock price behavior, not option-contract results. Cost tiers are assumptions; they do not replay historical bid/ask quotes or actual fills.</p>
+        <p>Results tested across many variants are more exposed to chance findings than results from a small test. Consider the number of variants and completed observations where shown; small or missing samples are insufficient evidence.</p>
+      </details>
     </section>
   )
 }

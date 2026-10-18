@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react'
 import { runCausalRegimeResearch } from './causalRegimeBacktest.js'
 import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
+import { hasPerformanceObservations } from './labEvidence.js'
+import { AmbiguousCandleDisclosure, ResearchDataStatus } from './LabEvidence.jsx'
 import './robustness.css'
 
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -27,15 +29,16 @@ const CAUSAL_REGIME_HOW_TO_READ = [
 ]
 
 function MetricCells({ metrics }) {
+  const hasTrades = hasPerformanceObservations(metrics)
   return (
     <>
       <td>{metrics.tradeCount}</td>
-      <td>{formatPercent(metrics.winRate)}</td>
-      <td>{formatPf(metrics.profitFactor)}</td>
-      <td>{formatR(metrics.expectancy)}</td>
-      <td>{formatR(metrics.totalR)}</td>
-      <td>{formatR(metrics.maximumDrawdown)}</td>
-      <td>{metrics.averageHoldingTime.toFixed(0)}m</td>
+      <td>{hasTrades ? formatPercent(metrics.winRate) : '—'}</td>
+      <td>{hasTrades ? formatPf(metrics.profitFactor) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.expectancy) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.totalR) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.maximumDrawdown) : '—'}</td>
+      <td>{hasTrades ? `${metrics.averageHoldingTime.toFixed(0)}m` : '—'}</td>
     </>
   )
 }
@@ -95,7 +98,7 @@ function ScoreByRegime({ rows }) {
           <div className="robustness-table-wrap">
             <table className="robustness-table">
               <thead><tr><th>Bucket</th><th>Trades</th><th>Win rate</th><th>PF</th><th>Expectancy</th><th>Avg R</th><th>Max DD</th><th>Small sample</th></tr></thead>
-              <tbody>{row.buckets.map((bucket) => <tr key={bucket.label}><td>{bucket.label}</td><td>{bucket.overall.tradeCount}</td><td>{formatPercent(bucket.overall.winRate)}</td><td>{formatPf(bucket.overall.profitFactor)}</td><td>{formatR(bucket.overall.expectancy)}</td><td>{formatR(bucket.overall.averageR)}</td><td>{formatR(bucket.overall.maximumDrawdown)}</td><td>{bucket.smallSample ? 'YES' : '—'}</td></tr>)}</tbody>
+              <tbody>{row.buckets.map((bucket) => { const hasTrades = hasPerformanceObservations(bucket.overall); return <tr key={bucket.label}><td>{bucket.label}</td><td>{bucket.overall.tradeCount}</td><td>{hasTrades ? formatPercent(bucket.overall.winRate) : '—'}</td><td>{hasTrades ? formatPf(bucket.overall.profitFactor) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.expectancy) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.averageR) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.maximumDrawdown) : '—'}</td><td>{hasTrades && bucket.smallSample ? 'YES' : '—'}</td></tr>})}</tbody>
             </table>
           </div>
           <p className="robustness-muted">
@@ -147,7 +150,7 @@ export function CausalRegimeLab({ datasets }) {
         only — does not change production scoring, paper trading, the Render worker, or Supabase. No winner is auto-selected.
       </p>
       {!hasAllSymbols ? (
-        <div className="robustness-error">Waiting for real Alpaca historical data for SPY, QQQ, and IWM. This experiment never substitutes demo data.</div>
+        <ResearchDataStatus datasets={datasets} requiredSymbols={['SPY', 'QQQ', 'IWM']} />
       ) : (
         <>
           <ResearchFirstAnswer
@@ -156,6 +159,7 @@ export function CausalRegimeLab({ datasets }) {
             takeaway={takeawayText}
             limitation="These labels use information available at the time; this analysis does not prove a condition caused an outcome."
           />
+          <AmbiguousCandleDisclosure label="Combined baseline" metrics={research.combinedBaseline.overall} />
           <LearningDetails label="More details">
           <RegimeGroupTable title="Baseline by trend regime" groups={research.trendGroups} smallSampleThreshold={research.options.smallSampleThreshold} />
           <RegimeGroupTable title="Baseline by volatility regime" groups={research.volatilityGroups} smallSampleThreshold={research.options.smallSampleThreshold} />

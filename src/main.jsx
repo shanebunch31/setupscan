@@ -21,7 +21,7 @@ import {
   fetchHistoricalMarketData,
   getHistoricalMarketData,
 } from './data/marketData.js'
-import { fetchScannerSnapshot, isSuccessfulScannerRefresh } from './data/scannerSnapshot.js'
+import { createScannerRange, fetchScannerSnapshot, isSuccessfulScannerRefresh, scannerDataQualityNotices } from './data/scannerSnapshot.js'
 import { scanSetups } from './logic/scanner.js'
 import { runSetupScanBacktest } from './backtest/strategy.js'
 import { getBacktestBreakdown } from './backtest/breakdown.js'
@@ -40,7 +40,9 @@ import { createRefreshTimestamp, formatLastRefresh, formatMarketTime } from './m
 import { filterScannerResults, ScannerFiltersButton, ScannerThresholdFilter, SCANNER_TERM_EXPLANATIONS } from './scannerFilters.js'
 import { METRIC_DEFINITIONS, MetricsGlossary, TermHelp } from './backtest/MetricsGlossary.jsx'
 import { BACKTEST_EXTRA_DEFINITIONS, BACKTEST_LEARNING_INTRO } from './backtest/backtestLearning.js'
-import { listResearchRuns } from './research/researchRunHistory.js'
+import {
+  listResearchRuns,
+} from './research/researchRunHistory.js'
 import { projectResearchComparisonRuns, ResearchWorkspace } from './research/ResearchWorkspace.js'
 import './styles.css'
 
@@ -67,6 +69,16 @@ const researchTabs = [
 const formatPrice = (value) => Number.isFinite(value) ? `$${value.toFixed(2)}` : '—'
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
 const formatR = (value) => `${value === Infinity ? '∞' : value.toFixed(2)}R`
+function scannerEmptyMessage(isLoading, evaluatedCount, unavailableCount, threshold) {
+  if (isLoading) return 'Loading scanner results…'
+  if (evaluatedCount === 0) {
+    return `No symbols were successfully evaluated; ${unavailableCount} unavailable.`
+  }
+  if (unavailableCount > 0) {
+    return `No evaluated symbols meet this minimum score; ${unavailableCount} unavailable.`
+  }
+  return `No scanner results meet this minimum score of ${threshold}.`
+}
 const APP_ROUTES = {
   scan: '/scan',
   paper: '/paper',
@@ -81,6 +93,7 @@ const RESEARCH_ROUTES = {
   comparison: '/research/comparison',
   labs: '/research/labs',
 }
+
 
 function readAppRoute() {
   if (typeof window === 'undefined') {
@@ -335,17 +348,15 @@ function BacktestDiagnostics({ backtest, data, error }) {
     <details className="backtest-calculation-details">
       <summary>How the results are calculated</summary>
       <p className="backtest-detail-intro">
-        These checks show the historical data and calculations used to produce the backtest results above.
-      <summary>How the results are calculated</summary>
-<p className="backtest-detail-intro">
-  These checks show the historical data and calculations used to produce the backtest results above.
-</p>
-<section className="calculation-checks panel"></section></p>
-<section className="calculation-checks panel">
+        {data?.provider === 'DEMO'
+          ? 'These checks show the demo data and calculations used for the illustrative metrics above.'
+          : 'These checks show the historical data and calculations used to produce the backtest results above.'}
+      </p>
+      <section className="calculation-checks panel">
       <div className="panel-heading compact">
         <div>
           <p className="eyebrow">BACKTEST LAB · CALCULATION CHECKS</p>
-          <h2>Historical research data</h2>
+          <h2>{data?.provider === 'DEMO' ? 'Demo calculation data' : 'Historical research data'}</h2>
           {error && <p className="data-error">{error}</p>}
         </div>
         <span className="coming-soon">{data?.provider ?? 'LOADING'}</span>
@@ -413,6 +424,7 @@ function NavBar({ view, onNavigate, navOpen, onToggleNav, currentTime }) {
           <button
             key={item.id}
             className={`nav-link ${view === item.id ? 'active' : ''}`}
+            aria-current={view === item.id ? 'page' : undefined}
             onClick={() => onNavigate(item.id)}
           >
             {item.label}
@@ -436,6 +448,7 @@ function NavBar({ view, onNavigate, navOpen, onToggleNav, currentTime }) {
             <button
               key={item.id}
               className={`nav-link ${view === item.id ? 'active' : ''}`}
+              aria-current={view === item.id ? 'page' : undefined}
               onClick={() => onNavigate(item.id)}
             >
               {item.label}
@@ -513,14 +526,10 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
     }
   }, [])
 
-  const scanRange = useMemo(() => {
-    const end = new Date()
-    const start = new Date(end)
-    start.setUTCDate(start.getUTCDate() - 7)
-    return { start: start.toISOString(), end: end.toISOString() }
-  }, [])
+  const scanRange = useMemo(() => createScannerRange(), [])
   const [scanSnapshot, setScanSnapshot] = useState([])
   const [scanUnavailable, setScanUnavailable] = useState([])
+  const [scanDataQuality, setScanDataQuality] = useState([])
   const [scanLoading, setScanLoading] = useState(true)
   useEffect(() => {
     const clock = setInterval(() => setCurrentTime(new Date()), 15000)
@@ -551,10 +560,9 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
       )
 
       setScanUnavailable(
-        entries
-          .filter((entry) => !entry.available)
-          .map((entry) => entry.symbol),
+        watchlist.filter((symbol) => !availableEntries.some((entry) => entry.symbol === symbol)),
       )
+      setScanDataQuality(scannerDataQualityNotices(entries))
 
       if (availableEntries.length > 0) {
         setHistoricalStatus('ALPACA HISTORICAL')
@@ -573,6 +581,9 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
 
       setHistoricalStatus('DATA ERROR')
       setHistoricalError(error.message)
+      setScanSnapshot([])
+      setScanUnavailable(watchlist)
+      setScanDataQuality([])
       setScanLoading(false)
     })
 
@@ -731,7 +742,7 @@ const results = useMemo(
   const backtest = useMemo(() => runSetupScanBacktest(backtestCandles), [backtestCandles])
   const averageScore = results.length
     ? Math.round(results.reduce((total, item) => total + item.score, 0) / results.length)
-    : 0
+    : null
   const scoreQualified = filterScannerResults(results, threshold)
 const qualifiedSetups = results.filter((item) => item.qualifiedSetup === true)
 const potentialSetups = results.filter(
@@ -746,10 +757,19 @@ const visibleResults = scoreQualified
   const refreshData = async () => {
     setScanLoading(true)
     try {
-      const entries = await fetchScannerSnapshot(watchlist, scanRange)
+      const entries = await fetchScannerSnapshot(watchlist, createScannerRange())
       setScanSnapshot(entries.filter((entry) => entry.available).map((entry) => entry.snapshot))
-      setScanUnavailable(entries.filter((entry) => !entry.available).map((entry) => entry.symbol))
-      if (isSuccessfulScannerRefresh(entries)) setLastUpdated(createRefreshTimestamp())
+      const availableSymbols = new Set(entries.filter((entry) => entry.available).map((entry) => entry.symbol))
+      setScanUnavailable(watchlist.filter((symbol) => !availableSymbols.has(symbol)))
+      setScanDataQuality(scannerDataQualityNotices(entries))
+      if (isSuccessfulScannerRefresh(entries)) {
+        setHistoricalStatus('ALPACA HISTORICAL')
+        setHistoricalError(null)
+        setLastUpdated(createRefreshTimestamp())
+      } else {
+        setHistoricalStatus('DATA ERROR')
+        setHistoricalError('No Alpaca historical data was available for the scanner.')
+      }
     } finally {
       setScanLoading(false)
     }
@@ -784,16 +804,20 @@ const handleNavigate = (id) => {
 }
 
 const handleResearchWorkspaceNavigate = (nextView) => {
+  setView('research')
   setResearchWorkspaceView(nextView)
+  setNavOpen(false)
   navigateAppRoute('research', nextView)
 }
+
   const existingResearchLabs = (
     <>
-      <nav className="research-subnav">
+      <nav className="research-subnav" aria-label="Research labs">
         {researchTabs.map((tab) => (
           <button
             key={tab.id}
             className={`research-tab ${researchTab === tab.id ? 'active' : ''} ${tab.placeholder ? 'is-placeholder' : ''}`}
+            aria-current={researchTab === tab.id ? 'page' : undefined}
             onClick={() => setResearchTab(tab.id)}
           >
             {tab.label}
@@ -854,7 +878,12 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                   <p className="hero-copy">Loading real Alpaca historical data…</p>
                 ) : scanUnavailable.length ? (
                   <p className="hero-copy">
-                    Unavailable (no real Alpaca data): {scanUnavailable.join(', ')}
+                    Unavailable or incomplete historical data: {scanUnavailable.join(', ')}
+                  </p>
+                ) : null}
+                {scanDataQuality.length ? (
+                  <p className="hero-copy" role="status">
+                    Historical data checks: {scanDataQuality.join(' ')}
                   </p>
                 ) : null}
               </div>
@@ -881,10 +910,10 @@ const handleResearchWorkspaceNavigate = (nextView) => {
 
               <div className="summary-card">
                 <div className="summary-label">
-                  Qualified setups <TermHelp term="Qualified setup" explanation="Meets all required trade-trigger conditions and is eligible to trigger a paper trade or live trade." /> <ArrowUpRight size={16} />
+                  Qualified setups <TermHelp term="Qualified setup" explanation="Meets the scanner's rule-based conditions. This does not establish profitability or authorize live trading." /> <ArrowUpRight size={16} />
                 </div>
                 <strong>{results.filter((item) => item.qualifiedSetup === true).length.toString().padStart(2, '0')}</strong>
-                <span>Eligible to trigger a trade</span>
+                <span>Rule conditions met; not a profitability finding</span>
               </div>
 
               <div className="summary-card">
@@ -899,10 +928,11 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                 <div className="summary-label">
                   Average setup score <TermHelp term="Average setup score" explanation="The mean score across available symbols in this scan." /> <LineChart size={16} />
                 </div>
-                <strong>{averageScore}</strong>
-                <span>across watchlist</span>
+                <strong>{averageScore ?? '—'}</strong>
+                <span>{results.length} evaluated · {scanUnavailable.length} unavailable</span>
               </div>
             </section>
+
             <div className="content-grid">
               <section className="scanner-panel panel">
                 <div className="panel-heading">
@@ -910,7 +940,7 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                     <p className="eyebrow">LIVE SCAN</p>
                     <h2>Setup scanner</h2>
                     <p className="qualified-explanation">
-  Showing {scoreQualified.length} of {results.length} symbols at score threshold {threshold}.
+                      Showing {scoreQualified.length} of {results.length} evaluated symbols at score threshold {threshold}; {scanUnavailable.length} unavailable.
                     </p>
                   </div>
                   <ScannerFiltersButton open={scannerFiltersOpen} onToggle={() => setScannerFiltersOpen((open) => !open)} />
@@ -941,7 +971,18 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                           <td>
                             <div className="symbol-cell">
                               <span className="ticker-dot">{item.symbol.slice(0, 1)}</span>
-                              <strong>{item.symbol}</strong>
+                              <button
+                                type="button"
+                                className="scanner-row-select"
+                                aria-label={`Select ${item.symbol} scanner details`}
+                                aria-pressed={selectedSymbol === item.symbol}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  setSelectedSymbol(item.symbol)
+                                }}
+                              >
+                                {item.symbol}
+                              </button>
                             </div>
                           </td>
                           <td className="price-cell">
@@ -966,7 +1007,7 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                               {item.rsi}
                             </span>
                           </td>
-                          <td>{item.relativeVolume.toFixed(2)}x</td>
+                          <td>{Number.isFinite(item.relativeVolume) ? `${item.relativeVolume.toFixed(2)}x` : '—'}</td>
                           <td>
                             <ScoreRing score={item.score} />
                           </td>
@@ -979,7 +1020,7 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                           </td>
                         </tr>
                       ))}
-                      {!visibleResults.length ? <tr><td colSpan="9">No scanner results meet this minimum score.</td></tr> : null}
+                      {!visibleResults.length ? <tr><td colSpan="9">{scannerEmptyMessage(scanLoading, results.length, scanUnavailable.length, threshold)}</td></tr> : null}
                     </tbody>
                   </table>
                 </div>
@@ -1005,7 +1046,7 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                       </div>
                     </button>
                   ))}
-                  {!visibleResults.length ? <p className="empty-state">No scanner results meet this minimum score.</p> : null}
+                  {!visibleResults.length ? <p className="empty-state">{scannerEmptyMessage(scanLoading, results.length, scanUnavailable.length, threshold)}</p> : null}
                 </div>
               </section>
               <aside className="side-column">
@@ -1205,7 +1246,21 @@ const handleResearchWorkspaceNavigate = (nextView) => {
   </div>
 ) : null}
                 <BacktestDataSummary data={historicalData} error={historicalError} />
-                <p className="backtest-learning-intro">Historical results describe this sample; they do not predict future performance.</p>
+                <section
+                  className={`backtest-result-evidence ${historicalData?.provider === 'DEMO' ? 'backtest-demo-results' : ''}`}
+                  aria-label={historicalData?.provider === 'DEMO' ? 'Illustrative demo metrics' : 'Historical backtest results'}
+                >
+                  {historicalData?.provider === 'DEMO' ? (
+                    <div className="backtest-demo-notice" role="note">
+                      <h3>Illustrative demo metrics — not historical research</h3>
+                      <p>The historical-data request failed, so these figures use built-in example candles. They are illustrative only and are not evidence of strategy performance. The original data-fetch error is shown above.</p>
+                    </div>
+                  ) : null}
+                <p className="backtest-learning-intro">
+                  {historicalData?.provider === 'DEMO'
+                    ? 'These example results do not predict or measure future performance.'
+                    : 'Historical results describe this sample; they do not predict future performance.'}
+                </p>
                 <div className="backtest-stats">
                   <div>
                     <span>Win rate</span>
@@ -1284,10 +1339,11 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                     ))}
                   </div>
                 </details>
+                </section>
               </section>
             </section>
             <details className="backtest-more-details">
-             <summary>Performance breakdown</summary>
+             <summary>{historicalData?.provider === 'DEMO' ? 'Performance breakdown — demo sample' : 'Performance breakdown'}</summary>
              <p className="backtest-detail-intro">
                Compare results across score ranges, setup types, and sample groups.
             </p>
@@ -1311,12 +1367,14 @@ const handleResearchWorkspaceNavigate = (nextView) => {
           <ResearchWorkspace
             activeView={researchWorkspaceView}
             onNavigate={handleResearchWorkspaceNavigate}
+            MetricsGlossaryComponent={MetricsGlossary}
             existingLabs={existingResearchLabs}
             selectedRunId={selectedResearchRunId}
             onRunSelected={(runId) => setSelectedResearchRunId(runId)}
             runs={comparisonRuns}
             comparisonRunsLoading={comparisonRunsLoading}
             comparisonRunsError={comparisonRunsError}
+
           />
         )}
         {view === 'settings' && (

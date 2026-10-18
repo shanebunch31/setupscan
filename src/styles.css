@@ -1,26 +1,60 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
 
  :root {
-  --ink: #18251f;
-  --muted: #68766e;
-  --line: #d9e2da;
-  --paper: #f5f7f2;
-  --panel: #ffffff;
+  /* Shared light-theme palette. Gold is an accent; use dark text on gold fills. */
+  --color-canvas: #F3F5F1;
+  --color-surface: #FFFFFF;
+  --color-brand: #123B32;
+  --color-text: #17251F;
+  --color-muted: #58675F;
+  --color-border: #D9E2DA;
+  --color-gold: #D5A63C;
+  --color-caution: #785514;
+  --color-error: #A4433E;
+  --color-success-soft: #E2F3E9;
+  --color-caution-soft: #FFF3D6;
+  --color-error-soft: #F9E7E3;
 
-  --green: #176b4d;
-  --mint: #e2f3e9;
-  --lime: #d6e88a;
-  --amber: #c9962e;
-  --red: #b95750;
+  /* Compatibility aliases used by existing feature styles. */
+  --ink: var(--color-text);
+  --muted: var(--color-muted);
+  --line: var(--color-border);
+  --paper: var(--color-canvas);
+  --panel: var(--color-surface);
+  --green: var(--color-brand);
+  --mint: var(--color-success-soft);
+  --lime: #D6E88A;
+  --amber: var(--color-caution);
+  --red: var(--color-error);
+  --gold: var(--color-gold);
+  --gold-soft: var(--color-caution-soft);
+  --emerald-deep: var(--color-brand);
 
-  --gold: #c79a3b;
-  --gold-soft: #f7eed7;
-  --emerald-deep: #104936;
+  /* Type scale: dense data remains compact while common reading text is legible. */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.8125rem;
+  --font-size-body: 0.875rem;
+  --font-size-section: 1.125rem;
+  --font-size-page: clamp(2.25rem, 4.5vw, 4rem);
+  --line-height-body: 1.55;
+  --line-height-compact: 1.4;
+
+  /* Shared spacing and shape. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --border-width: 1px;
+  --focus-ring: #176B4D;
 
   --mono: 'DM Mono', monospace;
   --sans: 'Manrope', sans-serif;
 }
-body { margin: 0; color: var(--ink); background: var(--paper); font-family: var(--sans); font-size: 13px; }
+body { margin: 0; color: var(--ink); background: var(--paper); font-family: var(--sans); font-size: var(--font-size-body); line-height: var(--line-height-body); }
 button, input { font: inherit; }
 button { border: 0; cursor: pointer; color: inherit; }
 .app-shell { min-height: 100vh; background: radial-gradient(circle at 8% 5%, #edf4e8 0, transparent 30%), var(--paper); }
@@ -589,4 +623,177 @@ button { border: 0; cursor: pointer; color: inherit; }
   .research-detail-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+
+/* Daily Strategy Discovery dashboard summary */
+.research-summary-card {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 20px;
+  padding: 20px 22px;
+  text-align: left;
+}
+
+.research-summary-card .panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.research-summary-card .panel-heading > div {
+  min-width: 0;
+}
+
+.research-summary-card h2 {
+  margin: 0;
+  line-height: 1.3;
+}
+
+.research-summary-card p {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+}
+
+.research-summary-card .qualified-explanation {
+  margin-top: 10px;
+}
+
+.research-summary-card button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: 100%;
+  margin-top: 12px;
+  white-space: normal;
+}
+
+@media (max-width: 640px) {
+  .research-summary-card {
+    padding: 16px;
+  }
+}
+
+.scanner-row-select {
+  padding: 2px 0;
+  background: transparent;
+  color: var(--ink);
+  font: 700 12px var(--sans);
+  text-align: left;
+}
+.scanner-row-select:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+.backtest-demo-results {
+  margin: 12px 14px;
+  border: 2px solid #b47a20;
+  border-radius: 6px;
+  background: #fffaf0;
+}
+.backtest-demo-notice {
+  margin: 14px;
+  padding: 12px 14px;
+  border-left: 4px solid #b47a20;
+  background: #fff2d6;
+}
+.backtest-demo-notice h3 {
+  margin: 0;
+  color: #714b12;
+  font-size: 14px;
+}
+.backtest-demo-notice p {
+  margin: 6px 0 0;
+  color: #543e1a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Shared visual-foundation layer: readability, consistent shapes, and keyboard focus. */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.summary-card,
+.panel {
+  border-radius: var(--radius-card);
+}
+
+.hero-row h1 {
+  font-size: var(--font-size-page);
+}
+
+.panel h2 {
+  font-size: var(--font-size-section);
+}
+
+.eyebrow,
+.summary-label,
+.workbench-field > span {
+  font-size: var(--font-size-xs);
+}
+
+.summary-label {
+  line-height: var(--line-height-compact);
+}
+
+.summary-card > span,
+.empty-state,
+.reason-item p,
+.backtest-copy p {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-body);
+}
+
+.summary-card strong,
+.detail-metrics strong,
+.score-ring strong,
+td {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+th {
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-compact);
+}
+
+td {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-compact);
+}
+
+.price-cell small,
+.detail-metrics span,
+.detail-metrics small,
+.workbench-metadata dt,
+.research-comparison-run-meta dt,
+.research-comparison-evidence-meta dt {
+  font-size: var(--font-size-xs);
+}
+
+.status-pill {
+  font-size: var(--font-size-xs);
+}
+
+.nav-link {
+  font-size: var(--font-size-sm);
+}
+
+.workbench-actions button,
+.research-comparison-run-selector select {
+  font-size: var(--font-size-sm);
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
 }

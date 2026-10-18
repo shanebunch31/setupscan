@@ -1,6 +1,10 @@
 import React, { useMemo } from 'react'
 import { runWalkForwardRegimeResearch } from './walkForwardRegimeBacktest.js'
 import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
+import { hasPerformanceObservations } from './labEvidence.js'
+import { InspectableBarChart, TrainingTestTimeline } from './LabsCharts.jsx'
+import { buildWalkForwardRegimeExpectancyObservations, buildWalkForwardTimelineRows } from './labChartData.js'
+import { AmbiguousCandleDisclosure, ResearchDataStatus } from './LabEvidence.jsx'
 import './robustness.css'
 
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -29,30 +33,17 @@ const WALK_FORWARD_HOW_TO_READ = [
 ]
 
 function MetricCells({ metrics }) {
+  const hasTrades = hasPerformanceObservations(metrics)
   return (
     <>
       <td>{metrics.tradeCount}</td>
-      <td>{formatPercent(metrics.winRate)}</td>
-      <td>{formatPf(metrics.profitFactor)}</td>
-      <td>{formatR(metrics.expectancy)}</td>
-      <td>{formatR(metrics.totalR)}</td>
-      <td>{formatR(metrics.maximumDrawdown)}</td>
-      <td>{metrics.averageHoldingTime.toFixed(0)}m</td>
+      <td>{hasTrades ? formatPercent(metrics.winRate) : '—'}</td>
+      <td>{hasTrades ? formatPf(metrics.profitFactor) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.expectancy) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.totalR) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.maximumDrawdown) : '—'}</td>
+      <td>{hasTrades ? `${metrics.averageHoldingTime.toFixed(0)}m` : '—'}</td>
     </>
-  )
-}
-
-function WindowsOverview({ windows }) {
-  return (
-    <div className="robustness-section">
-      <h3>Walk-forward windows — training vs. test periods</h3>
-      <div className="robustness-table-wrap">
-        <table className="robustness-table">
-          <thead><tr><th>Window</th><th>Test year</th><th>Training range</th><th>Test range</th><th>Training candles</th><th>Test candles</th></tr></thead>
-          <tbody>{windows.map((window) => <tr key={window.label}><td>{window.label}</td><td>{window.testYear}</td><td>{formatDate(window.trainRealizedStart)} – {formatDate(window.trainRealizedEnd)}</td><td>{formatDate(window.testRealizedStart)} – {formatDate(window.testRealizedEnd)}</td><td>{window.trainCandleCount}</td><td>{window.testCandleCount}</td></tr>)}</tbody>
-        </table>
-      </div>
-    </div>
   )
 }
 
@@ -83,7 +74,7 @@ function WindowVolatilityGroups({ windows, smallSampleThreshold }) {
           <div className="robustness-table-wrap">
             <table className="robustness-table">
               <thead><tr><th>Volatility regime</th><th>Trades</th><th>Win rate</th><th>PF</th><th>Expectancy</th><th>Total R</th><th>Max DD</th><th>Avg hold</th><th>Small sample</th></tr></thead>
-              <tbody>{window.volatilityGroups.map((group) => <tr key={group.label}><td>{group.label}</td><MetricCells metrics={group.baseline.overall} /><td>{group.baseline.smallSample ? `< ${smallSampleThreshold}` : '—'}</td></tr>)}</tbody>
+              <tbody>{window.volatilityGroups.map((group) => <tr key={group.label}><td>{group.label}</td><MetricCells metrics={group.baseline.overall} /><td>{group.baseline.overall.tradeCount > 0 && group.baseline.smallSample ? `< ${smallSampleThreshold}` : '—'}</td></tr>)}</tbody>
             </table>
           </div>
         </details>
@@ -99,21 +90,7 @@ function PooledVolatilityGroups({ groups, smallSampleThreshold }) {
       <div className="robustness-table-wrap">
         <table className="robustness-table">
           <thead><tr><th>Volatility regime</th><th>Trades</th><th>Win rate</th><th>PF</th><th>Expectancy</th><th>Total R</th><th>Max DD</th><th>Avg hold</th><th>Small sample</th></tr></thead>
-          <tbody>{groups.map((group) => <tr key={group.label}><td>{group.label}</td><MetricCells metrics={group.baseline.overall} /><td>{group.baseline.smallSample ? `< ${smallSampleThreshold}` : '—'}</td></tr>)}</tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-function EvidenceTable({ evidenceTable }) {
-  return (
-    <div className="robustness-section">
-      <h3>Baseline expectancy by test year and volatility regime</h3>
-      <div className="robustness-table-wrap">
-        <table className="robustness-table">
-          <thead><tr><th>Test year</th><th>Low vol expectancy</th><th>Medium vol expectancy</th><th>High vol expectancy</th></tr></thead>
-          <tbody>{evidenceTable.map((row) => <tr key={row.testYear}><td>{row.testYear}</td><td>{formatR(row.low.expectancy)}</td><td>{formatR(row.medium.expectancy)}</td><td>{formatR(row.high.expectancy)}</td></tr>)}</tbody>
+          <tbody>{groups.map((group) => <tr key={group.label}><td>{group.label}</td><MetricCells metrics={group.baseline.overall} /><td>{group.baseline.overall.tradeCount > 0 && group.baseline.smallSample ? `< ${smallSampleThreshold}` : '—'}</td></tr>)}</tbody>
         </table>
       </div>
     </div>
@@ -126,23 +103,27 @@ export function WalkForwardRegimeLab({ datasets }) {
   const hasAllSymbols = ['SPY', 'QQQ', 'IWM'].every((symbol) => rawSeriesBySymbol[symbol]?.length)
 
   const research = useMemo(() => (hasAllSymbols ? runWalkForwardRegimeResearch(rawSeriesBySymbol) : null), [hasAllSymbols, rawSeriesBySymbol])
+  const timelineRows = useMemo(() => buildWalkForwardTimelineRows(research?.windows), [research])
+  const regimeExpectancyObservations = useMemo(
+    () => buildWalkForwardRegimeExpectancyObservations(research?.evidenceTable),
+    [research],
+  )
 
   const takeawayText = useMemo(() => {
     if (!research) return null
     const { criticalTest, pooledVolatilityGroups } = research
     const highGroup = pooledVolatilityGroups.find((group) => group.label === 'High')
-    if (!highGroup || !highGroup.baseline.overall.tradeCount) return 'Not enough high-volatility test-period trades were available in this sample to compare against low/medium volatility.'
-    const highDirection = criticalTest.highVolatilityPositiveCount > criticalTest.highVolatilityNegativeCount
+    const highDescription = !highGroup || !highGroup.baseline.overall.tradeCount
+      ? 'Not enough high-volatility test-period trades were available in this sample to describe that regime.'
+      : `Pooled across all walk-forward test periods, the high-volatility regime had ${highGroup.baseline.overall.tradeCount} baseline trades with expectancy ${formatR(highGroup.baseline.overall.expectancy)}${highGroup.baseline.smallSample ? ' (flagged as a small sample)' : ''}. Year by year, high-volatility expectancy was ${criticalTest.highVolatilityPositiveCount > criticalTest.highVolatilityNegativeCount
       ? 'positive in more test years than negative'
       : criticalTest.highVolatilityNegativeCount > criticalTest.highVolatilityPositiveCount
         ? 'negative in more test years than positive'
-        : 'split evenly between positive and negative across test years'
-    const mediumVsLow = criticalTest.mediumExceedsLowCount === criticalTest.lowExceedsMediumCount
-      ? 'medium-volatility expectancy exceeded low-volatility expectancy in as many test years as the reverse'
-      : criticalTest.mediumExceedsLowCount > criticalTest.lowExceedsMediumCount
-        ? 'medium-volatility expectancy exceeded low-volatility expectancy in more test years than the reverse'
-        : 'low-volatility expectancy exceeded medium-volatility expectancy in more test years than the reverse'
-    return `Pooled across all walk-forward test periods, the high-volatility regime had ${highGroup.baseline.overall.tradeCount} baseline trades with expectancy ${formatR(highGroup.baseline.overall.expectancy)}${highGroup.baseline.smallSample ? ' (flagged as a small sample)' : ''}. Year by year, high-volatility expectancy was ${highDirection}, and ${mediumVsLow}. This describes how the frozen scanner behaved when volatility regimes were classified sequentially, using only training-period information; it does not prove a volatility-based edge and does not identify a winning regime or variant.`
+        : 'split evenly between positive and negative across test years'}.`
+    const mediumVsLow = criticalTest.comparableYearCount === 0
+      ? 'There were 0 comparable test years with valid trades in both low- and medium-volatility regimes, so neither regime is counted as outperforming the other.'
+      : `Among ${criticalTest.comparableYearCount} comparable test years, medium-volatility expectancy was higher in ${criticalTest.mediumExceedsLowCount}, low-volatility expectancy was higher in ${criticalTest.lowExceedsMediumCount}, and the two were tied in ${criticalTest.comparableYearCount - criticalTest.mediumExceedsLowCount - criticalTest.lowExceedsMediumCount}.`
+    return `${highDescription} ${mediumVsLow}. This describes how the frozen scanner behaved when volatility regimes were classified sequentially, using only training-period information; it does not prove a volatility-based edge and does not identify a winning regime or variant.`
   }, [research])
 
   return (
@@ -151,15 +132,8 @@ export function WalkForwardRegimeLab({ datasets }) {
         <div><p className="eyebrow">RESEARCH EXPERIMENT #6</p><h2>Research Experiment — Walk-Forward Regime Validation</h2></div>
         <span className="coming-soon">RESEARCH ONLY · DOES NOT AFFECT PAPER TRADING OR SCORING</span>
       </div>
-      <p className="robustness-disclaimer">
-        Tests whether Experiment #5’s descriptive volatility-regime pattern remains observable when evaluated sequentially,
-        window by window, using only information available before each test period. The scanner itself is completely frozen — this
-        only classifies already-frozen baseline/RV-confirmed trades into regimes whose boundaries were fixed from training data
-        alone. Descriptive research only — does not change production scoring, paper trading, the Render worker, or Supabase. No
-        winner is auto-selected.
-      </p>
       {!hasAllSymbols ? (
-        <div className="robustness-error">Waiting for real Alpaca historical data for SPY, QQQ, and IWM. This experiment never substitutes demo data.</div>
+        <ResearchDataStatus datasets={datasets} requiredSymbols={['SPY', 'QQQ', 'IWM']} />
       ) : (
         <>
           <ResearchFirstAnswer
@@ -168,12 +142,30 @@ export function WalkForwardRegimeLab({ datasets }) {
             takeaway={takeawayText}
             limitation="Sequential historical tests reduce look-ahead in classification; they do not prove future performance."
           />
+          <AmbiguousCandleDisclosure label="Combined baseline" metrics={research.combinedBaseline.overall} />
+          <section className="research-primary-visual">
+            <TrainingTestTimeline windows={timelineRows} />
+            <p className="robustness-muted">Training data is used to calculate volatility cutoffs, then the later test data is evaluated using those cutoffs. These historical periods may have been explored repeatedly, so they are not untouched future evidence.</p>
+            <InspectableBarChart
+              id="walk-forward-regime-expectancy"
+              title="How did test-period expectancy vary by volatility regime?"
+              question="Each point is the existing baseline expectancy for one walk-forward test year and regime. Counts are shown with every value; a missing or empty regime is a dash, while a genuine zero with trades is plotted on the zero line."
+              observations={regimeExpectancyObservations}
+              series={[
+                { key: 'low', label: 'Low volatility', metricLabel: 'Expectancy (R/trade)' },
+                { key: 'medium', label: 'Medium volatility', metricLabel: 'Expectancy (R/trade)' },
+                { key: 'high', label: 'High volatility', metricLabel: 'Expectancy (R/trade)' },
+              ]}
+              sampleThreshold={research.options.smallSampleThreshold}
+              xAxisLabel="Test year"
+              formatValue={formatR}
+              layout="grouped"
+            />
+          </section>
           <LearningDetails label="More details">
-          <WindowsOverview windows={research.windows} />
           <WindowBaselineTable windows={research.windows} />
           <WindowVolatilityGroups windows={research.windows} smallSampleThreshold={research.options.smallSampleThreshold} />
           <PooledVolatilityGroups groups={research.pooledVolatilityGroups} smallSampleThreshold={research.options.smallSampleThreshold} />
-          <EvidenceTable evidenceTable={research.evidenceTable} />
 
           <div className="robustness-section">
             <h3>Combined (all test periods) — baseline vs. RV-confirmed</h3>
@@ -197,6 +189,7 @@ export function WalkForwardRegimeLab({ datasets }) {
       <LearningDetails label="How was this tested?">
         <HowToReadResults title="How to read this test" items={WALK_FORWARD_HOW_TO_READ} />
       </LearningDetails>
+      <LearningDetails label="Research scope and safeguards"><p className="robustness-disclaimer">The scanner rule stays frozen. This experiment classifies already-frozen baseline/RV-confirmed trades using volatility boundaries fixed from earlier training data only. No result automatically selects a winner or changes production scoring, paper trading, workers, or stored records.</p></LearningDetails>
       <p className="research-note">Descriptive historical research only; walk-forward results do not guarantee future performance.</p>
     </section>
   )

@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { LoaderCircle, Scale } from 'lucide-react'
 import { createResearchComparisonActions } from './researchComparisonModel.js'
 import { compareResearchRuns } from './researchRunHistory.js'
+import { getResearchExperiment } from './registry.js'
 import { TermHelp } from '../TermHelp.js'
 
 const h = React.createElement
@@ -47,20 +48,49 @@ function displayValue(value) {
   return null
 }
 
+function displayMetricValue(key, value) {
+  if (key === 'ambiguousInResearchWindowRate' && typeof value === 'number' && Number.isFinite(value)) {
+    return `${(value * 100).toFixed(1)}%`
+  }
+  return displayValue(value)
+}
+
 function EvidenceSummary({ reference, side }) {
   const evidence = reference?.evidence ?? {}
+  const ambiguityPolicy = getResearchExperiment(evidence.experimentId)?.ambiguityPolicy
+  const ambiguityMetrics = evidence.metrics ?? {}
+  const ambiguousCount = ambiguityMetrics.ambiguousTradeCount ?? ambiguityMetrics.ambiguousInResearchWindowCount
+  const denominator = ambiguityMetrics.ambiguityRateDenominator ?? ambiguityMetrics.classifiableInResearchWindowCount
+  const rate = ambiguityMetrics.ambiguousTradeRate ?? ambiguityMetrics.ambiguousInResearchWindowRate
+  const displayRate = Number.isFinite(rate) ? rate : denominator > 0 ? ambiguousCount / denominator : null
+  const hasAmbiguityCounts = Number.isFinite(ambiguousCount) && Number.isFinite(denominator)
   const metadata = [
     ['Strategy', evidence.strategyId], ['Experiment', evidence.experimentId], ['Metrics key', evidence.metricsKey],
     ['Variant', evidence.ruleSetVariant], ['Partition', evidence.partition?.label ?? evidence.partition?.type],
     ['Out-of-sample role', evidence.outOfSampleRole], ['Symbols', evidence.symbols], ['Timeframe', evidence.timeframe],
+    ['Methodology version', evidence.methodologyVersion ?? 'Legacy / unknown'],
     ['EMA contract', evidence.emaContractVersion],
     ['Provider', evidence.provider], ['Cost model', evidence.costModelStatus],
   ].filter(([, value]) => value !== null && value !== undefined && value !== '')
   const metrics = Object.entries(evidence.metrics ?? {})
     .filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
-    .slice(0, 8)
+    .slice(0, 12)
   return h('section', { className: 'research-comparison-evidence-side' },
     h('h5', null, `Run ${side} · ${evidence.strategyId ?? 'Unknown strategy'} · ${evidence.experimentId ?? 'Experiment'}`),
+    ambiguityPolicy
+      ? h('p', { className: 'research-comparison-ambiguity-policy' },
+        h('strong', null, `Same-candle policy: ${ambiguityPolicy.label}. `),
+        ambiguityPolicy.explanation,
+        h('span', null, ambiguityPolicy.countStatus === 'reported'
+          ? hasAmbiguityCounts ? ' Ambiguity counts are available for this saved evidence.' : ' Counts are unavailable in this saved evidence.'
+          : ' This experiment does not report an ambiguity count.'),
+      )
+      : h('p', { className: 'research-comparison-ambiguity-policy' }, 'Same-candle policy: unavailable for this experiment.'),
+    ambiguityPolicy?.countStatus === 'reported'
+      ? h('p', { className: 'research-comparison-ambiguity-policy' }, hasAmbiguityCounts
+        ? `Ambiguous trades: ${ambiguousCount} of ${denominator} ${evidence.experimentId === 'strategy-discovery' ? 'classifiable in-window outcomes' : 'simulated trades'}${Number.isFinite(displayRate) ? ` (${(displayRate * 100).toFixed(1)}%)` : ' (percentage unavailable because there were no countable outcomes)'}.`
+        : 'Ambiguity count and percentage are unavailable in this saved result.')
+      : null,
     reference?.evidenceId ? h('p', { className: 'research-comparison-evidence-id' }, reference.evidenceId) : null,
     h('details', { className: 'research-comparison-evidence-details' },
       h('summary', null, 'More evidence details'),
@@ -68,7 +98,7 @@ function EvidenceSummary({ reference, side }) {
         h('dt', null, label, label === 'Out-of-sample role' ? h(TermHelp, { term: 'Out-of-sample', explanation: 'Testing on historical data the rules were not tuned on; it is a check, not proof of future performance.' }) : null),
         h('dd', null, displayValue(value)),
       ))),
-      metrics.length ? h('ul', { className: 'research-comparison-metrics' }, metrics.map(([key, value]) => h('li', { key }, `${key}: ${String(value)}`))) : null,
+    metrics.length ? h('ul', { className: 'research-comparison-metrics' }, metrics.map(([key, value]) => h('li', { key }, `${key}: ${displayMetricValue(key, value)}`))) : null,
     ),
   )
 }

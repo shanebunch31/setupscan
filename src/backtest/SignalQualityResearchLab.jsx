@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react'
 import { runSignalQualityResearch, assessScoreMonotonicity } from './signalQualityBacktest.js'
 import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
+import { hasPerformanceObservations } from './labEvidence.js'
+import { AmbiguousCandleDisclosure, ResearchDataStatus } from './LabEvidence.jsx'
 import './robustness.css'
 
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -28,15 +30,16 @@ const SIGNAL_QUALITY_HOW_TO_READ = [
 
 
 function MetricCells({ metrics }) {
+  const hasTrades = hasPerformanceObservations(metrics)
   return (
     <>
       <td>{metrics.tradeCount}</td>
-      <td>{formatPercent(metrics.winRate)}</td>
-      <td>{formatPf(metrics.profitFactor)}</td>
-      <td>{formatR(metrics.expectancy)}</td>
-      <td>{formatR(metrics.totalR)}</td>
-      <td>{formatR(metrics.maximumDrawdown)}</td>
-      <td>{metrics.averageHoldingTime.toFixed(0)}m</td>
+      <td>{hasTrades ? formatPercent(metrics.winRate) : '—'}</td>
+      <td>{hasTrades ? formatPf(metrics.profitFactor) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.expectancy) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.totalR) : '—'}</td>
+      <td>{hasTrades ? formatR(metrics.maximumDrawdown) : '—'}</td>
+      <td>{hasTrades ? `${metrics.averageHoldingTime.toFixed(0)}m` : '—'}</td>
     </>
   )
 }
@@ -102,7 +105,7 @@ export function SignalQualityResearchLab({ datasets }) {
         winner is auto-selected.
       </p>
       {!hasAllSymbols ? (
-        <div className="robustness-error">Waiting for real Alpaca historical data for SPY, QQQ, and IWM. This experiment never substitutes demo data.</div>
+        <ResearchDataStatus datasets={datasets} requiredSymbols={['SPY', 'QQQ', 'IWM']} />
       ) : (
         <>
           <ResearchFirstAnswer
@@ -117,7 +120,7 @@ export function SignalQualityResearchLab({ datasets }) {
             <div className="robustness-table-wrap">
               <table className="robustness-table">
                 <thead><tr><th>Bucket</th><th>Trades</th><th>Win rate</th><th>PF</th><th>Expectancy</th><th>Avg R</th><th>Median R</th><th>Loss rate</th><th>Total R</th><th>Max DD</th><th>Avg hold</th></tr></thead>
-                <tbody>{research.scoreBuckets.map((bucket) => <tr key={bucket.label}><td>{bucket.label}</td><td>{bucket.overall.tradeCount}</td><td>{formatPercent(bucket.overall.winRate)}</td><td>{formatPf(bucket.overall.profitFactor)}</td><td>{formatR(bucket.overall.expectancy)}</td><td>{formatR(bucket.overall.averageR)}</td><td>{formatR(bucket.overall.medianR)}</td><td>{formatPercent(bucket.overall.lossRate)}</td><td>{formatR(bucket.overall.totalR)}</td><td>{formatR(bucket.overall.maximumDrawdown)}</td><td>{bucket.overall.averageHoldingTime.toFixed(0)}m</td></tr>)}</tbody>
+                <tbody>{research.scoreBuckets.map((bucket) => { const hasTrades = hasPerformanceObservations(bucket.overall); return <tr key={bucket.label}><td>{bucket.label}</td><td>{bucket.overall.tradeCount}</td><td>{hasTrades ? formatPercent(bucket.overall.winRate) : '—'}</td><td>{hasTrades ? formatPf(bucket.overall.profitFactor) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.expectancy) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.averageR) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.medianR) : '—'}</td><td>{hasTrades ? formatPercent(bucket.overall.lossRate) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.totalR) : '—'}</td><td>{hasTrades ? formatR(bucket.overall.maximumDrawdown) : '—'}</td><td>{hasTrades ? `${bucket.overall.averageHoldingTime.toFixed(0)}m` : '—'}</td></tr>})}</tbody>
               </table>
             </div>
             <p className="robustness-muted">
@@ -128,6 +131,7 @@ export function SignalQualityResearchLab({ datasets }) {
             {research.scoreBuckets.map((bucket) => (
               <details key={bucket.label} className="robustness-section">
                 <summary>{bucket.label} — by symbol / period / cost tier</summary>
+                <AmbiguousCandleDisclosure metrics={bucket.overall} />
                 <BreakdownTables summary={bucket} />
               </details>
             ))}
@@ -163,7 +167,7 @@ export function SignalQualityResearchLab({ datasets }) {
             <div className="robustness-table-wrap">
               <table className="robustness-table">
                 <thead><tr><th>Component</th><th>Present: trades</th><th>Present: avg R</th><th>Absent: trades</th><th>Absent: avg R</th><th>Contribution (R)</th><th>Classification</th></tr></thead>
-                <tbody>{research.decomposition.map((entry) => <tr key={entry.key}><td>{entry.label}</td><td>{entry.present.overall.tradeCount}</td><td>{formatR(entry.present.overall.averageR)}</td><td>{entry.absent.overall.tradeCount}</td><td>{formatR(entry.absent.overall.averageR)}</td><td>{formatR(entry.contributionR)}</td><td>{entry.classification}</td></tr>)}</tbody>
+                <tbody>{research.decomposition.map((entry) => { const hasPresent = hasPerformanceObservations(entry.present.overall); const hasAbsent = hasPerformanceObservations(entry.absent.overall); const hasBoth = hasPresent && hasAbsent; return <tr key={entry.key}><td>{entry.label}</td><td>{entry.present.overall.tradeCount}</td><td>{hasPresent ? formatR(entry.present.overall.averageR) : '—'}</td><td>{entry.absent.overall.tradeCount}</td><td>{hasAbsent ? formatR(entry.absent.overall.averageR) : '—'}</td><td>{hasBoth ? formatR(entry.contributionR) : '—'}</td><td>{entry.classification}</td></tr>})}</tbody>
               </table>
             </div>
             <p className="research-note">
@@ -172,6 +176,7 @@ export function SignalQualityResearchLab({ datasets }) {
               production scoring based on this table.
             </p>
           </div>
+          <p className="robustness-muted">Period rows group trades by the signal candle’s period. Their simulated outcomes may finish after that period ends.</p>
 
           </LearningDetails>
         </>

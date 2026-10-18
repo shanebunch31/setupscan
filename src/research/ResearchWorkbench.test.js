@@ -271,10 +271,112 @@ test('Workbench renders Investigation question, catalogue plan, and explicit cre
     'Volatility-Aware Variants: Tests predefined strategy variants (alternative rule sets) under different volatility conditions; it does not automatically adapt live trading.',
     'Strategy Discovery: Tests predefined strategy ideas historically; discovery is not validation.',
     'Strategy Comparison: Places predefined strategies side by side using the same research evidence.',
+    'Frozen Score Holdout: Compares the frozen score across an older 2022–2024 historical window and later development data. This is a retrospective comparison, not a forward-in-time test.',
   ]) assert.ok(html.includes(help), `expected experiment help to include ${help}`)
   listResearchExperiments().forEach(({ title }) => assert.ok(html.includes(title)))
   assert.equal(createCalls, 0)
   assert.equal(executionCalls, 0)
+})
+
+test('research result summary distinguishes stock research, modeled costs, variants, and evidence limits', () => {
+  const result = completedResult()
+  result.qualification = {
+    status: 'Completed',
+    candidates: [{
+      experimentId: 'strategy-discovery',
+      label: 'Example candidate',
+      status: 'Insufficient Evidence',
+      occurrenceCount: 2,
+      expectancy: null,
+      costTiers: [],
+      periodMetrics: [],
+      evidence: { developmentAvailable: false, outOfSampleAvailable: false, holdoutAvailable: false, costTiersAvailable: false },
+    }],
+  }
+  result.dataset.fetchResultsBySymbol = {
+    SPY: {
+      dataQuality: {
+        acceptedCandleCount: 200,
+        outOfOrderCandleCount: 2,
+        duplicateCandleCount: 1,
+        rejectedCandleCount: 1,
+      },
+    },
+  }
+  const html = renderToStaticMarkup(React.createElement(RunResultSummary, { result }))
+  assert.match(html, /underlying-stock prices, not option-contract quotes or fills/)
+  assert.match(html, /modeled assumptions, not historical bid\/ask or actual execution replay/)
+  assert.match(html, /large search across variants is more likely to produce a chance result/)
+  assert.match(html, /Not enough evidence yet/)
+  assert.match(html, /Completed historical examples: <\/strong>2/)
+  assert.match(html, /not actual bid\/ask quotes or fills/)
+  assert.match(html, /does not by itself prove the period was never inspected/)
+  assert.match(html, /Historical candle checks: SPY: 200 accepted, 2 reordered, 1 duplicates skipped, 1 rejected/)
+})
+
+test('Research Workbench identifies each selected module ambiguity policy and exposes Discovery ambiguity metrics', () => {
+  const result = completedResult()
+  result.runContext.requestedExperiments = ['robustness', 'strategy-discovery']
+  result.synthesis.coverage.requested = ['robustness', 'strategy-discovery']
+  result.synthesis.strategyGroups = [{
+    strategyId: 'momentum-breakout-v1',
+    evidenceFamilies: [],
+    evidence: [{
+      experimentId: 'strategy-discovery',
+      sourceRecordId: 'strategy-discovery',
+      metricsKey: 'momentum-breakout-v1',
+      metrics: {
+        ambiguousCount: 4,
+        ambiguousInResearchWindowCount: 3,
+        classifiableInResearchWindowCount: 12,
+        ambiguousInResearchWindowRate: 0.25,
+        ambiguousTradeCount: 3,
+        ambiguityRateDenominator: 12,
+        ambiguousTradeRate: 0.25,
+      },
+    }],
+  }]
+
+  const html = renderToStaticMarkup(React.createElement(RunResultSummary, { result }))
+  assert.match(html, /How same-candle stop and target outcomes are handled/)
+  assert.match(html, /Strategy Resilience: Stop-first; ambiguous candles counted/)
+  assert.match(html, /Strategy Discovery: Ambiguous outcomes excluded and counted/)
+  assert.match(html, /A historical candle records its high and low but not the order in which prices occurred/)
+  assert.match(html, /This is uncertainty in the candle data, not a description of an actual trade fill/)
+  assert.match(html, /Ambiguous outcomes \(research windows\)/)
+  assert.match(html, /Ambiguous share \(research windows\)[\s\S]*?25\.0%/)
+})
+
+test('Research Workbench shows the saved methodology version and marks old evidence unknown', () => {
+  const result = completedResult()
+  result.synthesis.strategyGroups = [{
+    strategyId: 'baseline',
+    evidence: [
+      { id: 'new-evidence', experimentId: 'robustness', sourceRecordId: 'robustness', metricsKey: 'overall', methodologyVersion: 'robustness-1', metrics: {} },
+      { id: 'legacy-evidence', experimentId: 'relative-value', sourceRecordId: 'relative-value', metricsKey: 'SPY', metrics: {} },
+    ],
+    evidenceFamilies: [],
+  }]
+  const html = renderToStaticMarkup(React.createElement(RunResultSummary, { result }))
+  assert.match(html, /Methodology: robustness-1/)
+  assert.match(html, /Methodology: Legacy \/ unknown/)
+})
+
+test('Research Workbench exposes stop-first count and rate in normalized saved evidence', () => {
+  const result = completedResult()
+  result.synthesis.strategyGroups = [{
+    strategyId: 'setup-scan-baseline',
+    evidenceFamilies: [],
+    evidence: [{
+      experimentId: 'robustness',
+      sourceRecordId: 'robustness',
+      metricsKey: '75+',
+      metrics: { tradeCount: 4, ambiguousTradeCount: 1, ambiguityRateDenominator: 4, ambiguousTradeRate: 0.25 },
+    }],
+  }]
+  const html = renderToStaticMarkup(React.createElement(RunResultSummary, { result }))
+  assert.match(html, /Ambiguous trades/)
+  assert.match(html, /Ambiguous share of trades[\s\S]*?25\.0%/)
 })
 
 test('empty question is rejected before the create client is called', async () => {

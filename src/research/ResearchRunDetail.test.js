@@ -50,11 +50,12 @@ test('Run Detail renders persisted metadata, diagnostics, synthesis evidence, qu
   for (const text of [
     'run-detail-1', '2026-09-20T12:30:00.000Z', 'partial', 'partial', 'SPY, QQQ', '1Hour',
     '2024-01-01 ? 2025-01-01', 'dataset-detail-1', 'QQQ · fetch-error', 'Provider timeout',
-    'robustness', 'incomplete',
+    'robustness', 'incomplete', 'Methodology: Legacy / unknown',
     'baseline', 'overall', 'tradeCount: 12', 'winRate: 0.58',
     'holdout',
     'Evidence differs across partitions.', 'Holdout sample remains incomplete.',
     'Provider compatibility is unknown.', 'Provenance',
+    'Same-candle policy: Stop-first; ambiguous candles counted.',
     'Dataset: the historical market-data input used by this run.',
     'Synthesis: A structured summary of experiment results and remaining evidence gaps.',
     'Evidence: A measured result from an experiment and sample.',
@@ -68,6 +69,50 @@ test('Run Detail renders persisted metadata, diagnostics, synthesis evidence, qu
   assert.match(html, /Incomplete experiment identifiers: <\/strong>robustness/)
   assert.match(html, /<summary>More metric details<\/summary>/)
   assert.match(html, /<summary>More provenance details<\/summary>/)
+})
+
+test('Run Detail shows stored Strategy Discovery ambiguity counts and percentages without filling missing values', () => {
+  const run = persistedRun()
+  run.synthesis.strategyGroups[0].evidence[0] = {
+    id: 'discovery-evidence',
+    sourceRecordId: 'strategy-discovery',
+    experimentId: 'strategy-discovery',
+    metricsKey: 'momentum-breakout-v1',
+    metrics: {
+      ambiguousInResearchWindowCount: 2,
+      classifiableInResearchWindowCount: 8,
+      ambiguousInResearchWindowRate: 0.25,
+    },
+  }
+  const html = renderToStaticMarkup(React.createElement(ResearchRunDetail, { run }))
+  assert.match(html, /Same-candle policy: Ambiguous outcomes excluded and counted/)
+  assert.match(html, /Ambiguous trades: 2 of 8 classifiable in-window outcomes \(25\.0%\)/)
+
+  delete run.synthesis.strategyGroups[0].evidence[0].metrics.ambiguousInResearchWindowCount
+  delete run.synthesis.strategyGroups[0].evidence[0].metrics.classifiableInResearchWindowCount
+  delete run.synthesis.strategyGroups[0].evidence[0].metrics.ambiguousInResearchWindowRate
+  const olderSavedRunHtml = renderToStaticMarkup(React.createElement(ResearchRunDetail, { run }))
+  assert.match(olderSavedRunHtml, /Ambiguity count and percentage are unavailable in this saved result/)
+})
+
+test('Run Detail displays a stop-first count only when the saved evidence contains it', () => {
+  const run = persistedRun()
+  const evidence = run.synthesis.strategyGroups[0].evidence[0]
+  evidence.experimentId = 'robustness'
+  evidence.metrics = { tradeCount: 4, ambiguousTradeCount: 1, ambiguityRateDenominator: 4, ambiguousTradeRate: 0.25 }
+  const html = renderToStaticMarkup(React.createElement(ResearchRunDetail, { run }))
+  assert.match(html, /Ambiguous trades: 1 of 4 simulated trades \(25\.0%\)/)
+
+  delete evidence.metrics.ambiguousTradeCount
+  delete evidence.metrics.ambiguityRateDenominator
+  delete evidence.metrics.ambiguousTradeRate
+  const legacyHtml = renderToStaticMarkup(React.createElement(ResearchRunDetail, { run }))
+  assert.match(legacyHtml, /Ambiguity count and percentage are unavailable in this saved result/)
+
+  evidence.metrics = { tradeCount: 0, ambiguousTradeCount: 0, ambiguityRateDenominator: 0 }
+  const emptyHtml = renderToStaticMarkup(React.createElement(ResearchRunDetail, { run }))
+  assert.match(emptyHtml, /Ambiguous trades: 0 of 0 simulated trades/)
+  assert.match(emptyHtml, /percentage unavailable because there were no countable outcomes/)
 })
 
 test('Run Detail does not render raw candles or large native/record payloads by default', () => {

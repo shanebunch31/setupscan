@@ -3,6 +3,7 @@ import { HowToReadResults, LearningDetails, MetricsGlossary, PlainEnglishTakeawa
 import { runStrategyDiscoveryBatchA } from './strategyDiscovery/discoveryRunner.js'
 import { runBreakoutContextResearch } from './strategyDiscovery/breakoutContextResearch.js'
 import { runRegularSessionBreakoutResearch, compareToBatchA } from './strategyDiscovery/regularSessionBreakout.js'
+import { ResearchDataStatus } from './LabEvidence.jsx'
 import './robustness.css'
 
 // Phase 1 of Strategy Discovery: a catalogue of candidate setup-family hypotheses. Batch A wires
@@ -11,7 +12,10 @@ import './robustness.css'
 // explicitly labeled as not-yet-run rather than filled with invented numbers.
 const NOT_YET_RUN = 'Not yet run'
 
-const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
+const formatPercent = (value) =>
+  value === null || value === undefined || !Number.isFinite(value)
+    ? '—'
+    : `${(value * 100).toFixed(1)}%`
 const formatR = (value) => (value === Infinity ? '∞' : value === null || value === undefined ? '—' : `${value.toFixed(2)}R`)
 const formatPf = (value) => (value === Infinity ? '∞' : value.toFixed(2))
 
@@ -144,19 +148,69 @@ const STRATEGY_DISCOVERY_HOW_TO_READ = [
   'Look-ahead bias \u2014 accidentally using information that would not have been available at the time of the signal \u2014 can make a backtest look far better than a strategy could have actually performed live. Every family here is defined so any future backtest would need to use only information available at or before the signal.',
 ]
 
+
 function BreakdownRows({ rows }) {
   return (
     <div className="robustness-table-wrap">
       <table className="robustness-table">
-        <thead><tr><th /><th>Occurrences</th><th>Win rate</th><th>Profit factor</th><th>Average R</th><th>Total R</th><th>Max DD</th></tr></thead>
-        <tbody>{rows.map((row) => <tr key={row.label}><td>{row.label}</td><td>{row.occurrenceCount}</td><td>{formatPercent(row.winRate)}</td><td>{formatPf(row.profitFactor)}</td><td>{formatR(row.averageR)}</td><td>{formatR(row.totalR)}</td><td>{formatR(row.maximumDrawdown)}</td></tr>)}</tbody>
+        <thead>
+          <tr>
+            <th />
+            <th>Occurrences</th>
+            <th>Win rate</th>
+            <th>Profit factor</th>
+            <th>Average R</th>
+            <th>Total R</th>
+            <th>Max DD</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const hasResolvedObservations = row.occurrenceCount > 0
+
+            return (
+              <tr key={row.label}>
+                <td>{row.label}</td>
+                <td>{row.occurrenceCount}</td>
+                <td>{hasResolvedObservations ? formatPercent(row.winRate) : '—'}</td>
+                <td>{hasResolvedObservations ? formatPf(row.profitFactor) : '—'}</td>
+                <td>{hasResolvedObservations ? formatR(row.averageR) : '—'}</td>
+                <td>{hasResolvedObservations ? formatR(row.totalR) : '—'}</td>
+                <td>{hasResolvedObservations ? formatR(row.maximumDrawdown) : '—'}</td>
+              </tr>
+            )
+          })}
+        </tbody>
       </table>
     </div>
   )
 }
 
+function AmbiguitySummary({ summary }) {
+  const excluded = summary?.excluded ?? {}
+  const ambiguousCount = excluded.ambiguousInResearchWindowCount
+  const classifiableCount = excluded.classifiableInResearchWindowCount
+  const ambiguousRate = excluded.ambiguousInResearchWindowRate
+  if (!Number.isFinite(ambiguousCount) || !Number.isFinite(classifiableCount)) {
+    return <p className="robustness-muted">The ambiguity count and percentage are unavailable because this result does not contain the required outcome counts.</p>
+  }
+  const otherAmbiguousCount = Number.isFinite(excluded.ambiguousCount) && excluded.ambiguousCount >= ambiguousCount
+    ? excluded.ambiguousCount - ambiguousCount
+    : null
+  return (
+    <p className="robustness-muted">
+      Same-candle ambiguity in the research windows: {ambiguousCount} of {classifiableCount} outcomes with enough forward data
+      {!Number.isFinite(ambiguousRate) ? ' (percentage unavailable)' : ` (${formatPercent(ambiguousRate)})`} were excluded because the candle’s high and low touched both barriers but do not show which happened first.
+      This is uncertainty in historical candle data, not a statement about actual trade execution. Other ambiguous outcomes outside these windows: {otherAmbiguousCount ?? 'unavailable'}.
+    </p>
+  )
+}
+
 function FamilyResult({ result }) {
   const { summary, secondaryOutcomes } = result
+  const hasResolvedObservations = summary.overall.occurrenceCount > 0
+  const hasPlus1Observations = secondaryOutcomes.plus1RBefore1RWithin5.occurrenceCount > 0
+  const hasPlus2Observations = secondaryOutcomes.plus2RBefore1RWithin10.occurrenceCount > 0
   return (
     <>
       <p className="robustness-muted">Batch A result (real Alpaca historical data, causal signal generation, next-candle entry):</p>
@@ -164,25 +218,43 @@ function FamilyResult({ result }) {
         <table className="robustness-table">
           <thead><tr><th>Signals tested</th><th>Win rate</th><th>Profit factor</th><th>Average result</th><th>Average R</th><th>Median R</th><th>Max drawdown</th><th>Avg hold</th><th>Best move</th><th>Worst move</th></tr></thead>
           <tbody>
-            <tr>
-              <td>{summary.overall.occurrenceCount}</td>
-              <td>{formatPercent(summary.overall.winRate)}</td>
-              <td>{formatPf(summary.overall.profitFactor)}</td>
-              <td>{formatR(summary.overall.expectancy)}</td>
-              <td>{formatR(summary.overall.averageR)}</td>
-              <td>{formatR(summary.overall.medianR)}</td>
-              <td>{formatR(summary.overall.maximumDrawdown)}</td>
-              <td>{summary.overall.averageHoldingBars.toFixed(1)}</td>
-              <td>{formatR(summary.overall.averageMfeR)}</td>
-              <td>{formatR(summary.overall.averageMaeR)}</td>
-            </tr>
+          <tr>
+          <td>{summary.overall.occurrenceCount}</td>
+          <td>{hasResolvedObservations ? formatPercent(summary.overall.winRate) : '—'}</td>
+          <td>{hasResolvedObservations ? formatPf(summary.overall.profitFactor) : '—'}</td>
+          <td>{hasResolvedObservations ? formatR(summary.overall.expectancy) : '—'}</td>
+          <td>{hasResolvedObservations ? formatR(summary.overall.averageR) : '—'}</td>
+          <td>{hasResolvedObservations ? formatR(summary.overall.medianR) : '—'}</td>
+          <td>{hasResolvedObservations ? formatR(summary.overall.maximumDrawdown) : '—'}</td>
+          <td>{hasResolvedObservations && summary.overall.averageHoldingBars != null ? summary.overall.averageHoldingBars.toFixed(1) : '—'}</td>
+          <td>{hasResolvedObservations ? formatR(summary.overall.averageMfeR) : '—'}</td>
+          <td>{hasResolvedObservations ? formatR(summary.overall.averageMaeR) : '—'}</td>
+          </tr>
           </tbody>
         </table>
       </div>
+      {!hasResolvedObservations && (
+       <p className="robustness-muted">
+          No resolved observations are available for this result. Performance metrics are
+           unavailable, not zero. Check the exclusion counts and available historical data.
+      </p>
+     )}
       <p className="robustness-muted">
-        Secondary outcomes — +1R before -1R within 5 candles: {secondaryOutcomes.plus1RBefore1RWithin5.occurrenceCount} occurrences,{' '}
-        {formatPercent(secondaryOutcomes.plus1RBefore1RWithin5.winRate)} win rate. +2R before -1R within 10 candles:{' '}
-        {secondaryOutcomes.plus2RBefore1RWithin10.occurrenceCount} occurrences, {formatPercent(secondaryOutcomes.plus2RBefore1RWithin10.winRate)} win rate.
+        Secondary outcomes — +1R before -1R within 5 candles:{' '}
+        {secondaryOutcomes.plus1RBefore1RWithin5.occurrenceCount} occurrences,{' '}
+        {hasPlus1Observations
+        ? formatPercent(secondaryOutcomes.plus1RBefore1RWithin5.winRate)
+        : '—'} win rate. +2R before -1R within 10 candles:{' '}
+        {secondaryOutcomes.plus2RBefore1RWithin10.occurrenceCount} occurrences,{' '}
+        {hasPlus2Observations
+        ? formatPercent(secondaryOutcomes.plus2RBefore1RWithin10.winRate)
+        : '—'} win rate.
+      </p>
+      <p className="robustness-muted">
+        Outcomes excluded because their evaluation candle crossed a research-period boundary: primary {summary.excluded.periodBoundaryCount ?? 'unavailable'},
+        {' '}+1R/5 {secondaryOutcomes.plus1RBefore1RWithin5.periodBoundaryExcludedCount ?? 'unavailable'},
+        {' '}+2R/10 {secondaryOutcomes.plus2RBefore1RWithin10.periodBoundaryExcludedCount ?? 'unavailable'}.
+        {' '}Excursion windows crossing a boundary: {summary.excluded.excursionPeriodBoundaryCount ?? 'unavailable'}.
       </p>
       <p className="robustness-muted">Performance by year</p>
       <BreakdownRows rows={summary.byYear} />
@@ -194,12 +266,15 @@ function FamilyResult({ result }) {
       <div className="robustness-table-wrap">
         <table className="robustness-table">
           <thead><tr><th>Cost tier</th><th>Occurrences</th><th>Win rate</th><th>Profit factor</th><th>Average R</th></tr></thead>
-          <tbody>{summary.costTiers.map((tier) => <tr key={tier.label}><td>{tier.label}</td><td>{tier.metrics.occurrenceCount}</td><td>{formatPercent(tier.metrics.winRate)}</td><td>{formatPf(tier.metrics.profitFactor)}</td><td>{formatR(tier.metrics.averageR)}</td></tr>)}</tbody>
+      <tbody>{summary.costTiers.map((tier) => {
+        const hasResolvedObservations = tier.metrics.occurrenceCount > 0
+        return <tr key={tier.label}><td>{tier.label}</td><td>{tier.metrics.occurrenceCount}</td><td>{hasResolvedObservations ? formatPercent(tier.metrics.winRate) : '—'}</td><td>{hasResolvedObservations ? formatPf(tier.metrics.profitFactor) : '—'}</td><td>{hasResolvedObservations ? formatR(tier.metrics.averageR) : '—'}</td></tr>
+      })}</tbody>
         </table>
       </div>
+      <AmbiguitySummary summary={summary} />
       <p className="robustness-muted">
-        Excluded from the statistics above (documented, not guessed): {summary.excluded.ambiguousCount} occurrence(s) where stop and
-        target both fell within the same candle (intrabar order undeterminable), {summary.excluded.insufficientDataCount} with
+        Other exclusions from the statistics above: {summary.excluded.insufficientDataCount} with
         insufficient forward data, {summary.excluded.outsideResearchWindowCount} outside the defined research windows.
       </p>
     </>
@@ -299,22 +374,24 @@ function DimensionSection({ dimension }) {
       <div className="robustness-table-wrap">
         <table className="robustness-table">
           <thead><tr><th>Bucket</th><th>Occurrences</th><th>Evidence</th><th>Win rate</th><th>PF</th><th>Average result</th><th>Median R</th><th>Total R</th><th>Max DD</th><th>Avg hold</th><th>Best move</th><th>Worst move</th></tr></thead>
-          <tbody>{dimension.buckets.map((bucket) => (
+          <tbody>{dimension.buckets.map((bucket) => {
+            const hasTrades = bucket.summary.overall.occurrenceCount > 0
+            return (
             <tr key={bucket.label}>
               <td>{bucket.label}</td>
               <td>{bucket.summary.overall.occurrenceCount}</td>
               <td>{bucket.lowEvidence ? 'Low evidence (<100)' : 'OK'}</td>
-              <td>{formatPercent(bucket.summary.overall.winRate)}</td>
-              <td>{formatPf(bucket.summary.overall.profitFactor)}</td>
-              <td>{formatR(bucket.summary.overall.expectancy)}</td>
-              <td>{formatR(bucket.summary.overall.medianR)}</td>
-              <td>{formatR(bucket.summary.overall.totalR)}</td>
-              <td>{formatR(bucket.summary.overall.maximumDrawdown)}</td>
-              <td>{bucket.summary.overall.averageHoldingBars.toFixed(1)}</td>
-              <td>{formatR(bucket.summary.overall.averageMfeR)}</td>
-              <td>{formatR(bucket.summary.overall.averageMaeR)}</td>
+              <td>{hasTrades ? formatPercent(bucket.summary.overall.winRate) : '—'}</td>
+              <td>{hasTrades ? formatPf(bucket.summary.overall.profitFactor) : '—'}</td>
+              <td>{hasTrades ? formatR(bucket.summary.overall.expectancy) : '—'}</td>
+              <td>{hasTrades ? formatR(bucket.summary.overall.medianR) : '—'}</td>
+              <td>{hasTrades ? formatR(bucket.summary.overall.totalR) : '—'}</td>
+              <td>{hasTrades ? formatR(bucket.summary.overall.maximumDrawdown) : '—'}</td>
+              <td>{hasTrades ? bucket.summary.overall.averageHoldingBars.toFixed(1) : '—'}</td>
+              <td>{hasTrades ? formatR(bucket.summary.overall.averageMfeR) : '—'}</td>
+              <td>{hasTrades ? formatR(bucket.summary.overall.averageMaeR) : '—'}</td>
             </tr>
-          ))}</tbody>
+          )})}</tbody>
         </table>
       </div>
       {dimension.buckets.map((bucket) => (
@@ -328,13 +405,14 @@ function DimensionSection({ dimension }) {
           <div className="robustness-table-wrap">
             <table className="robustness-table">
               <thead><tr><th>Cost tier</th><th>Occurrences</th><th>Win rate</th><th>Profit factor</th><th>Average R</th></tr></thead>
-              <tbody>{bucket.summary.costTiers.map((tier) => <tr key={tier.label}><td>{tier.label}</td><td>{tier.metrics.occurrenceCount}</td><td>{formatPercent(tier.metrics.winRate)}</td><td>{formatPf(tier.metrics.profitFactor)}</td><td>{formatR(tier.metrics.averageR)}</td></tr>)}</tbody>
+              <tbody>{bucket.summary.costTiers.map((tier) => { const hasTrades = tier.metrics.occurrenceCount > 0; return <tr key={tier.label}><td>{tier.label}</td><td>{tier.metrics.occurrenceCount}</td><td>{hasTrades ? formatPercent(tier.metrics.winRate) : '—'}</td><td>{hasTrades ? formatPf(tier.metrics.profitFactor) : '—'}</td><td>{hasTrades ? formatR(tier.metrics.averageR) : '—'}</td></tr>})}</tbody>
             </table>
           </div>
           <p className="robustness-muted">
-            Excluded from this bucket\u2019s statistics (documented, not guessed): {bucket.summary.excluded.ambiguousCount} ambiguous
-            stop/target bar(s), {bucket.summary.excluded.insufficientDataCount} with insufficient forward data,{' '}
-            {bucket.summary.excluded.outsideResearchWindowCount} outside the defined research windows.
+            Excluded from this bucket\u2019s statistics (documented, not guessed): {bucket.summary.excluded.ambiguousCount ?? 'unavailable'} ambiguous
+            stop/target bar(s), {bucket.summary.excluded.insufficientDataCount ?? 'unavailable'} with insufficient forward data,{' '}
+            {bucket.summary.excluded.outsideResearchWindowCount ?? 'unavailable'} outside the defined research windows, and{' '}
+            {bucket.summary.excluded.periodBoundaryCount ?? 'unavailable'} outcomes crossing a research-period boundary.
           </p>
         </details>
       ))}
@@ -392,10 +470,7 @@ function BreakoutContextResearchSection({ datasets }) {
       </div>
 
       {!batchB.available ? (
-        <div className="robustness-error">
-          Batch B is waiting on real Alpaca historical data for {batchB.missingSymbols?.join(', ') ?? 'SPY, QQQ, IWM'}. This lab
-          never substitutes demo data.
-        </div>
+        <ResearchDataStatus datasets={datasets} requiredSymbols={['SPY', 'QQQ', 'IWM']} />
       ) : (
         <>
           <ResearchFirstAnswer
@@ -455,7 +530,7 @@ const BATCH_C_HOW_TO_READ = [
   'This is historical, descriptive research only. It does not change production scoring, paper trading, the Render worker, or the API.',
 ]
 
-function ComparisonTable({ title, rows }) {
+function ComparisonTable({ title, rows, gateEmptyObservations = false }) {
   return (
     <div className="robustness-section">
       <h3>{title}</h3>
@@ -466,11 +541,11 @@ function ComparisonTable({ title, rows }) {
             <tr key={row.label}>
               <td>{row.label}</td>
               <td>{row.batchA?.occurrenceCount ?? '\u2014'}</td>
-              <td>{row.batchA ? formatR(row.batchA.expectancy) : '\u2014'}</td>
-              <td>{row.batchA ? formatPercent(row.batchA.winRate) : '\u2014'}</td>
+              <td>{row.batchA && (!gateEmptyObservations || row.batchA.occurrenceCount > 0) ? formatR(row.batchA.expectancy) : '\u2014'}</td>
+              <td>{row.batchA && (!gateEmptyObservations || row.batchA.occurrenceCount > 0) ? formatPercent(row.batchA.winRate) : '\u2014'}</td>
               <td>{row.batchC?.occurrenceCount ?? '\u2014'}</td>
-              <td>{row.batchC ? formatR(row.batchC.expectancy) : '\u2014'}</td>
-              <td>{row.batchC ? formatPercent(row.batchC.winRate) : '\u2014'}</td>
+              <td>{row.batchC && (!gateEmptyObservations || row.batchC.occurrenceCount > 0) ? formatR(row.batchC.expectancy) : '\u2014'}</td>
+              <td>{row.batchC && (!gateEmptyObservations || row.batchC.occurrenceCount > 0) ? formatPercent(row.batchC.winRate) : '\u2014'}</td>
             </tr>
           ))}</tbody>
         </table>
@@ -487,12 +562,14 @@ function RegularSessionBreakoutSection({ datasets }) {
     () => (batchAMomentum && batchC.available ? compareToBatchA(batchAMomentum.summary, batchC.summary) : null),
     [batchAMomentum, batchC],
   )
+  const batchCHasResolvedObservations = batchC.summary?.overall?.occurrenceCount > 0
 
   const takeawayText = useMemo(() => {
     if (!batchC.available) {
       return `Batch C has not run yet because real Alpaca historical data for ${batchC.missingSymbols?.join(', ') ?? 'SPY, QQQ, IWM'} is not currently available. No results are shown, and none have been invented.`
     }
     if (!comparison) return 'Batch A results were not available for comparison in this session.'
+    if (comparison.overall.occurrenceCount.batchA === 0 || comparison.overall.occurrenceCount.batchC === 0) return 'One or both datasets have no resolved observations, so the performance comparison is unavailable. Occurrence counts remain visible below.'
     const occDiff = comparison.overall.occurrenceCount.diff
     const expectancyDiff = comparison.overall.expectancy.diff
     const direction = expectancyDiff === null ? 'could not be compared' : expectancyDiff > 0 ? 'was higher' : expectancyDiff < 0 ? 'was lower' : 'was effectively the same'
@@ -515,10 +592,7 @@ function RegularSessionBreakoutSection({ datasets }) {
        </p>
 
       {!batchC.available ? (
-        <div className="robustness-error">
-          Batch C is waiting on real Alpaca historical data for {batchC.missingSymbols?.join(', ') ?? 'SPY, QQQ, IWM'}. This lab
-          never substitutes demo data.
-        </div>
+        <ResearchDataStatus datasets={datasets} requiredSymbols={['SPY', 'QQQ', 'IWM']} />
       ) : (
         <>
           <ResearchFirstAnswer
@@ -555,30 +629,39 @@ function RegularSessionBreakoutSection({ datasets }) {
                 <tbody>
                   <tr>
                     <td>{batchC.summary.overall.occurrenceCount}</td>
-                    <td>{formatPercent(batchC.summary.overall.winRate)}</td>
-                    <td>{formatPf(batchC.summary.overall.profitFactor)}</td>
-                    <td>{formatR(batchC.summary.overall.expectancy)}</td>
-                    <td>{formatR(batchC.summary.overall.medianR)}</td>
-                    <td>{formatR(batchC.summary.overall.totalR)}</td>
-                    <td>{formatR(batchC.summary.overall.maximumDrawdown)}</td>
-                    <td>{batchC.summary.overall.averageHoldingBars.toFixed(1)}</td>
-                    <td>{formatR(batchC.summary.overall.averageMfeR)}</td>
-                    <td>{formatR(batchC.summary.overall.averageMaeR)}</td>
+                    <td>{batchCHasResolvedObservations ? formatPercent(batchC.summary.overall.winRate) : '—'}</td>
+                    <td>{batchCHasResolvedObservations ? formatPf(batchC.summary.overall.profitFactor) : '—'}</td>
+                    <td>{batchCHasResolvedObservations ? formatR(batchC.summary.overall.expectancy) : '—'}</td>
+                    <td>{batchCHasResolvedObservations ? formatR(batchC.summary.overall.medianR) : '—'}</td>
+                    <td>{batchCHasResolvedObservations ? formatR(batchC.summary.overall.totalR) : '—'}</td>
+                    <td>{batchCHasResolvedObservations ? formatR(batchC.summary.overall.maximumDrawdown) : '—'}</td>
+                    <td>{batchCHasResolvedObservations && batchC.summary.overall.averageHoldingBars != null ? batchC.summary.overall.averageHoldingBars.toFixed(1) : '—'}</td>
+                    <td>{batchCHasResolvedObservations ? formatR(batchC.summary.overall.averageMfeR) : '—'}</td>
+                    <td>{batchCHasResolvedObservations ? formatR(batchC.summary.overall.averageMaeR) : '—'}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
+            {!batchCHasResolvedObservations && (
+              <p className="robustness-muted">
+                No resolved observations are available for this result, so performance metrics are unavailable. The occurrence count and exclusion totals below show what was observed and why outcomes could not be resolved.
+              </p>
+            )}
             <p className="robustness-muted">
-
               {batchC.summary.overall.occurrenceCount < 100 ? 'Flagged as a low-evidence sample (fewer than 100 occurrences).' : 'Sample size at or above the protocol\u2019s 100-occurrence exploratory threshold.'}
-              {' '}Excluded: {batchC.summary.excluded.ambiguousCount} ambiguous, {batchC.summary.excluded.insufficientDataCount} insufficient forward data,{' '}
-              {batchC.summary.excluded.outsideResearchWindowCount} outside the research windows.
+              {' '}Other exclusions: {batchC.summary.excluded.insufficientDataCount} insufficient forward data,{' '}
+              {batchC.summary.excluded.outsideResearchWindowCount} outside the research windows,{' '}
+              {batchC.summary.excluded.periodBoundaryCount ?? 'unavailable'} outcomes crossing a research-period boundary.
             </p>
+            <AmbiguitySummary summary={batchC.summary} />
             <p className="robustness-muted">Cost sensitivity (research-assumption basis-point tiers)</p>
             <div className="robustness-table-wrap">
               <table className="robustness-table">
                 <thead><tr><th>Cost tier</th><th>Occurrences</th><th>Win rate</th><th>Profit factor</th><th>Average R</th></tr></thead>
-                <tbody>{batchC.summary.costTiers.map((tier) => <tr key={tier.label}><td>{tier.label}</td><td>{tier.metrics.occurrenceCount}</td><td>{formatPercent(tier.metrics.winRate)}</td><td>{formatPf(tier.metrics.profitFactor)}</td><td>{formatR(tier.metrics.averageR)}</td></tr>)}</tbody>
+                <tbody>{batchC.summary.costTiers.map((tier) => {
+                  const hasResolvedObservations = tier.metrics.occurrenceCount > 0
+                  return <tr key={tier.label}><td>{tier.label}</td><td>{tier.metrics.occurrenceCount}</td><td>{hasResolvedObservations ? formatPercent(tier.metrics.winRate) : '—'}</td><td>{hasResolvedObservations ? formatPf(tier.metrics.profitFactor) : '—'}</td><td>{hasResolvedObservations ? formatR(tier.metrics.averageR) : '—'}</td></tr>
+                })}</tbody>
               </table>
             </div>
           </div>
@@ -592,24 +675,26 @@ function RegularSessionBreakoutSection({ datasets }) {
                     <thead><tr><th>Metric</th><th>Batch A</th><th>Batch C</th><th>Diff (C \u2212 A)</th></tr></thead>
                     <tbody>
                       <tr><td>Occurrence count</td><td>{comparison.overall.occurrenceCount.batchA}</td><td>{comparison.overall.occurrenceCount.batchC}</td><td>{comparison.overall.occurrenceCount.diff}</td></tr>
-                      <tr><td>Win rate</td><td>{formatPercent(comparison.overall.winRate.batchA)}</td><td>{formatPercent(comparison.overall.winRate.batchC)}</td><td>{(comparison.overall.winRate.diff * 100).toFixed(1)}%</td></tr>
-                      <tr><td>Profit factor</td><td>{formatPf(comparison.overall.profitFactor.batchA)}</td><td>{formatPf(comparison.overall.profitFactor.batchC)}</td><td>{comparison.overall.profitFactor.diff === null ? '\u2014' : comparison.overall.profitFactor.diff.toFixed(2)}</td></tr>
-                      <tr><td>Average result</td><td>{formatR(comparison.overall.expectancy.batchA)}</td><td>{formatR(comparison.overall.expectancy.batchC)}</td><td>{formatR(comparison.overall.expectancy.diff)}</td></tr>
-                      <tr><td>Median R</td><td>{formatR(comparison.overall.medianR.batchA)}</td><td>{formatR(comparison.overall.medianR.batchC)}</td><td>{formatR(comparison.overall.medianR.diff)}</td></tr>
-                      <tr><td>Total R</td><td>{formatR(comparison.overall.totalR.batchA)}</td><td>{formatR(comparison.overall.totalR.batchC)}</td><td>{formatR(comparison.overall.totalR.diff)}</td></tr>
-                      <tr><td>Max drawdown</td><td>{formatR(comparison.overall.maximumDrawdown.batchA)}</td><td>{formatR(comparison.overall.maximumDrawdown.batchC)}</td><td>{formatR(comparison.overall.maximumDrawdown.diff)}</td></tr>
-                      <tr><td>Avg hold</td><td>{comparison.overall.averageHoldingBars.batchA.toFixed(1)}</td><td>{comparison.overall.averageHoldingBars.batchC.toFixed(1)}</td><td>{comparison.overall.averageHoldingBars.diff.toFixed(1)}</td></tr>
-                      <tr><td>Best move</td><td>{formatR(comparison.overall.averageMfeR.batchA)}</td><td>{formatR(comparison.overall.averageMfeR.batchC)}</td><td>{formatR(comparison.overall.averageMfeR.diff)}</td></tr>
-                      <tr><td>Worst move</td><td>{formatR(comparison.overall.averageMaeR.batchA)}</td><td>{formatR(comparison.overall.averageMaeR.batchC)}</td><td>{formatR(comparison.overall.averageMaeR.diff)}</td></tr>
+                      <tr><td>Win rate</td><td>{comparison.overall.occurrenceCount.batchA ? formatPercent(comparison.overall.winRate.batchA) : '—'}</td><td>{comparison.overall.occurrenceCount.batchC ? formatPercent(comparison.overall.winRate.batchC) : '—'}</td><td>{comparison.overall.occurrenceCount.batchA && comparison.overall.occurrenceCount.batchC && comparison.overall.winRate.diff !== null ? `${(comparison.overall.winRate.diff * 100).toFixed(1)}%` : '—'}</td></tr>
+                      <tr><td>Profit factor</td><td>{comparison.overall.occurrenceCount.batchA ? formatPf(comparison.overall.profitFactor.batchA) : '—'}</td><td>{comparison.overall.occurrenceCount.batchC ? formatPf(comparison.overall.profitFactor.batchC) : '—'}</td><td>{comparison.overall.occurrenceCount.batchA && comparison.overall.occurrenceCount.batchC && comparison.overall.profitFactor.diff !== null ? comparison.overall.profitFactor.diff.toFixed(2) : '—'}</td></tr>
+                      <tr><td>Average result</td><td>{comparison.overall.occurrenceCount.batchA ? formatR(comparison.overall.expectancy.batchA) : '—'}</td><td>{comparison.overall.occurrenceCount.batchC ? formatR(comparison.overall.expectancy.batchC) : '—'}</td><td>{comparison.overall.occurrenceCount.batchA && comparison.overall.occurrenceCount.batchC ? formatR(comparison.overall.expectancy.diff) : '—'}</td></tr>
+                      <tr><td>Median R</td><td>{comparison.overall.occurrenceCount.batchA ? formatR(comparison.overall.medianR.batchA) : '—'}</td><td>{comparison.overall.occurrenceCount.batchC ? formatR(comparison.overall.medianR.batchC) : '—'}</td><td>{comparison.overall.occurrenceCount.batchA && comparison.overall.occurrenceCount.batchC ? formatR(comparison.overall.medianR.diff) : '—'}</td></tr>
+                      <tr><td>Total R</td><td>{comparison.overall.occurrenceCount.batchA ? formatR(comparison.overall.totalR.batchA) : '—'}</td><td>{comparison.overall.occurrenceCount.batchC ? formatR(comparison.overall.totalR.batchC) : '—'}</td><td>{comparison.overall.occurrenceCount.batchA && comparison.overall.occurrenceCount.batchC ? formatR(comparison.overall.totalR.diff) : '—'}</td></tr>
+                      <tr><td>Max drawdown</td><td>{comparison.overall.occurrenceCount.batchA ? formatR(comparison.overall.maximumDrawdown.batchA) : '—'}</td><td>{comparison.overall.occurrenceCount.batchC ? formatR(comparison.overall.maximumDrawdown.batchC) : '—'}</td><td>{comparison.overall.occurrenceCount.batchA && comparison.overall.occurrenceCount.batchC ? formatR(comparison.overall.maximumDrawdown.diff) : '—'}</td></tr>
+                      <tr><td>Avg hold</td><td>{comparison.overall.occurrenceCount.batchA && comparison.overall.averageHoldingBars.batchA != null ? comparison.overall.averageHoldingBars.batchA.toFixed(1) : '—'}</td><td>{comparison.overall.occurrenceCount.batchC && comparison.overall.averageHoldingBars.batchC != null ? comparison.overall.averageHoldingBars.batchC.toFixed(1) : '—'}</td><td>{comparison.overall.occurrenceCount.batchA && comparison.overall.occurrenceCount.batchC && comparison.overall.averageHoldingBars.diff != null ? comparison.overall.averageHoldingBars.diff.toFixed(1) : '—'}</td></tr>
+                      <tr><td>Best move</td><td>{comparison.overall.occurrenceCount.batchA ? formatR(comparison.overall.averageMfeR.batchA) : '—'}</td><td>{comparison.overall.occurrenceCount.batchC ? formatR(comparison.overall.averageMfeR.batchC) : '—'}</td><td>{comparison.overall.occurrenceCount.batchA && comparison.overall.occurrenceCount.batchC ? formatR(comparison.overall.averageMfeR.diff) : '—'}</td></tr>
+                      <tr><td>Worst move</td><td>{comparison.overall.occurrenceCount.batchA ? formatR(comparison.overall.averageMaeR.batchA) : '—'}</td><td>{comparison.overall.occurrenceCount.batchC ? formatR(comparison.overall.averageMaeR.batchC) : '—'}</td><td>{comparison.overall.occurrenceCount.batchA && comparison.overall.occurrenceCount.batchC ? formatR(comparison.overall.averageMaeR.diff) : '—'}</td></tr>
                     </tbody>
                   </table>
                 </div>
               </div>
-              <ComparisonTable title="Batch A vs. Batch C \u2014 by research period" rows={comparison.byPeriod} />
-              <ComparisonTable title="Batch A vs. Batch C \u2014 by symbol" rows={comparison.bySymbol} />
+              <p className="robustness-muted">Batch A and C period results group signals by signal date. An outcome can complete after its signal period, so these are signal-period cohorts, not outcomes fully contained within the named period.</p>
+              <ComparisonTable title="Batch A vs. Batch C \u2014 by research period" rows={comparison.byPeriod} gateEmptyObservations />
+              <ComparisonTable title="Batch A vs. Batch C \u2014 by symbol" rows={comparison.bySymbol} gateEmptyObservations />
               <ComparisonTable
                 title="Batch A vs. Batch C \u2014 cost sensitivity"
                 rows={comparison.costTiers.map((tier) => ({ label: tier.label, batchA: tier.batchA, batchC: tier.batchC }))}
+                gateEmptyObservations
               />
             </>
           )}
@@ -713,12 +798,7 @@ export function StrategyDiscoveryLab({ datasets = [] }) {
         takeaway={takeawayText}
         limitation="Discovery is not validation. Four setup ideas are currently being tested in Batch A; the other four have not been tested yet. No setup idea is ranked or promoted."
       />
-      {!batch.available && (
-        <div className="robustness-error">
-          Batch A experiments are waiting on real Alpaca historical data for {batch.missingSymbols?.join(', ') ?? 'SPY, QQQ, IWM'}.
-          This lab never substitutes demo data.
-        </div>
-      )}
+      {!batch.available && <ResearchDataStatus datasets={datasets} requiredSymbols={['SPY', 'QQQ', 'IWM']} />}
       <LearningDetails label="More details">
         <div className="robustness-section">
          <h3>Setup ideas</h3>

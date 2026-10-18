@@ -8,8 +8,30 @@ import {
   selectedResearchRun,
 } from './researchHistoryModel.js'
 import { TermHelp } from '../TermHelp.js'
+import { getResearchExperiment } from './registry.js'
 
 const h = React.createElement
+
+function ambiguityPolicyDisclosure(experimentId, metrics = {}) {
+  const policy = getResearchExperiment(experimentId)?.ambiguityPolicy
+  if (!policy) return h('p', { className: 'workbench-muted' }, 'Same-candle stop/target policy: unavailable for this experiment.')
+  const ambiguousCount = metrics.ambiguousTradeCount ?? metrics.ambiguousInResearchWindowCount
+  const denominator = metrics.ambiguityRateDenominator ?? metrics.classifiableInResearchWindowCount
+  const rate = metrics.ambiguousTradeRate ?? metrics.ambiguousInResearchWindowRate
+  const displayRate = Number.isFinite(rate) ? rate : denominator > 0 ? ambiguousCount / denominator : null
+  const hasAmbiguityCounts = Number.isFinite(ambiguousCount) && Number.isFinite(denominator)
+  return h(React.Fragment, null,
+    h('p', { className: 'workbench-muted' },
+      h('strong', null, `Same-candle policy: ${policy.label}. `),
+      policy.explanation,
+    ),
+    policy.countStatus === 'reported'
+      ? h('p', { className: 'workbench-muted' }, hasAmbiguityCounts
+        ? `Ambiguous trades: ${ambiguousCount} of ${denominator} ${experimentId === 'strategy-discovery' ? 'classifiable in-window outcomes' : 'simulated trades'}${Number.isFinite(displayRate) ? ` (${(displayRate * 100).toFixed(1)}%)` : ' (percentage unavailable because there were no countable outcomes)'}.`
+        : 'Ambiguity count and percentage are unavailable in this saved result.')
+      : null,
+  )
+}
 
 function evidencePartitionLabel(partition) {
   if (typeof partition === 'string') return partition
@@ -48,6 +70,7 @@ function PersistedRunSummary({ run }) {
   const synthesis = run.synthesis ?? {}
   const coverage = synthesis.coverage ?? {}
   const experimentResults = run.experimentResults ?? []
+  const methodologyVersionByExperiment = new Map((run.records ?? []).map((record) => [record.id, record.methodologyVersion]))
   const fetchIssues = run.fetchIssues ?? []
   const strategyGroups = synthesis.strategyGroups ?? []
   const conflicts = synthesis.conflicts ?? []
@@ -207,6 +230,12 @@ function PersistedRunSummary({ run }) {
                             `workbench-status-label workbench-status-${result.status}`,
                         },
                         result.status ?? 'Unknown',
+                      ),
+
+                      h(
+                        'span',
+                        { className: 'research-methodology-version' },
+                        `Methodology: ${methodologyVersionByExperiment.get(result.experimentId) ?? 'Legacy / unknown'}`,
                       ),
 
                       result.error?.message
@@ -475,6 +504,14 @@ function PersistedRunSummary({ run }) {
                                     evidence.metricsKey ??
                                       'Metrics',
                                   ),
+
+                                  h(
+                                    'span',
+                                    { className: 'research-methodology-version' },
+                                    `Methodology: ${evidence.methodologyVersion ?? 'Legacy / unknown'}`,
+                                  ),
+
+                                  ambiguityPolicyDisclosure(evidence.experimentId ?? evidence.sourceRecordId, evidence.metrics ?? {}),
 
                                   evidencePartitionLabel(
                                     evidence.partition,

@@ -47,6 +47,10 @@ test('research workspace offers the four nested destinations and routes nav clic
 
   const historyButton = findElement(tree, (element) => element.type === 'button' && elementText(element).trim() === 'Run History')
   const labsButton = findElement(tree, (element) => element.type === 'button' && elementText(element).trim() === 'Labs')
+  const activeButton = findElement(tree, (element) => element.type === 'button' && elementText(element).trim() === 'Research Workbench')
+  assert.equal(activeButton.props['aria-current'], 'page')
+  assert.equal(historyButton.props['aria-current'], undefined)
+  assert.equal(labsButton.props['aria-current'], undefined)
   historyButton.props.onClick()
   labsButton.props.onClick()
   assert.deepEqual(destinations, ['history', 'labs'])
