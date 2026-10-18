@@ -1,10 +1,14 @@
 import { scanSetups } from '../src/logic/scanner.js'
+import { validateAndOrderHistoricalCandles } from '../src/data/marketData.js'
+import { historicalCandleEndTime } from '../src/data/historicalDataContract.js'
 
 const STARTING_EQUITY = 10000
 const RISK_DOLLARS = 100
 const MAX_HOLDING_BARS = 12
 const STOP_DISTANCE_PERCENT = 0.005
 const TARGET_R = 2
+const PAPER_FILL_MODEL_VERSION = 'paper-first-post-signal-close-v1'
+const PAPER_ENTRY_PRICE_SOURCE = 'Completed OHLC candle close at interval end; delayed approximation, not a first quote or executable fill'
 const DEFAULT_TRAILING_STOP = {
   enabled: true,
   activationR: 1,
@@ -47,44 +51,68 @@ function calculatePaperMetrics(trades) {
   }
 }
 
-function createPaperTrade(symbol, signal, signalIndex, candles) {
-  const entryCandle = candles[signalIndex + 1]
-  const entryPrice = entryCandle.open
+function createPaperTradeFromCandle(symbol, signal, entryCandle, signalDetectedAt, timeframe = '1Hour') {
+  const entryPrice = entryCandle.close
+  const entryTimestampMs = historicalCandleEndTime(entryCandle.timestamp, timeframe)
+  const entryTimestamp = Number.isFinite(entryTimestampMs) ? new Date(entryTimestampMs).toISOString() : null
   const initialRisk = entryPrice * STOP_DISTANCE_PERCENT
+  const stopPrice = entryPrice - initialRisk
+  const targetPrice = entryPrice + initialRisk * TARGET_R
+  if (![entryPrice, entryTimestampMs, initialRisk, stopPrice, targetPrice, Date.parse(signalDetectedAt)].every(Number.isFinite) || entryTimestampMs <= Date.parse(signalDetectedAt) || initialRisk <= 0 || stopPrice <= 0) return null
   return {
     id: tradeKey(symbol, signal.timestamp),
     symbol,
     status: 'open',
+    fillModelVersion: PAPER_FILL_MODEL_VERSION,
     signalTimestamp: signal.timestamp,
+    signalDetectedAt,
     signalScore: signal.score,
     score: signal.score,
     setupType: signal.setupType,
     signalPrice: signal.close,
     theoreticalEntryPrice: entryPrice,
     observedMarketPrice: entryPrice,
-    observedMarketTimestamp: entryCandle.timestamp,
-    observedPriceSource: 'Alpaca OHLCV bar open; bid/ask unavailable',
-    entryTimestamp: entryCandle.timestamp,
+    entryCandleTimestamp: entryCandle.timestamp,
+    observedMarketTimestamp: entryTimestamp,
+    observedPriceSource: PAPER_ENTRY_PRICE_SOURCE,
+    entryTimestamp,
+    // The modeled fill is at this completed bar's close. Its earlier high/low
+    // cannot be used to exit a position that did not yet exist.
+    lastEvaluatedCandleTimestamp: entryCandle.timestamp,
     entryPrice,
-    stopPrice: entryPrice - initialRisk,
-    targetPrice: entryPrice + initialRisk * TARGET_R,
+    stopPrice,
+    targetPrice,
     initialRiskDollars: RISK_DOLLARS,
     initialRiskR: 1,
     trailingStopActive: false,
     highestPrice: entryPrice,
     exitTimestamp: null,
-    exitTimestamp: null,
     exitPrice: null,
     exitReason: null,
     rMultiple: null,
     pnl: null,
-    holdingTime: null,
+    holdingTime: 0,
+    holdingBars: 0,
   }
 }
 
-function closeTrade(trade, candle, exitPrice, exitReason, holdingBars) {
+// Keep the existing exported helper signature while applying the new close-based model.
+function createPaperTrade(symbol, signal, signalIndex, candles, signalDetectedAt = null, timeframe = '1Hour') {
+  const entryCandle = candles[signalIndex + 1]
+  const signalEnd = historicalCandleEndTime(signal.timestamp, timeframe)
+  const detectedAt = signalDetectedAt ?? (signalEnd === null ? null : new Date(signalEnd).toISOString())
+  return entryCandle && detectedAt ? createPaperTradeFromCandle(symbol, signal, entryCandle, detectedAt, timeframe) : null
+}
+
+function closeTrade(trade, candle, exitPrice, exitReason, holdingBars, timeframe = '1Hour', holdingTime = null) {
   const rMultiple = (exitPrice - trade.entryPrice) / (trade.entryPrice * STOP_DISTANCE_PERCENT)
-  return { ...trade, status: 'closed', exitTimestamp: candle.timestamp, exitPrice, exitReason, rMultiple, pnl: rMultiple * RISK_DOLLARS, holdingTime: holdingBars * 60 }
+  const pnl = rMultiple * RISK_DOLLARS
+  if (![exitPrice, rMultiple, pnl].every(Number.isFinite)) throw new RangeError('Paper trade outcome is outside the finite numeric range')
+  const intervalStart = Date.parse(candle.timestamp)
+  const intervalEnd = historicalCandleEndTime(candle.timestamp, timeframe)
+  const intervalMinutes = intervalEnd === null ? 60 : (intervalEnd - intervalStart) / 60000
+  const priorMinutes = Number.isFinite(trade.holdingTime) ? trade.holdingTime : 0
+  return { ...trade, status: 'closed', exitTimestamp: candle.timestamp, lastEvaluatedCandleTimestamp: candle.timestamp, exitPrice, exitReason, rMultiple, pnl, holdingTime: Number.isFinite(holdingTime) ? holdingTime : priorMinutes + intervalMinutes, holdingBars }
 }
 
 function updateTrade(
@@ -92,18 +120,28 @@ function updateTrade(
   candles,
   signalIndex,
   trailingStop = DEFAULT_TRAILING_STOP,
+  timeframe = '1Hour',
 ) {
   if (trade.status === 'closed') return trade
-
-  const maxBars = Math.min(
-    MAX_HOLDING_BARS,
-    candles.length - signalIndex - 1,
-  )
-
   let updated = trade
+  const legacyCursor = trade.lastEvaluatedCandleTimestamp ?? trade.entryTimestamp ?? candles[signalIndex]?.timestamp
+  const legacyBarMinutes = historicalCandleEndTime(candles[signalIndex + 1]?.timestamp, timeframe)
+    ? (historicalCandleEndTime(candles[signalIndex + 1].timestamp, timeframe) - Date.parse(candles[signalIndex + 1].timestamp)) / 60000
+    : 60
+  const alreadyHeldBars = Math.min(MAX_HOLDING_BARS, Math.max(0, Number.isInteger(trade.holdingBars)
+    ? trade.holdingBars
+    : Math.floor((Number(trade.holdingTime) || 0) / legacyBarMinutes)))
+  let heldMinutes = Number.isFinite(trade.holdingTime) ? trade.holdingTime : 0
+  const remainingBars = MAX_HOLDING_BARS - alreadyHeldBars
+  const nextCandles = candles.filter((candle) => Date.parse(candle.timestamp) > Date.parse(legacyCursor))
+    .slice(0, remainingBars)
 
-  for (let offset = 1; offset <= maxBars; offset += 1) {
-    const candle = candles[signalIndex + offset]
+  for (let index = 0; index < nextCandles.length; index += 1) {
+    const candle = nextCandles[index]
+    const holdingBars = alreadyHeldBars + index + 1
+    const candleEnd = historicalCandleEndTime(candle.timestamp, timeframe)
+    const candleMinutes = candleEnd === null ? legacyBarMinutes : (candleEnd - Date.parse(candle.timestamp)) / 60000
+    heldMinutes += candleMinutes
 
     const highestPrice = Math.max(
       updated.highestPrice ?? updated.entryPrice,
@@ -118,6 +156,30 @@ function updateTrade(
       riskPerShare
 
     // Use the stop that was already active before this candle.
+    // A stop gap fills at the first observed price, not at a barrier the market skipped.
+    if (
+      Number.isFinite(candle.open) &&
+      candle.open <= updated.stopPrice
+    ) {
+      return closeTrade(
+        updated,
+        candle,
+        candle.open,
+        updated.trailingStopActive
+          ? 'Trailing Stop'
+          : 'Stop',
+        holdingBars,
+        timeframe,
+        heldMinutes,
+      )
+    }
+
+    // An opening gap through a target determines the outcome at the open. The model
+    // records the target price and does not assume price improvement.
+    if (Number.isFinite(candle.open) && candle.open >= updated.targetPrice) {
+      return closeTrade(updated, candle, updated.targetPrice, 'Target', holdingBars, timeframe, heldMinutes)
+    }
+
     if (candle.low <= updated.stopPrice) {
       return closeTrade(
         updated,
@@ -126,7 +188,9 @@ function updateTrade(
         updated.trailingStopActive
           ? 'Trailing Stop'
           : 'Stop',
-        offset,
+        holdingBars,
+        timeframe,
+        heldMinutes,
       )
     }
 
@@ -137,7 +201,9 @@ function updateTrade(
         candle,
         updated.targetPrice,
         'Target',
-        offset,
+        holdingBars,
+        timeframe,
+        heldMinutes,
       )
     }
 
@@ -168,23 +234,26 @@ function updateTrade(
       highestPrice,
       stopPrice,
       trailingStopActive,
-      holdingTime: offset * 60,
+      holdingTime: heldMinutes,
+      holdingBars,
+      lastEvaluatedCandleTimestamp: candle.timestamp,
     }
   }
 
   if (
-    maxBars > 0 &&
-    maxBars === MAX_HOLDING_BARS
+    nextCandles.length > 0 &&
+    alreadyHeldBars + nextCandles.length >= MAX_HOLDING_BARS
   ) {
-    const candle =
-      candles[signalIndex + maxBars]
+    const candle = nextCandles.at(-1)
 
     return closeTrade(
       updated,
       candle,
       candle.close,
       'Expired',
-      maxBars,
+      MAX_HOLDING_BARS,
+      timeframe,
+      heldMinutes,
     )
   }
 
@@ -194,22 +263,73 @@ export function createPaperTradingEngine({
   state = { trades: [] },
   saveState = () => {},
   trailingStop = DEFAULT_TRAILING_STOP,
+  timeframe = '1Hour',
 } = {}) {
   const journal = { trades: [...(state.trades ?? [])] }
+  // Pending entries are deliberately in-memory only. A restart drops an entry
+  // opportunity rather than replaying a price from before the new process saw it.
+  const pendingEntries = new Map()
 
-  function processCandles(symbol, candles) {
-    const sortedCandles = [...candles].sort((a, b) => a.timestamp.localeCompare(b.timestamp))
-    const signals = scanSetups(sortedCandles).filter(
-  (signal) => signal.qualifiedSetup === true,
-)
+  function processCandles(symbol, candles, { newEntrySignalTimestamp = null, signalDetectedAt = null } = {}) {
+    const { candles: sortedCandles } = validateAndOrderHistoricalCandles(candles)
+    // Paper trading currently supports long, qualified setups only.
+    const signals = scanSetups(sortedCandles).filter((signal) => signal.qualifiedSetup === true)
+    // Callers may provide a clock so detection is timestamped after the scanner has
+    // evaluated the fetched bars, rather than before that calculation begins.
+    const detectionTimeValue = typeof signalDetectedAt === 'function' ? signalDetectedAt() : signalDetectedAt
     const existing = new Set(journal.trades.map((trade) => trade.id))
-    for (const signal of signals) {
-      const signalIndex = sortedCandles.findIndex((candle) => candle.timestamp === signal.timestamp)
-      if (signalIndex < 0 || signalIndex >= sortedCandles.length - 1) continue
-      const id = tradeKey(symbol, signal.timestamp)
-      if (!existing.has(id)) {
-        journal.trades.push(createPaperTrade(symbol, signal, signalIndex, sortedCandles))
+    const latestIndex = sortedCandles.length - 1
+    const candidates = pendingEntries.get(symbol) ?? []
+    const remaining = []
+    for (const pending of candidates) {
+      const detectionIndex = sortedCandles.findIndex((candle) => candle.timestamp === pending.detectionCandleTimestamp)
+      if (detectionIndex < 0 || detectionIndex < latestIndex - 1) continue
+      if (detectionIndex === latestIndex) {
+        remaining.push(pending)
+        continue
+      }
+      const entryCandle = sortedCandles[detectionIndex + 1]
+      const detectedAtMs = Date.parse(pending.signalDetectedAt)
+      const entryEndMs = historicalCandleEndTime(entryCandle.timestamp, timeframe)
+      if (detectionIndex !== latestIndex - 1 || historicalCandleEndTime(sortedCandles[detectionIndex].timestamp, timeframe) !== Date.parse(entryCandle.timestamp) || entryEndMs === null || entryEndMs <= detectedAtMs) continue
+      const signal = signals.find((item) => item.timestamp === pending.signalTimestamp)
+      const id = tradeKey(symbol, pending.signalTimestamp)
+      if (!signal || existing.has(id)) continue
+      const trade = createPaperTradeFromCandle(symbol, signal, entryCandle, pending.signalDetectedAt, timeframe)
+      if (trade) {
+        journal.trades.push(trade)
         existing.add(id)
+      }
+    }
+    pendingEntries.set(symbol, remaining)
+
+    // A service/observer only authorizes the immediately preceding processed
+    // signal candle. The detection time is captured after fetching the completed
+    // bars. If the latest bar had already closed by then, defer to the next
+    // adjacent completed bar's close instead of using that stale close/open.
+    const signal = signals.find((item) => item.timestamp === newEntrySignalTimestamp)
+    const signalIndex = signal ? sortedCandles.findIndex((candle) => candle.timestamp === signal.timestamp) : -1
+    const detectedAt = detectionTimeValue == null
+      ? (signalIndex >= 0 ? historicalCandleEndTime(signal.timestamp, timeframe) : null)
+      : Date.parse(detectionTimeValue)
+    if (signal && signalIndex === latestIndex - 1 && detectedAt !== null && Number.isFinite(detectedAt) &&
+      historicalCandleEndTime(signal.timestamp, timeframe) === Date.parse(sortedCandles[signalIndex + 1].timestamp)) {
+      const detectionCandle = sortedCandles.at(-1)
+      const id = tradeKey(symbol, signal.timestamp)
+      const entryEndMs = historicalCandleEndTime(detectionCandle.timestamp, timeframe)
+      if (!existing.has(id) && entryEndMs !== null && entryEndMs > detectedAt) {
+        const detectionTime = new Date(detectedAt).toISOString()
+        const trade = createPaperTradeFromCandle(symbol, signal, detectionCandle, detectionTime, timeframe)
+        if (trade) {
+          journal.trades.push(trade)
+          existing.add(id)
+        }
+      } else if (!existing.has(id) && entryEndMs !== null) {
+        const list = pendingEntries.get(symbol) ?? []
+        if (!list.some((item) => item.signalTimestamp === signal.timestamp)) {
+          list.push({ signalTimestamp: signal.timestamp, signalDetectedAt: new Date(detectedAt).toISOString(), detectionCandleTimestamp: detectionCandle.timestamp })
+          pendingEntries.set(symbol, list)
+        }
       }
     }
     journal.trades = journal.trades.map((trade) => {
@@ -221,6 +341,7 @@ export function createPaperTradingEngine({
       sortedCandles,
       signalIndex,
       trailingStop,
+      timeframe,
     )
   : trade
     })
@@ -233,10 +354,10 @@ export function createPaperTradingEngine({
       const trades = journal.trades.filter((trade) => trade.symbol === symbol)
       return [symbol, { trades, metrics: calculatePaperMetrics(trades) }]
     }))
-    return { mode: 'LIVE PAPER MODE — NO REAL ORDERS', timeframe: '1Hour', account: { startingEquity: STARTING_EQUITY, riskPerTrade: RISK_DOLLARS }, bidAskAvailable: false, limitation: 'Observed entry price uses the Alpaca OHLCV bar open; bid/ask data is unavailable.', trades: journal.trades, metrics: calculatePaperMetrics(journal.trades), bySymbol }
+    return { mode: 'LIVE PAPER MODE — NO REAL ORDERS', timeframe, account: { startingEquity: STARTING_EQUITY, riskPerTrade: RISK_DOLLARS }, bidAskAvailable: false, limitation: 'New entries use the close of the first adjacent completed OHLC bar whose interval ends after signal detection. This delayed historical approximation is not the exact first available quote or a guaranteed fill; bid/ask data is unavailable.', trades: journal.trades, metrics: calculatePaperMetrics(journal.trades), bySymbol }
   }
 
   return { processCandles, getJournal, getState: () => ({ trades: journal.trades.map((trade) => ({ ...trade })) }) }
 }
 
-export { calculatePaperMetrics, createPaperTrade, STARTING_EQUITY, RISK_DOLLARS }
+export { calculatePaperMetrics, createPaperTrade, PAPER_ENTRY_PRICE_SOURCE, PAPER_FILL_MODEL_VERSION, STARTING_EQUITY, RISK_DOLLARS }

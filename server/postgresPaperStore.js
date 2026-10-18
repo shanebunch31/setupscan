@@ -28,13 +28,25 @@ export function describeDatabaseUrl(connectionString) {
   return { username: parsed.username, host: parsed.hostname, port: parsed.port || '5432', database }
 }
 
-export function createPostgresPaperStore({ connectionString = process.env.DATABASE_URL, pool } = {}) {
+export function createPostgresPaperStore({ connectionString = process.env.DATABASE_URL, pool, onPoolError = (error) => console.error('Paper observer PostgreSQL pool error:', error.message) } = {}) {
   if (!pool) describeDatabaseUrl(connectionString)
-  const clientPool = pool ?? new Pool({ connectionString, ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false } })
+  const clientPool = pool ?? new Pool({ connectionString, ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false }, max: 1, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 })
   let ready
+  let lastConnectionError = null
+  if (typeof clientPool.on === 'function') {
+    clientPool.on('error', (error) => {
+      lastConnectionError = { message: error.message, at: new Date().toISOString() }
+      try { onPoolError(error) } catch {}
+    })
+  }
   async function init() {
     if (!ready) ready = clientPool.query(schema)
-    await ready
+    try {
+      await ready
+    } catch (error) {
+      ready = undefined
+      throw error
+    }
   }
   async function load() {
     await init()
@@ -44,14 +56,18 @@ export function createPostgresPaperStore({ connectionString = process.env.DATABA
   async function save(state, metadata = {}) {
     await init()
     const client = await clientPool.connect()
+    let transactionStarted = false
     try {
       await client.query('BEGIN')
+      transactionStarted = true
       await client.query('INSERT INTO paper_observer_state (id, state, status, last_successful_update, last_processed_candle, current_error) VALUES (1, $1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, status = EXCLUDED.status, last_successful_update = EXCLUDED.last_successful_update, last_processed_candle = EXCLUDED.last_processed_candle, current_error = EXCLUDED.current_error', [state, metadata.status ?? 'IDLE', metadata.lastSuccessfulUpdate ?? null, metadata.lastProcessedCandle ?? null, metadata.currentError ?? null])
       for (const trade of state.trades ?? []) await client.query('INSERT INTO paper_trades (symbol, signal_timestamp, trade) VALUES ($1, $2, $3) ON CONFLICT (symbol, signal_timestamp) DO UPDATE SET trade = EXCLUDED.trade', [trade.symbol, trade.signalTimestamp, trade])
       for (const candle of metadata.processedCandles ?? []) await client.query('INSERT INTO paper_processed_candles (symbol, candle_timestamp) VALUES ($1, $2) ON CONFLICT DO NOTHING', [candle.symbol, candle.timestamp])
       await client.query('COMMIT')
     } catch (error) {
-      await client.query('ROLLBACK')
+      if (transactionStarted) {
+        try { await client.query('ROLLBACK') } catch {}
+      }
       throw error
     } finally { client.release() }
   }
@@ -60,5 +76,5 @@ export function createPostgresPaperStore({ connectionString = process.env.DATABA
     const result = await clientPool.query('SELECT status, last_successful_update, last_processed_candle, current_error FROM paper_observer_state WHERE id = 1')
     return result.rows[0] ?? { status: 'IDLE', last_successful_update: null, last_processed_candle: null, current_error: null }
   }
-  return { init, load, save, status, pool: clientPool }
+  return { init, load, save, status, getLastConnectionError: () => lastConnectionError, pool: clientPool }
 }
