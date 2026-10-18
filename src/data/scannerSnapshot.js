@@ -1,47 +1,277 @@
+
 import { enrichHistoricalCandles, fetchHistoricalMarketData } from './marketData.js'
 
-export async function fetchScannerSnapshot(symbols, range, fetchData = fetchHistoricalMarketData, now = () => new Date()) {
+const HOUR_MS = 60 * 60 * 1000
+const FIVE_MINUTES_MS = 5 * 60 * 1000
+
+export function createScannerRange(now = new Date()) {
+  const end = new Date(now)
+  const start = new Date(end)
+  start.setUTCDate(start.getUTCDate() - 7)
+  return { start: start.toISOString(), end: end.toISOString() }
+}
+
+export function scannerDataQualityNotices(entries = []) {
+  const describeCount = (count, singular, plural) => `${count} ${count === 1 ? singular : plural}`
+  const fields = [
+    ['outOfOrderCandleCount', (count) => `${describeCount(count, 'out-of-order bar', 'out-of-order bars')} reordered`],
+    ['duplicateCandleCount', (count) => `${describeCount(count, 'duplicate bar', 'duplicate bars')} skipped`],
+    ['rejectedCandleCount', (count) => `${describeCount(count, 'invalid bar', 'invalid bars')} rejected`],
+    ['requestedEndExcludedCandleCount', (count) => `${describeCount(count, 'bar', 'bars')} excluded because they extended past the requested cutoff`],
+  ]
+
+  return entries.flatMap((entry) => [
+    ...(entry.incomplete === true
+      ? [`${entry.symbol}: the historical hourly data set is incomplete, so no scanner score was produced.`]
+      : []),
+    ...['hourly', 'fiveMinute'].flatMap((series) => {
+      const quality = entry.dataQuality?.[series]
+      if (!quality) return []
+      const issues = fields.flatMap(([field, describe]) => {
+        const count = quality[field]
+        return Number.isFinite(count) && count > 0 ? [describe(count)] : []
+      })
+      return issues.length ? [`${entry.symbol} ${series === 'hourly' ? 'hourly' : '5-minute'} data: ${issues.join(', ')}.`] : []
+    }),
+  ])
+}
+
+function candleEndTime(candle, durationMs) {
+  const timestampMs = new Date(candle.timestamp).getTime()
+  return Number.isFinite(timestampMs) ? timestampMs + durationMs : NaN
+}
+
+function easternDateKey(timestamp) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(timestamp))
+
+  const values = Object.fromEntries(
+    parts
+      .filter(({ type }) => type !== 'literal')
+      .map(({ type, value }) => [type, value]),
+  )
+
+  return `${values.year}-${values.month}-${values.day}`
+}
+
+function hasMissingFiveMinuteCandles(candles, evaluationTime) {
+  const evaluationMs = new Date(evaluationTime).getTime()
+  if (!Number.isFinite(evaluationMs)) return true
+
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  })
+
+  function getEasternParts(timestamp) {
+    return Object.fromEntries(
+      formatter.formatToParts(new Date(timestamp))
+        .filter(({ type }) => type !== 'literal')
+        .map(({ type, value }) => [type, value]),
+    )
+  }
+
+  const evaluationParts = getEasternParts(evaluationMs)
+  const evaluationDate =
+    `${evaluationParts.year}-${evaluationParts.month}-${evaluationParts.day}`
+  const evaluationMinute =
+    Number(evaluationParts.hour) * 60 + Number(evaluationParts.minute)
+
+  if (!['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(evaluationParts.weekday)) {
+    return false
+  }
+
+  // Before the regular session opens, there are no session candles to validate.
+  if (evaluationMinute < 570) return false
+
+  // Validate through the evaluation cutoff, but never beyond 4:00 p.m. Eastern.
+  const sessionCutoffMinute = Math.min(
+    Math.floor(evaluationMinute / 5) * 5,
+    960,
+  )
+
+  const availableCandles = new Map()
+
+  for (const candle of candles) {
+    const timestamp = new Date(candle.timestamp).getTime()
+    if (!Number.isFinite(timestamp)) continue
+
+    const parts = getEasternParts(timestamp)
+    const date = `${parts.year}-${parts.month}-${parts.day}`
+    const minute = Number(parts.hour) * 60 + Number(parts.minute)
+    const second = Number(parts.second)
+    const slotStartMinute = Math.floor(minute / 5) * 5
+
+    if (
+      date !== evaluationDate ||
+      minute < 570 ||
+      minute >= 960 ||
+      minute !== slotStartMinute ||
+      second !== 0 ||
+      timestamp % 1000 !== 0 ||
+      timestamp + FIVE_MINUTES_MS > evaluationMs
+    ) {
+      continue
+    }
+
+    const validCandle =
+      Number.isFinite(candle.high) &&
+      Number.isFinite(candle.low) &&
+      Number.isFinite(candle.close) &&
+      Number.isFinite(candle.volume) &&
+      candle.volume > 0
+
+    if (!validCandle) return true
+
+    availableCandles.set(minute, candle)
+  }
+
+  for (
+    let expectedMinute = 570;
+    expectedMinute < sessionCutoffMinute;
+    expectedMinute += 5
+  ) {
+    if (!availableCandles.has(expectedMinute)) return true
+  }
+
+  return false
+}
+
+function getVwapAtEvaluationTime(fiveMinuteCandles, evaluationTime) {
+  if (!fiveMinuteCandles.length) return null
+
+  const evaluationMs = new Date(evaluationTime).getTime()
+  if (!Number.isFinite(evaluationMs)) return null
+
+  const evaluationDate = easternDateKey(evaluationMs)
+
+    const completedCandles = fiveMinuteCandles
+    .filter((candle) => {
+      const timestampMs = new Date(candle.timestamp).getTime()
+      const endMs = candleEndTime(candle, FIVE_MINUTES_MS)
+
+      return (
+        Number.isFinite(timestampMs) &&
+        Number.isFinite(endMs) &&
+        endMs <= evaluationMs &&
+        easternDateKey(timestampMs) === evaluationDate
+      )
+    })
+    .sort(
+      (a, b) =>
+        new Date(a.timestamp).getTime() -
+        new Date(b.timestamp).getTime(),
+    )
+
+
+  if (!completedCandles.length) return null
+
+  if (hasMissingFiveMinuteCandles(completedCandles, evaluationTime)) {
+    return null
+  }
+
+  const enriched = enrichHistoricalCandles(completedCandles, '5Min')
+
+  const latest = enriched[enriched.length - 1]
+
+  return Number.isFinite(latest?.vwap) ? latest.vwap : null
+}
+
+export async function fetchScannerSnapshot(
+  symbols,
+  range,
+  fetchData = fetchHistoricalMarketData,
+  now = () => new Date(),
+) {
   const nowMs = new Date(now()).getTime()
+
   return Promise.all(symbols.map(async (symbol) => {
     try {
-      const data = await fetchData(symbol, '1Hour', range)
-      const candles = data?.candles ?? []
-      if (!candles.length) return { symbol, available: false }
+      const hourlyData = await fetchData(symbol, '1Hour', range)
+      const candles = hourlyData?.candles ?? []
+      const hourlyDataQuality = hourlyData?.dataQuality ?? null
+
+      if (hourlyData?.complete === false) {
+        return {
+          symbol,
+          available: false,
+          incomplete: true,
+          error: 'The historical hourly candle set is incomplete.',
+          dataQuality: { hourly: hourlyDataQuality, fiveMinute: null },
+        }
+      }
 
       const completedCandles = candles.filter((candle) => {
-        const timestampMs = new Date(candle.timestamp).getTime()
-        return Number.isFinite(timestampMs) && timestampMs + 60 * 60 * 1000 <= nowMs
+        const endMs = candleEndTime(candle, HOUR_MS)
+        return Number.isFinite(endMs) && endMs <= nowMs
       })
-      if (!completedCandles.length) return { symbol, available: false }
 
-      const enriched = enrichHistoricalCandles(completedCandles)
+      if (!completedCandles.length) {
+        return {
+          symbol,
+          available: false,
+          dataQuality: { hourly: hourlyDataQuality, fiveMinute: null },
+        }
+      }
+
+      const enriched = enrichHistoricalCandles(completedCandles, '1Hour')
       const latest = enriched[enriched.length - 1]
       const previous = enriched.length > 1 ? enriched[enriched.length - 2] : latest
-      const change = previous.close ? ((latest.close - previous.close) / previous.close) * 100 : 0
+      const change = previous.close
+        ? ((latest.close - previous.close) / previous.close) * 100
+        : 0
+
+      let vwap = null
+      let fiveMinuteDataQuality = null
+
+      try {
+        const fiveMinuteData = await fetchData(symbol, '5Min', range)
+        fiveMinuteDataQuality = fiveMinuteData?.dataQuality ?? null
+        vwap = getVwapAtEvaluationTime(
+          fiveMinuteData?.candles ?? [],
+          candleEndTime(latest, HOUR_MS),
+        )
+      } catch {
+        // Hourly indicators remain usable when VWAP data is unavailable.
+      }
+
       return {
         symbol,
         available: true,
+        dataQuality: { hourly: hourlyDataQuality, fiveMinute: fiveMinuteDataQuality },
         snapshot: {
           symbol,
           price: latest.price,
           change,
-          vwap: latest.vwap,
+          vwap,
           ema9: latest.ema9,
           ema21: latest.ema21,
           rsi: latest.rsi,
           relativeVolume: latest.relativeVolume,
+          relativeVolumeMethod: latest.relativeVolumeMethod,
           breakout: latest.breakout,
           trend: latest.trend,
           atr: latest.atr,
           volume: latest.volume,
         },
       }
-          } catch (error) {
-        return {
-          symbol,
-          available: false,
-          error: error?.message ?? 'Unknown scanner error',
-        }
+    } catch (error) {
+      return {
+        symbol,
+        available: false,
+        error: error?.message ?? 'Unknown scanner error',
+      }
     }
   }))
 }

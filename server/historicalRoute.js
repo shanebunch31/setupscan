@@ -1,3 +1,5 @@
+import { candleCompletesBy, historicalCandleEndTime } from '../src/data/historicalDataContract.js'
+
 function isWeekendOnlyGap(fromTimestamp, toTimestamp) {
   const fromMs = Date.parse(fromTimestamp)
   const toMs = Date.parse(toTimestamp)
@@ -62,7 +64,7 @@ export async function handleHistoricalRoute({
       if (!Number.isFinite(timeMs)) return false
 
       if (start && timeMs < Date.parse(start)) return false
-      if (end && timeMs > Date.parse(end)) return false
+      if (end && !candleCompletesBy(candle, timeframe, end)) return false
 
       return true
     })
@@ -94,8 +96,8 @@ export async function handleHistoricalRoute({
   covered.actualEnd || covered.requestedEnd
 
 const coveredEndMs = coveredEnd
-  ? Date.parse(coveredEnd)
-  : NaN
+  ? historicalCandleEndTime(coveredEnd, timeframe)
+  : null
 
 const requestedEndMs = end
   ? Date.parse(end)
@@ -178,12 +180,8 @@ if (
           adjustmentMode:
             tailData.adjustmentMode ??
             covered.adjustmentMode,
-          start:
-            covered.actualStart ??
-            tailData.start,
-          end:
-            tailData.end ??
-            covered.actualEnd,
+          start: mergedCandles[0]?.timestamp ?? null,
+          end: mergedCandles.at(-1)?.timestamp ?? null,
           requestedStart: start,
           requestedEnd: end,
           candleCount: mergedCandles.length,
@@ -223,13 +221,22 @@ if (
     }
   }
 
-  const data =
+  const fetchedData =
     await fetchHistoricalMarketBars({
       symbol,
       timeframe,
       start,
       end,
     })
+
+  const responseCandles = filterCandlesToRange(fetchedData.candles ?? [])
+  const data = {
+    ...fetchedData,
+    start: responseCandles[0]?.timestamp ?? null,
+    end: responseCandles.at(-1)?.timestamp ?? null,
+    candleCount: responseCandles.length,
+    candles: responseCandles,
+  }
 
   if (researchRunStore && data.complete) {
     await researchRunStore.saveResearchHistoricalCache({

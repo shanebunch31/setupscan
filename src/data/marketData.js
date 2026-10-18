@@ -1,4 +1,5 @@
 import { apiUrl } from '../config/apiBase.js'
+import { candleCompletesBy } from './historicalDataContract.js'
 
 const marketFixtures = {
   SPY: { price: 574.81, change: 0.62, vwap: 572.94, ema9: 573.68, ema21: 570.55, rsi: 61, relativeVolume: 1.28, breakout: true, trend: 'Bullish' },
@@ -80,7 +81,14 @@ export const EMA_CONTRACT_VERSION =
   'setupscan-ema-sma-seeded-recursive-v1'
 
 const emaPrecomputedMarker = Symbol.for(`setupscan.${EMA_CONTRACT_VERSION}`)
-const EMA_PREROLL_DAYS = 30
+
+const EMA_PREROLL_DAYS = {
+  '1Hour': 30,
+  '1Day': 90,
+  '4Hour': 60,
+  '5Min': 30,
+}
+
 
 function emaSeries(candles, period) {
   const alpha = 2 / (period + 1)
@@ -114,15 +122,20 @@ function emaSeries(candles, period) {
   })
 }
 
-function historicalFetchRange(range = {}, timeframe = '1Hour') {
-  const { start, end } = range
 
-  if (!start || timeframe !== '1Hour') {
+export function historicalFetchRange(range = {}, timeframe = '1Hour') {
+  const { start, end } = range
+  const requestedStart = start ?? null
+  const requestedEnd = end ?? null
+
+  const prerollDays = EMA_PREROLL_DAYS[timeframe]
+
+  if (!start || !prerollDays) {
     return {
       start,
       end,
-      requestedStart: start ?? null,
-      requestedEnd: end ?? null,
+      requestedStart,
+      requestedEnd,
     }
   }
 
@@ -133,28 +146,40 @@ function historicalFetchRange(range = {}, timeframe = '1Hour') {
       start,
       end,
       requestedStart: start,
-      requestedEnd: end,
+      requestedEnd,
     }
   }
 
-  const requestedStart = start
-
   parsedStart.setUTCDate(
-    parsedStart.getUTCDate() - EMA_PREROLL_DAYS,
+    parsedStart.getUTCDate() - prerollDays,
   )
 
   return {
     start: parsedStart.toISOString(),
     end,
     requestedStart,
-    requestedEnd: end ?? null,
+    requestedEnd,
   }
 }
 
 const enrichedHistoricalCandlesCache = new WeakMap()
-export function enrichHistoricalCandles(candles) {
-    if (enrichedHistoricalCandlesCache.has(candles)) {
-    return enrichedHistoricalCandlesCache.get(candles)
+const RELATIVE_VOLUME_LOOKBACK_SESSIONS = 20
+const RELATIVE_VOLUME_MIN_PRIOR_SESSIONS = 5
+
+// Intraday relative volume prefers the same Eastern clock-time in prior sessions; daily bars use
+// prior daily bars. If five same-slot observations are not available yet, it falls back to the
+// prior 20 available bars and records that method. All baselines are causal; fewer than five prior
+// bars leaves relative volume unavailable (null).
+export function enrichHistoricalCandles(candles, timeframe = '1Hour') {
+  let timeframeCache = enrichedHistoricalCandlesCache.get(candles)
+
+  if (!timeframeCache) {
+    timeframeCache = new Map()
+    enrichedHistoricalCandlesCache.set(candles, timeframeCache)
+  }
+
+  if (timeframeCache.has(timeframe)) {
+    return timeframeCache.get(timeframe)
   }
 
   const ema9Series = emaSeries(candles, 9)
@@ -164,49 +189,95 @@ export function enrichHistoricalCandles(candles) {
   let cumulativePriceVolume = 0
   let cumulativeVolume = 0
   let currentSessionKey = null
+  const volumeBySlotAndSession = new Map()
+  const priorBarVolumes = []
 
-  return candles.map((candle, index) => {
+  const easternFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  })
+
+  const enrichedCandles = candles.map((candle, index) => {
     const priorStart = Math.max(0, index - 20)
     const priorCandles = candles.slice(priorStart, index)
 
     const typicalPrice =
       (candle.high + candle.low + candle.close) / 3
-    const easternParts = new Intl.DateTimeFormat('en-US', {
-  timeZone: 'America/New_York',
-  weekday: 'short',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  hour12: false,
-}).formatToParts(new Date(candle.timestamp))
 
-   const eastern = Object.fromEntries(
-  easternParts
-    .filter(({ type }) => type !== 'literal')
-    .map(({ type, value }) => [type, value]),
-)
+    const easternParts = easternFormatter.formatToParts(
+      new Date(candle.timestamp),
+    )
 
-   const easternHour = Number(eastern.hour)
+    const eastern = Object.fromEntries(
+      easternParts
+        .filter(({ type }) => type !== 'literal')
+        .map(({ type, value }) => [type, value]),
+    )
 
-   const isRegularSessionBar =
-  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(eastern.weekday) &&
-  easternHour >= 10 &&
-  easternHour <= 15
+    const easternMinutes =
+      Number(eastern.hour) * 60 + Number(eastern.minute)
 
-   const sessionKey =
-  `${eastern.year}-${eastern.month}-${eastern.day}`
+    const isRegularSessionBar =
+      ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(eastern.weekday) &&
+      easternMinutes >= 570 &&
+      easternMinutes < 960 &&
+      timeframe !== '1Day'
 
-if (isRegularSessionBar && sessionKey !== currentSessionKey) {
-  currentSessionKey = sessionKey
-  cumulativePriceVolume = 0
-  cumulativeVolume = 0
-}
+    const sessionKey =
+      `${eastern.year}-${eastern.month}-${eastern.day}`
 
-if (isRegularSessionBar) {
-  cumulativePriceVolume += typicalPrice * candle.volume
-  cumulativeVolume += candle.volume
-}
+    const volumeSlot = timeframe === '1Day' ? 'daily' : String(easternMinutes)
+    let priorSessionVolumes = volumeBySlotAndSession.get(volumeSlot)
+    if (!priorSessionVolumes) {
+      priorSessionVolumes = new Map()
+      volumeBySlotAndSession.set(volumeSlot, priorSessionVolumes)
+    }
+    const sameSlotVolumes = [...priorSessionVolumes.entries()]
+      .filter(([priorSession]) => priorSession < sessionKey)
+      .sort(([sessionA], [sessionB]) => sessionB.localeCompare(sessionA))
+      .slice(0, RELATIVE_VOLUME_LOOKBACK_SESSIONS)
+      .map(([, volume]) => volume)
+    const useSameSlotBaseline = sameSlotVolumes.length >= RELATIVE_VOLUME_MIN_PRIOR_SESSIONS
+    const baselineVolumes = useSameSlotBaseline
+      ? sameSlotVolumes
+      : priorBarVolumes.slice(-RELATIVE_VOLUME_LOOKBACK_SESSIONS)
+    const averageVolume = baselineVolumes.length >= RELATIVE_VOLUME_MIN_PRIOR_SESSIONS
+      ? baselineVolumes.reduce((sum, volume) => sum + volume, 0) / baselineVolumes.length
+      : null
+    const relativeVolume = averageVolume > 0 && Number.isFinite(candle.volume)
+      ? candle.volume / averageVolume
+      : null
+    const relativeVolumeMethod = averageVolume === null
+      ? null
+      : useSameSlotBaseline
+        ? timeframe === '1Day' ? 'prior-daily-bars' : 'same-time-of-day'
+        : 'prior-bars'
+
+    if (Number.isFinite(candle.volume) && candle.volume > 0) {
+      priorSessionVolumes.set(sessionKey, candle.volume)
+      priorBarVolumes.push(candle.volume)
+    }
+
+    if (sessionKey !== currentSessionKey) {
+      currentSessionKey = sessionKey
+      cumulativePriceVolume = 0
+      cumulativeVolume = 0
+    }
+
+    if (
+      isRegularSessionBar &&
+      Number.isFinite(candle.volume) &&
+      candle.volume > 0
+    ) {
+      cumulativePriceVolume += typicalPrice * candle.volume
+      cumulativeVolume += candle.volume
+    }
 
     const usePrecomputedEma =
       candle?.[emaPrecomputedMarker] === EMA_CONTRACT_VERSION
@@ -235,21 +306,18 @@ if (isRegularSessionBar) {
       )
     }
 
-    const averageVolume =
-      cumulativeVolume / (index + 1)
-
     const range =
       candle.high - candle.low
 
     const enrichedCandle = {
       ...candle,
-      timeframe: '1h',
+      timeframe,
       price: candle.close,
 
      vwap:
-       cumulativeVolume
-         ? cumulativePriceVolume / cumulativeVolume
-         : candle.close,
+     cumulativeVolume > 0
+   ? cumulativePriceVolume / cumulativeVolume
+    : null,
 
       ema9,
       ema21,
@@ -258,11 +326,8 @@ if (isRegularSessionBar) {
         ? Math.round(rsiValues[index])
   : null,
 
-      relativeVolume:
-        averageVolume
-          ? candle.volume /
-            averageVolume
-          : 1,
+      relativeVolume,
+      relativeVolumeMethod,
 
       breakout:
         priorCandles.length >= 20 &&
@@ -291,74 +356,107 @@ if (isRegularSessionBar) {
     }
 
     return enrichedCandle
-  })
+   })
+
+  timeframeCache.set(timeframe, enrichedCandles)
+
+  return enrichedCandles
 }
      
       
 
-function buildHistoricalMarketDataResult(
+export function validateAndOrderHistoricalCandles(candles = []) {
+  const dataQuality = {
+    inputCandleCount: candles.length,
+    outOfOrderCandleCount: 0,
+    duplicateCandleCount: 0,
+    rejectedCandleCount: 0,
+  }
+  const validCandles = []
+  let latestInputTimestamp = -Infinity
+  const seenTimestamps = new Set()
+
+  for (const candle of candles) {
+    const timestamp = typeof candle?.timestamp === 'string' && candle.timestamp.length > 0
+      ? Date.parse(candle.timestamp)
+      : Number.NaN
+    const validPrices = [candle?.open, candle?.high, candle?.low, candle?.close]
+      .every((price) => Number.isFinite(price) && price > 0)
+    const validVolume = Number.isFinite(candle?.volume) && candle.volume >= 0
+    const validOhlc = validPrices &&
+      candle.high >= candle.low &&
+      candle.high >= Math.max(candle.open, candle.close) &&
+      candle.low <= Math.min(candle.open, candle.close)
+
+    if (!Number.isFinite(timestamp) || !validOhlc || !validVolume) {
+      dataQuality.rejectedCandleCount += 1
+      continue
+    }
+
+    if (timestamp < latestInputTimestamp) dataQuality.outOfOrderCandleCount += 1
+    latestInputTimestamp = Math.max(latestInputTimestamp, timestamp)
+
+    if (seenTimestamps.has(timestamp)) {
+      dataQuality.duplicateCandleCount += 1
+      continue
+    }
+    seenTimestamps.add(timestamp)
+    validCandles.push({ candle, timestamp })
+  }
+
+  // Keep the first valid provider row at a timestamp, then sort chronologically.
+  validCandles.sort((left, right) => left.timestamp - right.timestamp)
+  const orderedCandles = validCandles.map(({ candle }) => candle)
+  dataQuality.acceptedCandleCount = orderedCandles.length
+  return { candles: orderedCandles, dataQuality }
+}
+
+export function buildHistoricalMarketDataResult(
   symbol,
   timeframe,
   fetchRange,
   payload,
   fetchedCandles,
 ) {
+  const { candles: acceptedCandles, dataQuality } = validateAndOrderHistoricalCandles(fetchedCandles)
+  fetchedCandles = fetchRange.requestedEnd
+    ? acceptedCandles.filter((candle) => candleCompletesBy(candle, timeframe, fetchRange.requestedEnd))
+    : acceptedCandles
+  dataQuality.requestedEndExcludedCandleCount = acceptedCandles.length - fetchedCandles.length
+
   const ema9ByBar = emaSeries(fetchedCandles, 9)
   const breakoutByTimestamp = new Map()
 
-for (let index = 0; index < fetchedCandles.length; index += 1) {
-  const priorStart = Math.max(0, index - 20)
-  const priorCandles = fetchedCandles.slice(priorStart, index)
-  const priorHigh = priorCandles.reduce(
-    (highest, candle) => Math.max(highest, candle.high),
-    -Infinity,
-  )
-
-  breakoutByTimestamp.set(
-    fetchedCandles[index].timestamp,
-    priorCandles.length >= 20 &&
-      fetchedCandles[index].close > priorHigh,
-  )
-}
+  for (let index = 0; index < fetchedCandles.length; index += 1) {
+    const priorStart = Math.max(0, index - 20)
+    const priorCandles = fetchedCandles.slice(priorStart, index)
+    const priorHigh = priorCandles.reduce((highest, candle) => Math.max(highest, candle.high), -Infinity)
+    breakoutByTimestamp.set(fetchedCandles[index].timestamp, priorCandles.length >= 20 && fetchedCandles[index].close > priorHigh)
+  }
   const ema21ByBar = emaSeries(fetchedCandles, 21)
   const rsiByBar = rsiSeries(fetchedCandles)
 
-  const requestedStartTime =
-    fetchRange.requestedStart
-      ? new Date(
-          fetchRange.requestedStart,
-        ).getTime()
-      : null
-
-  const requestedEndTime =
-    fetchRange.requestedEnd
-      ? new Date(
-          fetchRange.requestedEnd,
-        ).getTime()
-      : null
-
-  const requestedRawCandles =
-    fetchRange.requestedStart
-      ? fetchedCandles.filter((candle) => {
-          const timestamp = new Date(
-            candle.timestamp,
-          ).getTime()
-
-          return (
-            Number.isFinite(timestamp) &&
-            (requestedStartTime === null ||
-              timestamp >= requestedStartTime) &&
-            (requestedEndTime === null ||
-              timestamp <= requestedEndTime)
-          )
-        })
-      : fetchedCandles
+  const requestedStartTime = fetchRange.requestedStart ? new Date(fetchRange.requestedStart).getTime() : null
+  const requestedRawCandles = fetchRange.requestedStart
+    ? fetchedCandles.filter((candle) => new Date(candle.timestamp).getTime() >= requestedStartTime)
+    : fetchedCandles
 
   const enrichedCalculationCandles =
-  enrichHistoricalCandles(fetchedCandles)
+  enrichHistoricalCandles(fetchedCandles, timeframe)
 
- const requestedEnriched =
-  enrichHistoricalCandles(requestedRawCandles)
+const requestedEnriched =
+  enrichHistoricalCandles(requestedRawCandles, timeframe)
+
+const relativeVolumeByTimestamp = new Map(
+  enrichedCalculationCandles.map((candle) => [
+    candle.timestamp,
+    {
+      vwap: candle.vwap,
+      relativeVolume: candle.relativeVolume,
+      relativeVolumeMethod: candle.relativeVolumeMethod,
+    },
+  ]),
+)
 
   const emaByTimestamp = new Map(
   fetchedCandles.map((candle, index) => [
@@ -377,9 +475,13 @@ for (let index = 0; index < fetchedCandles.length; index += 1) {
     emaByTimestamp.get(
     candle.timestamp,
     )
+  const calculationContext = relativeVolumeByTimestamp.get(candle.timestamp)
 
   const withEma = {
     ...candle,
+    vwap: calculationContext?.vwap ?? null,
+    relativeVolume: calculationContext?.relativeVolume ?? null,
+    relativeVolumeMethod: calculationContext?.relativeVolumeMethod ?? null,
     ema9:
     precomputed?.ema9 ?? null,
     ema21:
@@ -460,6 +562,7 @@ for (let index = 0; index < fetchedCandles.length; index += 1) {
       null,
     calculationCandleCount:
       fetchedCandles.length,
+    dataQuality,
     requestedStart:
       fetchRange.requestedStart,
     requestedEnd:

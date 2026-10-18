@@ -97,7 +97,7 @@ function persistedDataset(liveResults, symbolOrder) {
 test('reconstructs the historical requested/enriched inputs with pre-roll EMA and inclusive bounds', async () => {
   const allBars = bars('SPY', '2026-01-01T00:00:00.000Z', 30, 100)
   const requestedStart = allBars[25].timestamp
-  const requestedEnd = allBars[27].timestamp
+  const requestedEnd = new Date(Date.parse(allBars[27].timestamp) + 60 * 60 * 1000).toISOString()
   const live = await liveFetch('SPY', allBars, { start: requestedStart, end: requestedEnd })
   const canonical = persistedDataset({ SPY: live }, ['SPY'])
   const originalCanonical = structuredClone(canonical)
@@ -116,7 +116,7 @@ test('reconstructs the historical requested/enriched inputs with pre-roll EMA an
   assert.deepEqual(reconstructed.rawSeriesBySymbol.SPY, live.candles)
   assert.deepEqual(reconstructed.fetchResultsBySymbol.SPY.candles, live.candles)
   assert.equal(reconstructed.rawSeriesBySymbol.SPY[0].timestamp, requestedStart)
-  assert.equal(reconstructed.rawSeriesBySymbol.SPY.at(-1).timestamp, requestedEnd)
+  assert.equal(reconstructed.rawSeriesBySymbol.SPY.at(-1).timestamp, allBars[27].timestamp)
   assert.ok(reconstructed.fetchResultsBySymbol.SPY.calculationCandles.some(({ timestamp }) => timestamp < requestedStart))
   assert.equal(reconstructed.rawSeriesBySymbol.SPY[0].ema21, live.candles[0].ema21)
   assert.ok(Number.isFinite(reconstructed.rawSeriesBySymbol.SPY[0].ema21))

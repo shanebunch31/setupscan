@@ -452,3 +452,41 @@ test('cached historical requests return only candles within the requested date r
   )
   assert.equal(responses[0].body.candleCount, 2)
 })
+
+test('cached and provider historical responses exclude bars that finish after a mid-interval cutoff', async () => {
+  const sourceCandles = [
+    { symbol: 'SPY', timeframe: '1Hour', timestamp: '2026-03-08T14:00:00Z', close: 100 },
+    { symbol: 'SPY', timeframe: '1Hour', timestamp: '2026-03-08T15:00:00Z', close: 101 },
+  ]
+  const covered = {
+    provider: 'ALPACA HISTORICAL', symbol: 'SPY', timeframe: '1Hour', adjustmentMode: 'split',
+    actualStart: sourceCandles[0].timestamp, actualEnd: sourceCandles[1].timestamp,
+    complete: true, candles: sourceCandles,
+  }
+  const cacheStore = { async findResearchHistoricalCacheCoverage() { return covered } }
+  const cachedResponses = []
+  const noFetch = async () => { throw new Error('complete cache must be reused') }
+
+  for (const end of ['2026-03-08T11:30:00-04:00', '2026-03-08T12:00:00-04:00']) {
+    await handleHistoricalRoute({
+      response: {},
+      url: new URL(`http://localhost/api/historical?symbol=SPY&timeframe=1Hour&start=2026-03-08T14%3A00%3A00Z&end=${encodeURIComponent(end)}`),
+      fetchHistoricalMarketBars: noFetch,
+      researchRunStore: cacheStore,
+      sendJson: (_response, status, body) => cachedResponses.push({ status, body }),
+      createHistoricalCacheKey,
+    })
+  }
+  assert.deepEqual(cachedResponses[0].body.candles.map((candle) => candle.timestamp), ['2026-03-08T14:00:00Z'])
+  assert.deepEqual(cachedResponses[1].body.candles.map((candle) => candle.timestamp), sourceCandles.map((candle) => candle.timestamp))
+
+  const providerResponses = []
+  await handleHistoricalRoute({
+    response: {},
+    url: new URL('http://localhost/api/historical?symbol=SPY&timeframe=1Hour&start=2026-03-08T14%3A00%3A00Z&end=2026-03-08T11%3A30%3A00-04%3A00'),
+    fetchHistoricalMarketBars: async () => ({ provider: 'fixture', complete: false, candles: sourceCandles }),
+    sendJson: (_response, status, body) => providerResponses.push({ status, body }),
+    createHistoricalCacheKey,
+  })
+  assert.deepEqual(providerResponses[0].body.candles.map((candle) => candle.timestamp), ['2026-03-08T14:00:00Z'])
+})

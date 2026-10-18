@@ -2,15 +2,24 @@ function scoreItem(item) {
   const reasons = []
   let score = 0
 
-  const aboveVwap = item.price > item.vwap
-  reasons.push({
-    label: 'Price vs VWAP',
-    points: aboveVwap ? 20 : 0,
-    detail: aboveVwap
+  const vwapAvailable =
+  Number.isFinite(item.price) &&
+  Number.isFinite(item.vwap)
+
+const aboveVwap =
+  vwapAvailable && item.price > item.vwap
+
+reasons.push({
+  label: 'Price vs VWAP',
+  points: aboveVwap ? 20 : 0,
+  detail: !vwapAvailable
+    ? 'VWAP is unavailable, so this condition cannot be evaluated.'
+    : aboveVwap
       ? "Trading above the regular-session VWAP, showing price acceptance above the session's volume-weighted average."
-      : "Trading below the regular-session VWAP, limiting long-side conviction.",
-  })
-  if (aboveVwap) score += 20
+      : 'Trading at or below the regular-session VWAP, limiting long-side conviction.',
+})
+
+if (aboveVwap) score += 20
 
   const emaAligned = item.ema9 > item.ema21
   reasons.push({
@@ -45,22 +54,33 @@ function scoreItem(item) {
   })
   score += rsiPoints
 
+  const relativeVolumeAvailable = Number.isFinite(item.relativeVolume)
   const volumeQualified =
-    item.relativeVolume >= 1.2
+    relativeVolumeAvailable && item.relativeVolume >= 1.2
 
   const volumePoints =
     volumeQualified
       ? 15
-      : item.relativeVolume >= 1
+      : relativeVolumeAvailable && item.relativeVolume >= 1
         ? 8
         : 0
+
+  const volumeBaselineDescription = item.relativeVolumeMethod === 'same-time-of-day'
+    ? 'average volume for this time in prior sessions'
+    : item.relativeVolumeMethod === 'prior-daily-bars'
+      ? 'average volume in prior daily bars'
+      : item.relativeVolumeMethod === 'prior-bars'
+        ? 'average volume in the prior 20 available bars (not adjusted for time of day)'
+        : 'the available historical average volume'
 
   reasons.push({
     label: 'Relative volume',
     points: volumePoints,
-    detail: volumeQualified
-      ? `${item.relativeVolume.toFixed(2)}x average volume confirms participation.`
-      : `Volume at ${item.relativeVolume.toFixed(2)}x average does not meet the required confirmation threshold.`,
+    detail: !relativeVolumeAvailable
+      ? 'Comparable volume is unavailable until at least five prior observations are available.'
+      : volumeQualified
+        ? `${item.relativeVolume.toFixed(2)}x ${volumeBaselineDescription} confirms participation.`
+        : `Volume at ${item.relativeVolume.toFixed(2)}x ${volumeBaselineDescription} does not meet the required confirmation threshold.`,
   })
   score += volumePoints
 
@@ -121,8 +141,25 @@ const status =
   setupType,
   qualifiedSetup,
   potentialSetup,
+  // Stable research membership: both qualified and potential 75+ setups are eligible.
+  // Keep this separate from the user-facing status wording.
+  researchEligible: qualifiedSetup || potentialSetup,
   reasons,
 }
+}
+
+/** Whether a scored scanner result belongs to a research candidate set at the requested floor. */
+export function isResearchEligibleSignal(signal, minimumScore = 75) {
+  return signal?.researchEligible === true &&
+    Number.isFinite(signal.score) &&
+    signal.score >= minimumScore
+}
+
+/** Whether a scanner result meets the actual strategy's qualified-only entry rule. */
+export function isQualifiedSetupSignal(signal, minimumScore = 0) {
+  return signal?.qualifiedSetup === true &&
+    Number.isFinite(signal.score) &&
+    signal.score >= minimumScore
 }
 
 export function scanSetups(snapshot) {

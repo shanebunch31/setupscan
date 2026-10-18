@@ -28,6 +28,30 @@ test('historical Alpaca requests use split adjustment and expose the mode in fet
   }
 })
 
+test('missing OHLCV values stay invalid instead of being converted to zero', async () => {
+  const originalFetch = globalThis.fetch
+  const originalKey = process.env.ALPACA_API_KEY
+  const originalSecret = process.env.ALPACA_API_SECRET
+  process.env.ALPACA_API_KEY = 'test-key'
+  process.env.ALPACA_API_SECRET = 'test-secret'
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({ bars: [{ t: '2026-01-02T14:00:00Z', o: null, h: '2', l: '0.5', c: '1.5', v: null }] }),
+  })
+
+  try {
+    const result = await fetchAlpacaHistoricalBars({ symbol: 'SPY' })
+    assert.equal(Number.isNaN(result.candles[0].open), true)
+    assert.equal(Number.isNaN(result.candles[0].volume), true)
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalKey === undefined) delete process.env.ALPACA_API_KEY
+    else process.env.ALPACA_API_KEY = originalKey
+    if (originalSecret === undefined) delete process.env.ALPACA_API_SECRET
+    else process.env.ALPACA_API_SECRET = originalSecret
+  }
+})
+
 test('current 1Hour requests exclude forming bars and include the exact completion boundary', async () => {
   const originalFetch = globalThis.fetch
   const originalKey = process.env.ALPACA_API_KEY

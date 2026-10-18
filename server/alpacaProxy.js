@@ -9,15 +9,21 @@ function getMissingEnvironmentVariables(environment = process.env) {
 }
 
 function normalizeBar(bar, symbol, timeframe) {
+  const numberOrNaN = (value) => (
+    value === null || value === undefined || value === ''
+      ? Number.NaN
+      : Number(value)
+  )
+
   return {
     symbol,
     timeframe,
     timestamp: bar.t,
-    open: Number(bar.o),
-    high: Number(bar.h),
-    low: Number(bar.l),
-    close: Number(bar.c),
-    volume: Number(bar.v),
+    open: numberOrNaN(bar.o),
+    high: numberOrNaN(bar.h),
+    low: numberOrNaN(bar.l),
+    close: numberOrNaN(bar.c),
+    volume: numberOrNaN(bar.v),
   }
 }
 
