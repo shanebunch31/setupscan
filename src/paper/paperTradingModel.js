@@ -23,7 +23,8 @@ export function projectPaperTrade(trade) {
   const isExpired = isClosed && trade.exitReason === 'Expired'
   return {
     trade,
-    signalTime: formatMarketTime(trade?.signalTimestamp, { includeDate: true }),
+    signalTime: formatMarketTime(trade?.signalDetectedAt ?? trade?.signalTimestamp, { includeDate: true }),
+    signalTimeKind: trade?.signalDetectedAt ? 'Detected' : 'Signal candle',
     entryTime: formatMarketTime(trade?.entryTimestamp, { includeDate: true }),
     exitLabel: isExpired ? 'Expired' : isClosed ? 'Closed' : trade?.status === 'open' ? 'Open' : 'Unavailable',
     exitReason: isClosed && !isExpired ? trade.exitReason ?? null : null,

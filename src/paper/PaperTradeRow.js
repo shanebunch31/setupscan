@@ -9,7 +9,7 @@ export function PaperTradeRow({ row }) {
   const { trade } = row
   return h('tr', null,
     h('td', null, trade.symbol),
-    h('td', null, row.signalTime),
+    h('td', null, `${row.signalTimeKind}: ${row.signalTime}`),
     h('td', null, row.entryTime),
     h('td', null, trade.signalScore),
     h('td', null, trade.setupType),

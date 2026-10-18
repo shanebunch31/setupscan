@@ -20,10 +20,16 @@ function baseTrade() {
 
 test('paper row visibly shows entry and normal close time in ET', () => {
   const html = markup({ ...baseTrade(), exitReason: 'Target' })
+  assert.match(html, /Signal candle: Sep 26, 2026 · 10:00 AM ET/)
   assert.match(html, /Sep 26, 2026 · 10:15 AM ET/)
   assert.match(html, /Closed · Target/)
   assert.match(html, /Sep 26, 2026 · 11:42 AM ET/)
   assert.match(html, /ET/)
+})
+
+test('paper row distinguishes signal detection from the signal candle timestamp', () => {
+  const html = markup({ ...baseTrade(), signalDetectedAt: '2026-09-26T14:08:00.000Z' })
+  assert.match(html, /Detected: Sep 26, 2026 · 10:08 AM ET/)
 })
 
 test('paper row identifies expiration and displays its existing exit timestamp', () => {

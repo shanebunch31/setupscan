@@ -25,6 +25,7 @@ test('projects entry and closed exit timestamps in ET, identifying expiration fr
     exitReason: 'Target',
   })
   assert.equal(closed.signalTime, 'Sep 26, 2026 · 10:00 AM ET')
+  assert.equal(closed.signalTimeKind, 'Signal candle')
   assert.equal(closed.entryTime, 'Sep 26, 2026 · 10:15 AM ET')
   assert.equal(closed.exitLabel, 'Closed')
   assert.equal(closed.exitReason, 'Target')
@@ -38,6 +39,18 @@ test('projects entry and closed exit timestamps in ET, identifying expiration fr
   })
   assert.equal(expired.exitLabel, 'Expired')
   assert.equal(expired.exitTime, 'Sep 26, 2026 · 2:00 PM ET')
+})
+
+test('uses the actual recorded detection time for new-model signal presentation', () => {
+  const projected = projectPaperTrade({
+    status: 'open',
+    signalTimestamp: '2026-09-26T14:00:00.000Z',
+    signalDetectedAt: '2026-09-26T14:08:00.000Z',
+    entryTimestamp: '2026-09-26T15:00:00.000Z',
+  })
+  assert.equal(projected.signalTime, 'Sep 26, 2026 · 10:08 AM ET')
+  assert.equal(projected.signalTimeKind, 'Detected')
+  assert.equal(projected.entryTime, 'Sep 26, 2026 · 11:00 AM ET')
 })
 
 test('missing or malformed timestamps display as unavailable and are not inferred', () => {

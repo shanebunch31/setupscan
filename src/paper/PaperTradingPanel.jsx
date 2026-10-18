@@ -32,6 +32,8 @@ export function PaperTradingPanel() {
     {error && <p className="paper-error">{error}</p>}
     {snapshot && <>
       <p className="paper-disclaimer">Server-side Alpaca OHLCV only. {snapshot.limitation}</p>
+      <p className="paper-disclaimer">New paper entries use the close of the first adjacent completed OHLC bar whose interval ends after the signal is detected. This delayed bar-close estimate is not the exact first post-signal quote or a guaranteed fill. New records use paper-first-post-signal-close-v1. Older paper-ohlc-gap-aware-v1 records used the following bar's open; records with no version remain Legacy / unknown.</p>
+      <p className="paper-disclaimer">This dashboard journal uses the main server's local JSON file. The automated Paper Observer runs separately. If it uses PostgreSQL, its records are separate and are not shown here; its local-file fallback may be shared only when both processes use the same data file.</p>
       <PaperMetrics metrics={snapshot.metrics} />
       <div className="paper-symbol-grid">{Object.entries(snapshot.bySymbol).map(([symbol, data]) => <div key={symbol}><strong>{symbol}</strong><span>{data.metrics.totalTrades} trades · {data.metrics.closedTrades} closed · {formatR(data.metrics.cumulativeR)}</span></div>)}</div>
       <div className="paper-table-wrap"><table className="paper-table"><thead><tr>
