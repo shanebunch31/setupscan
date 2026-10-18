@@ -269,14 +269,14 @@ test('walk-forward window metrics keys are classified as walk-forward-test evide
   assert.equal(windowEntry.outOfSampleRole, 'walk-forward-test')
 })
 
-// --- 12. same strategy compatible evidence ---
-test('two evidence entries for the same strategy/symbol/timeframe are compatible', () => {
+// --- 12. cross-method evidence is not treated as equivalent ---
+test('two evidence entries with different methodology versions are not directly compatible', () => {
   const recordA = robustnessRecord()
   const recordB = signalQualityRecord()
   const result = synthesizeResearch([recordA, recordB])
   const group = findGroup(result, 'setup-scan-baseline')
   const comparison = compareEvidence(findEvidence(group, '75+'), findEvidence(group, '75-79'))
-  assert.equal(comparison.hardConflicts.length, 0)
+  assert.ok(comparison.hardConflicts.some((entry) => entry.field === 'methodologyVersion'))
 })
 
 // --- 13. different strategyIds remain separate groups ---
@@ -322,7 +322,7 @@ test('different known providers produce a hard conflict', () => {
 // --- 17. unknown provider ---
 test('missing provider on both sides is reported as unknown, not a hard conflict', () => {
   const recordA = robustnessRecord()
-  const recordB = signalQualityRecord()
+  const recordB = robustnessRecord()
   const comparison = compareEvidence(flattenViaSynthesis(recordA)[0], flattenViaSynthesis(recordB)[0])
   assert.equal(comparison.compatible, 'unknown')
   assert.ok(comparison.unknowns.some((entry) => entry.field === 'provider'))
@@ -334,6 +334,27 @@ test('matching split adjustment modes are compatible with respect to adjustmentM
   const recordB = robustnessRecord({ context: { provenance: { adjustmentMode: 'split' } } })
   const comparison = compareEvidence(flattenViaSynthesis(recordA)[0], flattenViaSynthesis(recordB)[0])
   assert.ok(!comparison.hardConflicts.some((entry) => entry.field === 'adjustmentMode'))
+})
+
+test('methodology versions are attached to saved evidence and mismatches prevent direct compatibility', () => {
+  const recordA = robustnessRecord()
+  const recordB = robustnessRecord()
+  recordB.methodologyVersion = 'robustness-2'
+  const evidenceA = flattenViaSynthesis(recordA)[0]
+  const evidenceB = flattenViaSynthesis(recordB)[0]
+  assert.equal(evidenceA.methodologyVersion, 'robustness-1')
+  const comparison = compareEvidence(evidenceA, evidenceB)
+  assert.equal(comparison.compatible, false)
+  assert.ok(comparison.hardConflicts.some((entry) => entry.field === 'methodologyVersion'))
+})
+
+test('missing methodology versions remain unknown and are not inferred', () => {
+  const record = robustnessRecord()
+  delete record.methodologyVersion
+  const evidence = flattenViaSynthesis(record)[0]
+  assert.equal(evidence.methodologyVersion, null)
+  const result = synthesizeResearch([record])
+  assert.equal(result.strategyGroups[0].evidence[0].methodologyVersion, null)
 })
 
 test('split and legacy-unknown adjustment modes produce a hard conflict', () => {

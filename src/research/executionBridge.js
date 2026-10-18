@@ -49,6 +49,7 @@ function createStatusRecord(executionResult, runContext, dataset, status) {
     category: definition.category,
     status,
     methodology: definition.methodology,
+    methodologyVersion: definition.methodologyVersion ?? null,
     input: {
       symbols: runContext?.symbols ?? [],
       timeframe: dataset?.timeframe ?? runContext?.timeframe ?? null,

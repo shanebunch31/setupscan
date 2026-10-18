@@ -90,19 +90,28 @@ export function createRunId() {
 }
 
 /**
- * Generates a deterministic identifier from the actual fetch metadata and ordered candle contents.
- * Input symbols are sorted, while candle order within each symbol is preserved. Request metadata,
- * completeness flags, and run identity do not affect this ID.
+ * Generates a deterministic identifier from the effective fetch contract and ordered calculation
+ * candles, including pre-roll. Input symbols are sorted, while candle order within each symbol is
+ * preserved. Request bounds and completeness metadata are included; run identity is not.
  *
  * @param {FetchResult[]} fetchResults Non-empty array; each entry must carry provider, symbol,
  *   timeframe, an actual start/end (accepts either `actualStart`/`actualEnd` or the fetch layer's
  *   own `start`/`end` field names), and a numeric candleCount.
- * @returns {string} e.g. "dataset_<sha256>".
+ * @returns {string} e.g. "dataset_v2_<sha256>".
  */
-export function createDatasetId(fetchResults, defaultAdjustmentMode = LEGACY_ADJUSTMENT_MODE) {
+export function createDatasetId(fetchResults, defaultAdjustmentMode = LEGACY_ADJUSTMENT_MODE, requestContext = {}) {
   assertValidFetchResults(fetchResults)
-  const serialized = serializeFetchResultsForFingerprint(fetchResults, defaultAdjustmentMode)
-  return `dataset_${sha256Hex(serialized)}`
+  const serialized = serializeFetchResultsForFingerprint(fetchResults, defaultAdjustmentMode, requestContext)
+  return `dataset_v2_${sha256Hex(serialized)}`
+}
+
+/**
+ * Preserves the original fingerprint for verifying saved pre-v2 dataset IDs during replay.
+ * New runs must use createDatasetId so effective range/completeness metadata is included.
+ */
+export function createLegacyDatasetId(fetchResults, defaultAdjustmentMode = LEGACY_ADJUSTMENT_MODE) {
+  assertValidFetchResults(fetchResults)
+  return `dataset_${sha256Hex(serializeLegacyFetchResultsForFingerprint(fetchResults, defaultAdjustmentMode))}`
 }
 
 function assertValidFetchResults(fetchResults) {
@@ -126,8 +135,40 @@ function assertValidFetchResults(fetchResults) {
   })
 }
 
-/** Sorts by symbol and keeps only the fields that define dataset identity (request/completeness metadata is excluded). */
-function serializeFetchResultsForFingerprint(fetchResults, defaultAdjustmentMode) {
+/** Sorts by symbol and includes the canonical calculation candles and effective fetch contract. */
+function serializeFetchResultsForFingerprint(fetchResults, defaultAdjustmentMode, requestContext = {}) {
+  const normalized = fetchResults
+    .map((result) => [
+      result.provider,
+      result.symbol,
+      result.timeframe,
+      result.adjustmentMode ?? defaultAdjustmentMode,
+      result.requestedStart ?? requestContext.requestedStart ?? null,
+      result.requestedEnd ?? requestContext.requestedEnd ?? null,
+      result.start ?? result.actualStart ?? null,
+      result.end ?? result.actualEnd ?? null,
+      result.calculationStart ?? calculationCandlesFor(result)[0]?.timestamp ?? result.actualStart ?? result.start ?? null,
+      result.calculationEnd ?? calculationCandlesFor(result).at(-1)?.timestamp ?? result.actualEnd ?? result.end ?? null,
+      result.requestedCandleCount ?? result.candleCount,
+      result.calculationCandleCount ?? result.candleCount,
+      result.complete ?? null,
+      calculationCandlesFor(result).map((candle) => [
+        candle?.symbol ?? result.symbol,
+        candle?.timestamp ?? null,
+        candle?.timeframe ?? result.timeframe,
+        candle?.open ?? null,
+        candle?.high ?? null,
+        candle?.low ?? null,
+        candle?.close ?? null,
+        candle?.volume ?? null,
+      ]),
+    ])
+    .sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0))
+  return JSON.stringify(normalized)
+}
+
+/** Original v1 serialization. Keep unchanged so legacy saved IDs remain verifiable. */
+function serializeLegacyFetchResultsForFingerprint(fetchResults, defaultAdjustmentMode) {
   const normalized = fetchResults
     .map((result) => [
       result.provider,
@@ -321,10 +362,19 @@ function normalizeSymbols(symbols) {
 // '1h' is accepted as a recognized alias only because it already appears as the enriched-candle
 // metadata artifact (src/data/marketData.js's enrichHistoricalCandles) — it is normalized to the
 // canonical request form here, never used as the canonical value itself.
-const TIMEFRAME_ALIASES = { '1Hour': '1Hour', '1h': '1Hour' }
+const TIMEFRAME_ALIASES = {
+  '1Hour': '1Hour',
+  '1h': '1Hour',
+  '1Day': '1Day',
+  '1D': '1Day',
+  '4Hour': '4Hour',
+  '4h': '4Hour',
+  '5Min': '5Min',
+  '5m': '5Min',
+}
 
 function normalizeTimeframe(timeframe) {
-  if (typeof timeframe !== 'string' || !(timeframe in TIMEFRAME_ALIASES)) {
+  if (typeof timeframe !== 'string' || !Object.hasOwn(TIMEFRAME_ALIASES, timeframe)) {
     throw new Error(`createResearchRunContext: unknown timeframe "${timeframe}"`)
   }
   return TIMEFRAME_ALIASES[timeframe]
@@ -487,7 +537,7 @@ export async function executeResearchRun(runContext, options = {}) {
   if (nonEmptyFetchResults.length) {
     try {
       dataset = {
-        datasetId: createDatasetId(nonEmptyFetchResults, runContext.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE),
+        datasetId: createDatasetId(nonEmptyFetchResults, runContext.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE, runContext),
         provider: [...providers][0],
         adjustmentMode: nonEmptyFetchResults.every((result) => (result.adjustmentMode ?? runContext.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE) === (nonEmptyFetchResults[0].adjustmentMode ?? runContext.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE))
           ? nonEmptyFetchResults[0].adjustmentMode ?? runContext.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE

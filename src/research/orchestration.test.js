@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { executeResearchExperiment } from './experimentExecutors.js'
 import { test } from 'node:test'
-import { createDatasetId, createResearchRunContext, createRunId, executeResearchRun } from './orchestration.js'
+import { createDatasetId, createLegacyDatasetId, createResearchRunContext, createRunId, executeResearchRun } from './orchestration.js'
 import { listResearchExperiments } from './registry.js'
 import { EMA_CONTRACT_VERSION } from '../data/marketData.js'
 import { HISTORICAL_ADJUSTMENT_MODE, LEGACY_ADJUSTMENT_MODE } from '../data/historicalDataContract.js'
@@ -105,15 +105,16 @@ test('createDatasetId treats missing adjustment provenance as legacy-unknown', (
   assert.notEqual(createDatasetId([oldStyle]), createDatasetId([{ ...oldStyle, adjustmentMode: 'split' }]))
 })
 
-test('createDatasetId uses SHA-256 over the canonical metadata and candle tuple representation', () => {
+test('createDatasetId v2 uses SHA-256 over effective metadata and candle tuples', () => {
   const result = makeFetchResult({ candleCount: 1, candles: [candlesForIdentity()[0]] })
   const candle = result.candles[0]
   const canonical = [[
-    result.provider, result.symbol, result.timeframe, result.start, result.end, result.candleCount,
-    result.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE,
+    result.provider, result.symbol, result.timeframe, result.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE,
+    result.requestedStart, result.requestedEnd, result.start, result.end,
+    candle.timestamp, candle.timestamp, result.candleCount, result.candleCount, result.complete,
     [[candle.symbol, candle.timestamp, candle.timeframe, candle.open, candle.high, candle.low, candle.close, candle.volume]],
   ]]
-  const expected = `dataset_${createHash('sha256').update(JSON.stringify(canonical), 'utf8').digest('hex')}`
+  const expected = `dataset_v2_${createHash('sha256').update(JSON.stringify(canonical), 'utf8').digest('hex')}`
   assert.equal(createDatasetId([result]), expected)
 })
 
@@ -253,16 +254,38 @@ test('createDatasetId: different runIds are irrelevant — datasetId depends onl
   assert.equal(createDatasetId(threeSymbolFetchResults()), createDatasetId(threeSymbolFetchResults()))
 })
 
-test('createDatasetId: changing requestedStart/requestedEnd only produces the SAME datasetId', () => {
+test('createDatasetId: changing requestedStart/requestedEnd produces a distinct v2 datasetId', () => {
   const base = createDatasetId([makeFetchResult()])
   const changed = createDatasetId([makeFetchResult({ requestedStart: '2019-01-01T00:00:00Z', requestedEnd: '2019-06-01T00:00:00Z' })])
-  assert.equal(base, changed)
+  assert.notEqual(base, changed)
 })
 
-test('createDatasetId: changing `complete` only produces the SAME datasetId', () => {
+test('createDatasetId: changing completeness produces a distinct v2 datasetId', () => {
   const base = createDatasetId([makeFetchResult({ complete: true })])
   const changed = createDatasetId([makeFetchResult({ complete: false })])
-  assert.equal(base, changed)
+  assert.notEqual(base, changed)
+})
+
+test('createDatasetId includes request-context dates when fetch results omit them', () => {
+  const result = makeFetchResult({ requestedStart: undefined, requestedEnd: undefined })
+  assert.notEqual(
+    createDatasetId([result], 'split', { requestedStart: '2022-01-01', requestedEnd: '2023-01-01' }),
+    createDatasetId([result], 'split', { requestedStart: '2023-01-01', requestedEnd: '2024-01-01' }),
+  )
+})
+
+test('createLegacyDatasetId retains the original v1 ID shape for old saved runs', () => {
+  const result = makeFetchResult({ candleCount: 1, candles: [candlesForIdentity()[0]] })
+  const candle = result.candles[0]
+  const legacy = [[
+    result.provider, result.symbol, result.timeframe, result.start, result.end, result.candleCount,
+    result.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE,
+    [[candle.symbol, candle.timestamp, candle.timeframe, candle.open, candle.high, candle.low, candle.close, candle.volume]],
+  ]]
+  assert.equal(
+    createLegacyDatasetId([result]),
+    `dataset_${createHash('sha256').update(JSON.stringify(legacy), 'utf8').digest('hex')}`,
+  )
 })
 
 test('createDatasetId: changing `minimumExpectedCandles` only produces the SAME datasetId', () => {
@@ -310,8 +333,15 @@ test('createDatasetId rejects a fetch result missing a required identity field',
 })
 
 test('createDatasetId accepts explicit actualStart/actualEnd field names as an alternative to start/end', () => {
-  const viaStartEnd = createDatasetId([makeFetchResult({ symbol: 'SPY', start: '2022-01-03T14:00:00Z', end: '2025-12-31T20:00:00Z' })])
-  const viaActual = createDatasetId([{ provider: 'ALPACA HISTORICAL', symbol: 'SPY', timeframe: '1Hour', actualStart: '2022-01-03T14:00:00Z', actualEnd: '2025-12-31T20:00:00Z', candleCount: 8760 }])
+  const viaStartEnd = createDatasetId([makeFetchResult({
+    symbol: 'SPY', start: '2022-01-03T14:00:00Z', end: '2025-12-31T20:00:00Z',
+    requestedStart: null, requestedEnd: null,
+  })])
+  const viaActual = createDatasetId([{
+    provider: 'ALPACA HISTORICAL', symbol: 'SPY', timeframe: '1Hour',
+    actualStart: '2022-01-03T14:00:00Z', actualEnd: '2025-12-31T20:00:00Z',
+    candleCount: 8760, complete: true,
+  }])
   assert.equal(viaStartEnd, viaActual)
 })
 
@@ -383,8 +413,14 @@ test('createResearchRunContext: recognized "1h" alias normalizes to "1Hour"', ()
   assert.equal(context.timeframe, '1Hour')
 })
 
-test('createResearchRunContext: an unknown timeframe is rejected', () => {
-  assert.throws(() => createResearchRunContext(baseRequest({ timeframe: '5Min' })))
+test('createResearchRunContext: supported timeframes are accepted', () => {
+  for (const timeframe of ['1Hour', '1h', '1Day', '1D', '4Hour', '4h', '5Min', '5m']) {
+    const context = createResearchRunContext(baseRequest({ timeframe }))
+    assert.ok(context.timeframe)
+  }
+})
+
+test('createResearchRunContext: unknown timeframes are rejected', () => {
   assert.throws(() => createResearchRunContext(baseRequest({ timeframe: 'banana' })))
   assert.throws(() => createResearchRunContext(baseRequest({ timeframe: undefined })))
 })

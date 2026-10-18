@@ -7,6 +7,7 @@ function evidence(overrides = {}) {
     id: 'signal-quality::75-79',
     sourceRecordId: 'signal-quality',
     experimentId: 'signal-quality',
+    methodologyVersion: 'signal-quality-1',
     strategyId: 'setup-scan-baseline',
     ruleSetVariant: null,
     strategyAssociation: 'explicit',

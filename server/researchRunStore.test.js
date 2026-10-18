@@ -448,6 +448,7 @@ test('saves and retrieves a completed run with record, nativePayload, synthesis,
   assert.equal(retrieved.runContext.adjustmentMode, 'split')
   assert.equal(retrieved.records.length, 1)
   assert.equal(retrieved.records[0].id, 'robustness')
+  assert.equal(retrieved.records[0].methodologyVersion, 'robustness-1')
   assert.equal(retrieved.records[0].nativePayload.thresholdResults[0].metrics.profitFactor, Infinity)
   assert.equal(retrieved.experimentResults[0].nativeOutput.thresholdResults[0].metrics.profitFactor, Infinity)
   assert.deepEqual(retrieved.synthesis, run.synthesis)

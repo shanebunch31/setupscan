@@ -13,11 +13,25 @@ import {
 
 const MULTI_SYMBOL_REQUIREMENTS = ['SPY', 'QQQ', 'IWM']
 
+const STOP_FIRST_AMBIGUITY_POLICY = Object.freeze({
+  label: 'Stop-first; ambiguous candles counted',
+  explanation: 'When a candle opens between the active stop and target and its later high and low touch both, this simulator records the stop first and counts that trade as ambiguous. The percentage is out of simulated trades in the displayed result. This describes historical candle uncertainty, not an actual trade fill.',
+  countStatus: 'reported',
+})
+
+const EXCLUDE_AMBIGUITY_POLICY = Object.freeze({
+  label: 'Ambiguous outcomes excluded and counted',
+  explanation: 'When a candle opens between the stop and target and its later high and low touch both, the candle does not show which barrier came first. Strategy Discovery excludes that outcome from performance statistics and reports its count and share among classifiable in-window outcomes. This is historical-candle uncertainty, not actual trade execution.',
+  countStatus: 'reported',
+})
+
 const definitions = [
   {
     id: 'robustness',
+    methodologyVersion: 'robustness-1',
     requiredSymbols: [],
     title: 'Strategy Resilience',
+    ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
     category: 'baseline-validation',
     description: 'Threshold and market-condition sensitivity of the existing setup scan backtest.',
     methodology: 'Run existing threshold and market-condition research over supplied candles.',
@@ -25,8 +39,10 @@ const definitions = [
   },
   {
     id: 'relative-value',
+    methodologyVersion: 'relative-value-2',
     requiredSymbols: [],
     title: 'Relative Value',
+    ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
     category: 'context-regime',
     description: 'Relative-value confirmation and pair diagnostics.',
     methodology: 'Compare the existing baseline with relative-value variants using native summaries.',
@@ -34,8 +50,10 @@ const definitions = [
   },
   {
     id: 'signal-quality',
+    methodologyVersion: 'signal-quality-2',
     requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Signal Quality',
+    ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
     category: 'baseline-validation',
     description: 'Score buckets, component analysis, and signal decomposition.',
     methodology: 'Analyze the existing signal catalogue without changing score construction.',
@@ -43,17 +61,21 @@ const definitions = [
   },
   {
     id: 'frozen-score-holdout',
+    methodologyVersion: 'frozen-score-holdout-2',
     requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Frozen Score Holdout',
+    ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
     category: 'baseline-validation',
-    description: 'Development and holdout comparison for the frozen score rule set.',
-    methodology: 'Preserve the runner-provided development and holdout partitions.',
+    description: 'Retrospective comparison of the frozen score rule set across an older 2022–2024 window and later development data.',
+    methodology: 'Preserve the runner-provided partitions. The older 2022–2024 window is not a forward-in-time or future-period holdout.',
     adapter: adaptFrozenScoreHoldoutOutput,
   },
   {
     id: 'yearly-regime',
+    methodologyVersion: 'yearly-regime-2',
     requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Yearly / Regime Stability',
+    ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
     category: 'baseline-validation',
     description: 'Calendar-year and regime-proxy breakdowns.',
     methodology: 'Summarize the runner-provided yearly partitions and regime proxies.',
@@ -61,8 +83,10 @@ const definitions = [
   },
   {
     id: 'causal-regime',
+    methodologyVersion: 'causal-regime-2',
     requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Causal Regime',
+    ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
     category: 'context-regime',
     description: 'Causal trend, volatility, breadth, and combined regime breakdowns.',
     methodology: 'Preserve regime-at-signal groupings and native evidence tables.',
@@ -70,8 +94,10 @@ const definitions = [
   },
   {
     id: 'walk-forward-regime',
+    methodologyVersion: 'walk-forward-regime-2',
     requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Walk-Forward Regime',
+    ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
     category: 'context-regime',
     description: 'Walk-forward training and test-window analysis.',
     methodology: 'Retain runner-defined training boundaries and test-period evidence.',
@@ -79,8 +105,10 @@ const definitions = [
   },
   {
     id: 'volatility-aware-variants',
+    methodologyVersion: 'volatility-aware-variants-2',
     requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Volatility-Aware Variants',
+    ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
     category: 'context-regime',
     description: 'Volatility-aware variants, stress tests, and control differences.',
     methodology: 'Expose native variant, pooled, consistency, and stress-test outputs.',
@@ -88,8 +116,10 @@ const definitions = [
   },
   {
     id: 'strategy-discovery',
+    methodologyVersion: 'strategy-discovery-2',
     requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Strategy Discovery',
+    ambiguityPolicy: EXCLUDE_AMBIGUITY_POLICY,
     category: 'discovery',
     description: 'Existing discovery batches and candidate-family research outputs.',
     methodology: 'Preserve discovery occurrence semantics, exclusions, and availability state.',
@@ -97,8 +127,10 @@ const definitions = [
   },
   {
     id: 'strategy-comparison',
+    methodologyVersion: 'strategy-comparison-1',
     requiredSymbols: [],
     title: 'Strategy Comparison',
+    ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
     category: 'baseline-validation',
     description: 'Control versus trend and momentum comparison.',
     methodology: 'Keep the two native strategy result structures side by side.',

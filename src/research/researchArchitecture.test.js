@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createResearchRecordForExperiment, getResearchExperiment, listResearchExperiments, researchRegistry } from './registry.js'
-import { adaptStandardResearchOutput } from './adapters.js'
+import {
+  adaptStandardResearchOutput,
+  adaptStrategyDiscoveryOutput,
+} from './adapters.js'
 import { createFinding, createResearchRecord, COST_MODEL_STATUSES, FINDING_STATES, RESEARCH_STATUSES } from './researchRecord.js'
 
 // --- Small fixtures shaped exactly like the real runXResearch() outputs (src/backtest/*.js). ---
@@ -75,7 +78,24 @@ test('registry identifies all existing research areas and adapter boundaries', (
     'strategy-comparison',
   ])
   assert.equal(getResearchExperiment('signal-quality').category, 'baseline-validation')
-  researchRegistry.forEach((definition) => assert.equal(typeof definition.adapter, 'function'))
+  researchRegistry.forEach((definition) => {
+    assert.equal(typeof definition.adapter, 'function')
+    assert.equal(typeof definition.methodologyVersion, 'string')
+    assert.ok(definition.methodologyVersion.length > 0)
+    assert.ok(definition.ambiguityPolicy?.label)
+    assert.ok(definition.ambiguityPolicy?.explanation)
+  })
+  assert.equal(getResearchExperiment('strategy-discovery').ambiguityPolicy.countStatus, 'reported')
+  assert.match(getResearchExperiment('strategy-discovery').ambiguityPolicy.label, /excluded and counted/)
+  researchRegistry.filter((definition) => definition.id !== 'strategy-discovery').forEach((definition) => {
+    assert.equal(definition.ambiguityPolicy.countStatus, 'reported')
+    assert.match(definition.ambiguityPolicy.label, /Stop-first; ambiguous candles counted/)
+  })
+})
+
+test('registered experiment adapters copy the methodology version onto normalized records', () => {
+  const record = createResearchRecordForExperiment('robustness', { thresholdResults: [] })
+  assert.equal(record.methodologyVersion, getResearchExperiment('robustness').methodologyVersion)
 })
 
 test('generic adaptStandardResearchOutput preserves native output and envelope fields', () => {
@@ -108,6 +128,75 @@ test('generic adaptStandardResearchOutput preserves native output and envelope f
     datasetId: 'dataset-test',
     requestedAt: 'requested-at',
   })
+})
+
+test('stop-first adapter evidence preserves only supplied ambiguity counts and rates', () => {
+  const record = createResearchRecordForExperiment('robustness', {
+    thresholdResults: [{ minimumScore: 75, metrics: {
+      totalTrades: 4,
+      ambiguousTradeCount: 1,
+      ambiguityRateDenominator: 4,
+      ambiguousTradeRate: 0.25,
+    } }],
+  })
+  assert.equal(record.metrics['75+'].ambiguousTradeCount, 1)
+  assert.equal(record.metrics['75+'].ambiguityRateDenominator, 4)
+  assert.equal(record.metrics['75+'].ambiguousTradeRate, 0.25)
+
+  const legacy = createResearchRecordForExperiment('robustness', {
+    thresholdResults: [{ minimumScore: 75, metrics: { totalTrades: 4 } }],
+  })
+  assert.equal('ambiguousTradeCount' in legacy.metrics['75+'], false)
+  assert.equal('ambiguousTradeRate' in legacy.metrics['75+'], false)
+})
+
+test('Strategy Discovery adapter preserves exclusion counts alongside performance metrics', () => {
+  const definition = {
+    id: 'strategy-discovery',
+    title: 'Strategy Discovery',
+    category: 'strategy-discovery',
+  }
+  const nativePayload = {
+    universe: ['SPY', 'QQQ', 'IWM'],
+    experiments: [
+      {
+        experimentId: 'mean-reversion-v1',
+        summary: {
+          overall: {
+            occurrenceCount: 0,
+            winRate: 0,
+            profitFactor: 0,
+            averageR: 0,
+            totalR: 0,
+          },
+          excluded: {
+            ambiguousCount: 7,
+            ambiguousInResearchWindowCount: 5,
+            classifiableInResearchWindowCount: 20,
+            ambiguousInResearchWindowRate: 0.25,
+            insufficientDataCount: 12,
+            outsideResearchWindowCount: 3,
+            periodBoundaryCount: 2,
+            excursionPeriodBoundaryCount: 4,
+          },
+        },
+      },
+    ],
+  }
+
+  const record = adaptStrategyDiscoveryOutput(definition, nativePayload)
+  const metrics = record.metrics['mean-reversion-v1']
+
+  assert.equal(metrics.occurrenceCount, 0)
+  assert.equal(metrics.ambiguousCount, 7)
+  assert.equal(metrics.ambiguousInResearchWindowCount, 5)
+  assert.equal(metrics.classifiableInResearchWindowCount, 20)
+  assert.equal(metrics.ambiguousInResearchWindowRate, 0.25)
+  assert.equal(metrics.insufficientDataCount, 12)
+  assert.equal(metrics.outsideResearchWindowCount, 3)
+  assert.equal(metrics.periodBoundaryCount, 2)
+  assert.equal(metrics.excursionPeriodBoundaryCount, 4)
+  assert.equal(record.nativePayload, nativePayload)
 })
 
 test('finding factory supports every required evidence state', () => {

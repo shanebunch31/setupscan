@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createResearchRecordForExperiment } from './registry.js'
 import { synthesizeResearch } from './synthesis.js'
+import { strategyDiscoveryCostTiers } from '../backtest/strategyDiscovery/discoveryMetrics.js'
 import {
   composeResearchRunResult,
   createResearchRunComposer,
@@ -397,12 +398,10 @@ test('strategy discovery qualification is included in the composed result', () =
           },
         ],
 
-        costTiers: [{
-          label: 'Moderate',
-          metrics: {
-            expectancy: 0.5,
-          },
-        }],
+        costTiers: strategyDiscoveryCostTiers.map((tier) => ({
+          label: tier.label,
+          metrics: { occurrenceCount: 250, expectancy: 0.5 },
+        })),
       },
     }],
   };
@@ -424,7 +423,7 @@ test('strategy discovery qualification is included in the composed result', () =
   );
   assert.equal(
     composed.qualification.candidates[0].status,
-    'Promising Candidate',
+    'Initial Evidence Passed',
   );
 
   // Existing research outputs remain available.

@@ -62,6 +62,7 @@ export function createResearchRecord({
   category,
   status = 'untested',
   methodology = null,
+  methodologyVersion = null,
   input = {},
   parameters = {},
   costModel = null,
@@ -83,6 +84,7 @@ export function createResearchRecord({
     category,
     status,
     methodology,
+    methodologyVersion,
     input: { ...input },
     parameters: { ...parameters },
     costModel,
@@ -113,6 +115,9 @@ const metricAliases = {
   // `netReturn` (strategy.js) is the actual net total R, so it maps onto normalized totalR instead.
   totalR: ['totalR', 'netReturn'],
   maximumDrawdown: ['maximumDrawdown'],
+  ambiguousTradeCount: ['ambiguousTradeCount'],
+  ambiguityRateDenominator: ['ambiguityRateDenominator'],
+  ambiguousTradeRate: ['ambiguousTradeRate'],
 }
 
 export function normalizeMetrics(source = {}) {

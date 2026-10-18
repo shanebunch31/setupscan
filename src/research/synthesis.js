@@ -69,6 +69,7 @@ function makeEvidence(record, metricsKey, strategyId, ruleSetVariant, metrics, p
     id: evidenceId(record.id, metricsKey),
     sourceRecordId: record.id,
     experimentId: record.id,
+    methodologyVersion: record.methodologyVersion ?? null,
     strategyId: strategyId ?? null,
     ruleSetVariant: ruleSetVariant ?? null,
     // 'explicit': strategyId came directly from the adapter's own metrics-key output.
@@ -254,6 +255,7 @@ export function compareEvidence(evidenceA, evidenceB) {
   compareKnownField('timeframe', evidenceA.timeframe, evidenceB.timeframe, hardConflicts, unknowns)
   compareKnownField('provider', evidenceA.provider, evidenceB.provider, hardConflicts, unknowns)
   compareKnownField('emaContractVersion', evidenceA.emaContractVersion, evidenceB.emaContractVersion, hardConflicts, unknowns)
+  compareKnownField('methodologyVersion', evidenceA.methodologyVersion, evidenceB.methodologyVersion, hardConflicts, unknowns)
   compareKnownField('adjustmentMode', evidenceA.adjustmentMode ?? 'legacy-unknown', evidenceB.adjustmentMode ?? 'legacy-unknown', hardConflicts, unknowns)
 
   // Out-of-sample role differences (e.g. development vs holdout, in-sample vs out-of-sample) are

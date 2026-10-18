@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createDatasetId } from './orchestration.js'
+import { createDatasetId, createLegacyDatasetId } from './orchestration.js'
 import { resolveCurrentEffectiveExperimentConfiguration } from './effectiveExperimentConfiguration.js'
 import { checkResearchReplayCompatibility } from './replayCompatibility.js'
 import { reconstructResearchDataset } from '../data/marketData.js'
@@ -27,9 +27,10 @@ function makeCandles(symbol) {
   })
 }
 
-function makeModernRun({ symbols = baseSymbols, experimentIds = allExperimentIds, unavailableSymbols = [], incompleteSymbols = [], emptySymbols = [] } = {}) {
+function makeModernRun({ symbols = baseSymbols, experimentIds = allExperimentIds, unavailableSymbols = [], incompleteSymbols = [], emptySymbols = [], legacyDatasetId = false } = {}) {
   const requestedStart = makeCandles('SPY')[20].timestamp
-  const requestedEnd = makeCandles('SPY').at(-1).timestamp
+  // Requested end is a completed interval boundary, not the final candle's start timestamp.
+  const requestedEnd = new Date(Date.parse(makeCandles('SPY').at(-1).timestamp) + 60 * 60 * 1000).toISOString()
   const bySymbol = {}
   const fetchResults = []
   const calculationSeries = []
@@ -89,7 +90,9 @@ function makeModernRun({ symbols = baseSymbols, experimentIds = allExperimentIds
   calculationSeries.sort((left, right) => left.symbol.localeCompare(right.symbol))
   const effectiveDateProvenance = { requestedStart, requestedEnd, symbols: bySymbol }
   const adjustmentMode = 'split'
-  const datasetId = fetchResults.length ? createDatasetId(fetchResults, adjustmentMode) : null
+  const datasetId = fetchResults.length
+    ? (legacyDatasetId ? createLegacyDatasetId(fetchResults, adjustmentMode) : createDatasetId(fetchResults, adjustmentMode))
+    : null
   const provider = 'ALPACA HISTORICAL'
   const timeframe = '1Hour'
   const fetchStatus = successfulSymbols.length === 0
@@ -138,6 +141,10 @@ function makeModernRun({ symbols = baseSymbols, experimentIds = allExperimentIds
     dataset,
     effectiveDateProvenance,
     experimentResults,
+    records: experimentResults.map(({ experimentId }) => ({
+      id: experimentId,
+      methodologyVersion: listResearchExperiments().find((item) => item.id === experimentId)?.methodologyVersion,
+    })),
     effectiveExperimentConfiguration: {},
     synthesis: { provenance: { datasetId } },
   }
@@ -172,6 +179,24 @@ test('accepts a fully compatible modern run using its exact canonical dataset', 
   const { run, canonicalDataset } = makeModernRun()
   const result = check(run, canonicalDataset)
   assert.deepEqual(result, { compatible: true, blockers: [] }, JSON.stringify(result.blockers, null, 2))
+})
+
+test('legacy v1 dataset IDs remain replay-verifiable without being rewritten', () => {
+  const { run, canonicalDataset } = makeModernRun({ legacyDatasetId: true })
+  const result = check(run, canonicalDataset)
+  assert.ok(run.dataset.datasetId.startsWith('dataset_'))
+  assert.equal(run.dataset.datasetId.startsWith('dataset_v2_'), false)
+  assert.deepEqual(result, { compatible: true, blockers: [] }, JSON.stringify(result.blockers, null, 2))
+})
+
+test('exact replay blocks legacy-unknown and mismatched experiment methodology versions', () => {
+  const legacy = makeModernRun({ experimentIds: ['strategy-comparison'] })
+  delete legacy.run.records[0].methodologyVersion
+  assert.ok(hasBlocker(check(legacy.run, legacy.canonicalDataset), 'methodology-version-unknown'))
+
+  const changed = makeModernRun({ experimentIds: ['strategy-comparison'] })
+  changed.run.records[0].methodologyVersion = 'strategy-comparison-old'
+  assert.ok(hasBlocker(check(changed.run, changed.canonicalDataset), 'methodology-version-mismatch'))
 })
 
 test('blocks missing canonical dataset and missing datasetId', () => {

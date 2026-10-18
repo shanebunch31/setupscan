@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   qualifyStrategyDiscovery,
 } from './strategyQualification.js';
+import { strategyDiscoveryCostTiers } from '../backtest/strategyDiscovery/discoveryMetrics.js';
 
 
 function makeExperiment({
@@ -14,6 +15,8 @@ function makeExperiment({
   includeOutOfSample = true,
   includeHoldout = true,
   includeCostTiers = true,
+  periodOccurrenceCounts = {},
+  costTierExpectancies = {},
   developmentExpectancy = 1,
   outOfSampleExpectancy = 1,
   holdoutExpectancy = 1,
@@ -24,7 +27,7 @@ function makeExperiment({
   if (includeDevelopment) {
     byPeriod.push({
       label: 'Development',
-      occurrenceCount: 100,
+      occurrenceCount: periodOccurrenceCounts.Development ?? 100,
       expectancy: developmentExpectancy,
     });
   }
@@ -32,7 +35,7 @@ function makeExperiment({
   if (includeOutOfSample) {
     byPeriod.push({
       label: 'Out-of-Sample',
-      occurrenceCount: 100,
+      occurrenceCount: periodOccurrenceCounts['Out-of-Sample'] ?? 100,
       expectancy: outOfSampleExpectancy,
     });
   }
@@ -40,7 +43,7 @@ function makeExperiment({
   if (includeHoldout) {
     byPeriod.push({
       label: 'Holdout (2026 YTD)',
-      occurrenceCount: 50,
+      occurrenceCount: periodOccurrenceCounts['Holdout (2026 YTD)'] ?? 50,
       expectancy: holdoutExpectancy,
     });
   }
@@ -55,12 +58,13 @@ function makeExperiment({
       },
       byPeriod,
       costTiers: includeCostTiers
-        ? [{
-            label: 'Moderate',
+        ? strategyDiscoveryCostTiers.map((tier) => ({
+            label: tier.label,
             metrics: {
-              expectancy: costTierExpectancy,
+              occurrenceCount,
+              expectancy: costTierExpectancies[tier.label] ?? costTierExpectancy,
             },
-          }]
+          }))
         : [],
     },
   };
@@ -166,7 +170,7 @@ test('missing cost-tier evidence prevents promising status', () => {
   );
 });
 
-test('complete initial evidence checks can produce a promising candidate', () => {
+test('complete initial evidence checks use the evidence-strength status label', () => {
   const result = qualifyStrategyDiscovery({
     available: true,
     experiments: [makeExperiment()],
@@ -174,7 +178,7 @@ test('complete initial evidence checks can produce a promising candidate', () =>
 
   assert.equal(
     result.candidates[0].status,
-    'Promising Candidate'
+    'Initial Evidence Passed'
   );
 });
 
@@ -202,7 +206,7 @@ test('qualification never authorizes trading', () => {
 });
 
 
-test('negative out-of-sample expectancy cannot produce a promising candidate', () => {
+test('negative out-of-sample expectancy cannot pass the initial evidence label', () => {
   const result = qualifyStrategyDiscovery({
     available: true,
     experiments: [
@@ -212,11 +216,11 @@ test('negative out-of-sample expectancy cannot produce a promising candidate', (
 
   assert.notEqual(
     result.candidates[0].status,
-    'Promising Candidate'
+    'Initial Evidence Passed'
   );
 });
 
-test('missing cost-tier expectancy cannot produce a promising candidate', () => {
+test('missing cost-tier expectancy cannot pass the initial evidence label', () => {
   const result = qualifyStrategyDiscovery({
     available: true,
     experiments: [
@@ -226,11 +230,11 @@ test('missing cost-tier expectancy cannot produce a promising candidate', () => 
 
   assert.notEqual(
     result.candidates[0].status,
-    'Promising Candidate'
+    'Initial Evidence Passed'
   );
 });
 
-test('negative overall expectancy cannot produce a promising candidate', () => {
+test('negative overall expectancy cannot pass the initial evidence label', () => {
   const result = qualifyStrategyDiscovery({
     available: true,
     experiments: [
@@ -240,6 +244,49 @@ test('negative overall expectancy cannot produce a promising candidate', () => {
 
   assert.notEqual(
     result.candidates[0].status,
-    'Promising Candidate'
+    'Initial Evidence Passed'
   );
+});
+
+test('a positive average from only one completed trade in a required period is insufficient', () => {
+  const result = qualifyStrategyDiscovery({
+    available: true,
+    experiments: [makeExperiment({ periodOccurrenceCounts: { 'Out-of-Sample': 1 } })],
+  });
+  const candidate = result.candidates[0];
+  assert.equal(candidate.status, 'Needs More Testing');
+  assert.ok(candidate.reasons.some((reason) => reason.includes('Out-of-Sample has 1 resolved occurrences')));
+});
+
+test('a negative high-cost tier prevents the initial evidence label', () => {
+  const highCost = strategyDiscoveryCostTiers.at(-1).label;
+  const result = qualifyStrategyDiscovery({
+    available: true,
+    experiments: [makeExperiment({ costTierExpectancies: { [highCost]: -0.1 } })],
+  });
+  assert.equal(result.candidates[0].status, 'Needs More Testing');
+  assert.ok(result.candidates[0].reasons.some((reason) => reason.includes('Every configured cost tier must have a positive expectancy')));
+});
+
+test('missing or unresolved period data cannot pass the initial evidence label', () => {
+  const missing = qualifyStrategyDiscovery({
+    available: true,
+    experiments: [makeExperiment({ includeHoldout: false })],
+  });
+  assert.equal(missing.candidates[0].status, 'Needs More Testing');
+
+  const unresolved = qualifyStrategyDiscovery({
+    available: true,
+    experiments: [makeExperiment({ periodOccurrenceCounts: { 'Holdout (2026 YTD)': 0 } })],
+  });
+  assert.equal(unresolved.candidates[0].status, 'Needs More Testing');
+});
+
+test('sufficient positive evidence passes with a label and explanation that make no profit guarantee', () => {
+  const candidate = qualifyStrategyDiscovery({
+    available: true,
+    experiments: [makeExperiment()],
+  }).candidates[0];
+  assert.equal(candidate.status, 'Initial Evidence Passed');
+  assert.ok(candidate.reasons.some((reason) => reason.includes('does not predict or guarantee future profitability')));
 });

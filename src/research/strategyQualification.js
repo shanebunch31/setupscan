@@ -1,6 +1,11 @@
 
+import { strategyDiscoveryCostTiers } from '../backtest/strategyDiscovery/discoveryMetrics.js';
+
 const MIN_EXPLORATORY_OCCURRENCES = 100;
 const MIN_DEEP_COMPARISON_OCCURRENCES = 200;
+// Require a modest resolved sample in every required window; positive averages
+// from one or a handful of trades are too unstable to support a candidate label.
+const MIN_PERIOD_OCCURRENCES = 30;
 
 function finiteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value)
@@ -136,6 +141,7 @@ export function qualifyStrategyDiscovery(payload) {
     const periodResultsValid = periodExpectancies.every(
       ({ period }) =>
         period !== null &&
+        (finiteNumber(period.occurrenceCount) ?? 0) >= MIN_PERIOD_OCCURRENCES &&
         finiteNumber(period.expectancy) !== null &&
         period.expectancy > 0
     );
@@ -144,12 +150,13 @@ export function qualifyStrategyDiscovery(payload) {
       ? summary.costTiers
       : [];
 
-    const costTierResultsValid =
-      costTiers.length > 0 &&
-      costTiers.every(
-        (tier) =>
-          finiteNumber(tier.metrics?.expectancy) !== null
-      );
+    const costTierResultsValid = strategyDiscoveryCostTiers.every(
+      (configuredTier) => {
+        const tier = costTiers.find((candidate) => candidate.label === configuredTier.label);
+        const tierExpectancy = finiteNumber(tier?.metrics?.expectancy);
+        return tierExpectancy !== null && tierExpectancy > 0;
+      }
+    );
 
     if (expectancy === null) {
       reasons.push('Overall expectancy is missing or invalid.');
@@ -164,10 +171,15 @@ export function qualifyStrategyDiscovery(payload) {
     }
 
     for (const { label, period } of periodExpectancies) {
+      const periodCount = finiteNumber(period?.occurrenceCount) ?? 0;
       const periodExpectancy = finiteNumber(period?.expectancy);
 
       if (!period) {
         reasons.push(`${label} results are missing.`);
+      } else if (periodCount < MIN_PERIOD_OCCURRENCES) {
+        reasons.push(
+          `${label} has ${periodCount} resolved occurrences; at least ${MIN_PERIOD_OCCURRENCES} are required for the initial evidence check.`
+        );
       } else if (periodExpectancy === null) {
         reasons.push(`${label} expectancy is missing or invalid.`);
       } else if (periodExpectancy <= 0) {
@@ -183,11 +195,11 @@ export function qualifyStrategyDiscovery(payload) {
       reasons.push('Cost-tier results are missing.');
     } else if (!costTierResultsValid) {
       reasons.push(
-        'One or more cost tiers have missing or invalid expectancy metrics.'
+        'Every configured cost tier must have a positive expectancy; missing, invalid, or non-positive tiers fail this initial resilience check.'
       );
     } else {
       reasons.push(
-        'Cost-tier expectancy metrics are present; their values should be reviewed before further qualification.'
+        'Expectancy is positive at every configured cost tier; this is historical evidence, not a guarantee of future profitability.'
       );
     }
 
@@ -210,9 +222,9 @@ export function qualifyStrategyDiscovery(payload) {
       expectancy !== null &&
       expectancy > 0
     ) {
-      status = 'Promising Candidate';
+      status = 'Initial Evidence Passed';
       reasons.push(
-        'Initial evidence checks passed. Stability, cost-resilience, and further independent review are still required.'
+        'This label means the initial evidence checks passed. It does not predict or guarantee future profitability; stability and independent review are still required.'
       );
     }
 

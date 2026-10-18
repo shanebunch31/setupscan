@@ -43,7 +43,8 @@ function makeModernRun({
   emptySymbols = [],
 } = {}) {
   const requestedStart = makeCandles('SPY')[20].timestamp
-  const requestedEnd = makeCandles('SPY').at(-1).timestamp
+  // Requested end is an interval boundary: include the final candle only once its full hour ends.
+  const requestedEnd = new Date(Date.parse(makeCandles('SPY').at(-1).timestamp) + 60 * 60 * 1000).toISOString()
 
   const bySymbol = {}
   const fetchResults = []
@@ -274,6 +275,10 @@ function makeModernRun({
     dataset,
     effectiveDateProvenance,
     experimentResults,
+    records: experimentResults.map(({ experimentId }) => ({
+      id: experimentId,
+      methodologyVersion: listResearchExperiments().find((item) => item.id === experimentId)?.methodologyVersion,
+    })),
     effectiveExperimentConfiguration: {},
 
     synthesis: {

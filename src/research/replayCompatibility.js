@@ -1,5 +1,5 @@
 import { reconstructResearchDataset } from '../data/marketData.js'
-import { createDatasetId } from './orchestration.js'
+import { createDatasetId, createLegacyDatasetId } from './orchestration.js'
 import { getResearchExperiment } from './registry.js'
 
 function canonicalJson(value) {
@@ -175,6 +175,12 @@ function validateExperiments(run, reconstructed, runtime, blockers) {
       return
     }
     if (!result) return
+    const savedRecord = (run?.records ?? []).find((record) => record?.id === experimentId)
+    if (!nonemptyString(savedRecord?.methodologyVersion)) {
+      blockers.push(blocker('methodology-version-unknown', `records.${experimentId}.methodologyVersion`, definition.methodologyVersion, savedRecord?.methodologyVersion ?? null, `Exact replay requires a known saved methodology version for ${experimentId}.`))
+    } else if (savedRecord.methodologyVersion !== definition.methodologyVersion) {
+      blockers.push(blocker('methodology-version-mismatch', `records.${experimentId}.methodologyVersion`, definition.methodologyVersion, savedRecord.methodologyVersion, `Saved and current methodology versions differ for ${experimentId}.`))
+    }
     if (['failed', 'skipped', 'incomplete'].includes(result.status)) {
       blockers.push(blocker('experiment-status-not-replayable', `experimentResults.${experimentId}.status`, 'succeeded or deterministically unavailable', 'failed/skipped/incomplete', `Experiment ${experimentId} did not complete successfully and cannot be promoted during exact replay.`))
     }
@@ -264,7 +270,11 @@ export function checkResearchReplayCompatibility({ run, canonicalDataset, runtim
           Object.defineProperty(input, 'calculationCandles', { value: result.calculationCandles })
           return input
         })
-      const recomputedId = hashInputs.length ? createDatasetId(hashInputs, canonicalAdjustment) : null
+      const recomputedId = hashInputs.length
+        ? (runDatasetId.startsWith('dataset_v2_')
+          ? createDatasetId(hashInputs, canonicalAdjustment, context)
+          : createLegacyDatasetId(hashInputs, canonicalAdjustment))
+        : null
       if (!recomputedId || recomputedId !== runDatasetId) {
         blockers.push(blocker('dataset-content-mismatch', 'datasetId', runDatasetId, recomputedId, 'Recomputed canonical candle identity does not match the saved datasetId.'))
       }

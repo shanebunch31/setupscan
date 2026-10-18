@@ -191,6 +191,7 @@ function createAdaptedRecord(definition, payload, context = {}, metrics = extrac
     category: definition.category,
     status: deriveResearchStatus(payload, input),
     methodology: definition.methodology,
+    methodologyVersion: definition.methodologyVersion ?? null,
     input,
     parameters: context.parameters ?? payload?.options ?? {},
     costModel: context.costModel ?? derivedCostModel(payload),
@@ -289,7 +290,6 @@ export function adaptRelativeValueOutput(definition, payload, context = {}) {
   const costModel = context.costModel ?? withCostStatus('modeled', payload)
   return createAdaptedRecord(definition, payload, { ...context, costModel }, metrics)
 }
-
 /** Signal Quality's native output is organized by score bucket rather than a single overall summary. */
 export function adaptSignalQualityOutput(definition, payload, context = {}) {
   const scoreBuckets = Array.isArray(payload?.scoreBuckets) ? payload.scoreBuckets : []
@@ -302,7 +302,6 @@ export function adaptSignalQualityOutput(definition, payload, context = {}) {
   const costModel = context.costModel ?? withCostStatus('modeled', payload)
   return createAdaptedRecord(definition, payload, { ...context, costModel }, metrics)
 }
-
 /** Frozen Score Holdout reports baseline/RV-confirmed metrics separately for the development and holdout splits. */
 export function adaptFrozenScoreHoldoutOutput(definition, payload, context = {}) {
   // development/holdout are evaluation partitions of the same two strategies, not rule variants —
@@ -434,12 +433,24 @@ export function adaptStrategyComparisonOutput(definition, payload, context = {})
 
 export function adaptStrategyDiscoveryOutput(definition, payload, context = {}) {
   const experiments = Array.isArray(payload?.experiments) ? payload.experiments : []
-  const metrics = Object.fromEntries(experiments.map((experiment) => [
-    experiment.experimentId,
-    // Strategy Discovery already versions its own native identity (e.g. momentum-breakout-v1) —
-    // reuse it as-is rather than inventing a new one.
-    withStrategy(normalizeMetrics(firstObject(experiment.summary?.overall, experiment.summary)), experiment.experimentId),
-  ]))
+  const metrics = Object.fromEntries(experiments.map((experiment) => {
+    const excluded = experiment.summary?.excluded ?? {}
+
+    return [
+      experiment.experimentId,
+      withStrategy({
+        ...normalizeMetrics(firstObject(experiment.summary?.overall, experiment.summary)),
+        ambiguousCount: excluded.ambiguousCount ?? null,
+        ambiguousInResearchWindowCount: excluded.ambiguousInResearchWindowCount ?? null,
+        classifiableInResearchWindowCount: excluded.classifiableInResearchWindowCount ?? null,
+        ambiguousInResearchWindowRate: excluded.ambiguousInResearchWindowRate ?? null,
+        insufficientDataCount: excluded.insufficientDataCount ?? null,
+        outsideResearchWindowCount: excluded.outsideResearchWindowCount ?? null,
+        periodBoundaryCount: excluded.periodBoundaryCount ?? null,
+        excursionPeriodBoundaryCount: excluded.excursionPeriodBoundaryCount ?? null,
+      }, experiment.experimentId),
+    ]
+  }))
   const costModel = context.costModel ?? withCostStatus('modeled', payload)
   return createAdaptedRecord(definition, payload, { ...context, costModel }, metrics)
 }

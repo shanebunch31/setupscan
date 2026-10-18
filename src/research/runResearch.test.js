@@ -131,11 +131,20 @@ test('symbols and timeframe use existing normalization before fetch', async () =
   assert.equal(calls.length, 0)
 })
 
-test('invalid symbols and timeframe reject before any fetch', async () => {
+test('invalid symbols and unsupported timeframe reject before any fetch', async () => {
   let fetchCalls = 0
   const options = runOptions({ fetcher: async () => { fetchCalls += 1 } })
-  await assert.rejects(runResearch(request({ symbols: ['SPY', ''] }), options), /symbol/)
-  await assert.rejects(runResearch(request({ timeframe: '5Min' }), options), /timeframe/)
+
+  await assert.rejects(
+    runResearch(request({ symbols: ['SPY', ''] }), options),
+    /symbol/,
+  )
+
+  await assert.rejects(
+    runResearch(request({ timeframe: 'banana' }), options),
+    /timeframe/,
+  )
+
   assert.equal(fetchCalls, 0)
 })
 
