@@ -206,7 +206,7 @@ export function runCausalRegimeResearch(rawSeriesBySymbol, settings = {}) {
   const regimeByIndex = computeCausalRegimeSeries(aligned.raw, options)
   const symbols = Object.keys(aligned.raw)
 
-  const baselinePredicate = (entry) => entry.score >= options.minimumScore && entry.status === 'Bullish'
+  const baselinePredicate = (entry) => entry.researchEligible && entry.score >= options.minimumScore
   const rvConfirmedPredicate = (entry) => baselinePredicate(entry) && entry.components.rvConfirmation
   const regimeOf = (entry) => regimeByIndex[entry.index]
 
@@ -270,7 +270,7 @@ export function runCausalRegimeResearch(rawSeriesBySymbol, settings = {}) {
 
   function bucketsForPredicate(basePredicate) {
     return scoreBucketDefinitions.map(([label, min, max]) => {
-      const summary = summarizeForPredicate((entry) => basePredicate(entry) && entry.score >= min && entry.score <= max && entry.status === 'Bullish')
+      const summary = summarizeForPredicate((entry) => basePredicate(entry) && entry.score >= min && entry.score <= max && entry.researchEligible)
       return { label, min, max, smallSample: summary.overall.tradeCount < options.smallSampleThreshold, ...summary }
     })
   }

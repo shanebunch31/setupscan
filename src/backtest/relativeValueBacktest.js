@@ -3,8 +3,9 @@
 // strategy (runSetupScanBacktest) for Variant A. Does not modify either. Research only — not
 // wired into the production scanner or the paper trading engine.
 import { enrichHistoricalCandles } from '../data/marketData.js'
-import { scanSetups } from '../logic/scanner.js'
+import { isQualifiedSetupSignal, scanSetups } from '../logic/scanner.js'
 import { runSetupScanBacktest } from './strategy.js'
+import { isAmbiguousStopTargetCandle, summarizeAmbiguousTrades } from './ambiguousCandle.js'
 import {
   synchronizeCandleSeries,
   computeRatioSeries,
@@ -38,7 +39,7 @@ function buildAlignedSeries(rawSeriesBySymbol) {
 
 // Mirrors the entry/exit conventions of the existing baseline strategy (strategy.js createTrade):
 // signal at index i -> entry at candle i+1 open -> stop/target evaluated from candle i+1 onward.
-function buildTradeFromIndex(candles, signalIndex, options, meta = {}) {
+export function buildTradeFromIndex(candles, signalIndex, options, meta = {}) {
   const entryCandle = candles[signalIndex + 1]
   if (!entryCandle) return null
   const entryPrice = entryCandle.open ?? entryCandle.close
@@ -51,8 +52,15 @@ function buildTradeFromIndex(candles, signalIndex, options, meta = {}) {
   let exitReason = 'Expired'
   let exitPrice = candles[signalIndex + maxBars]?.close ?? entryPrice
   let holdingBars = maxBars
+  let ambiguousCandle = false
+  let ambiguityDataAvailable = true
   for (let offset = 1; offset <= maxBars; offset += 1) {
     const candle = candles[signalIndex + offset]
+    const candleAmbiguity = isAmbiguousStopTargetCandle(candle, stopPrice, targetPrice)
+    if (candleAmbiguity === null) ambiguityDataAvailable = false
+    if (candleAmbiguity === true) ambiguousCandle = true
+    if (Number.isFinite(candle.open) && candle.open <= stopPrice) { exitReason = 'Stop'; exitPrice = candle.open; holdingBars = offset; break }
+    if (Number.isFinite(candle.open) && candle.open >= targetPrice) { exitReason = 'Target'; exitPrice = targetPrice; holdingBars = offset; break }
     if (candle.low <= stopPrice) { exitReason = 'Stop'; exitPrice = stopPrice; holdingBars = offset; break }
     if (candle.high >= targetPrice) { exitReason = 'Target'; exitPrice = targetPrice; holdingBars = offset; break }
   }
@@ -68,6 +76,7 @@ function buildTradeFromIndex(candles, signalIndex, options, meta = {}) {
     targetPrice,
     exitPrice,
     exitReason,
+    ambiguousCandle: ambiguityDataAvailable ? ambiguousCandle : null,
     holdingBars,
     holdingTime: holdingBars * 60,
     rMultiple,
@@ -95,6 +104,7 @@ function computeMetrics(trades, useCosts) {
   const averageLoser = average(losses.map((trade) => trade[rKey]))
   return {
     tradeCount: trades.length,
+    ...summarizeAmbiguousTrades(trades),
     winRate,
     profitFactor: grossLoss ? grossProfit / grossLoss : grossProfit ? Infinity : 0,
     expectancy: winRate * averageWinner + (losses.length / (trades.length || 1)) * averageLoser,
@@ -111,8 +121,21 @@ function periodLabelForTimestamp(timestamps, timestamp, periodCount) {
   return `Period ${Math.floor(index / periodSize) + 1}`
 }
 
+// Pooled R outcomes are accumulated by signal timestamp; ties sort by symbol, variant, pair, then
+// outcome fields so symbol insertion order cannot change the drawdown path. This is not a model of
+// overlapping positions, exit-time equity, or portfolio capital constraints.
+function comparePooledTrades(a, b) {
+  return a.timestamp.localeCompare(b.timestamp) ||
+    String(a.symbol ?? '').localeCompare(String(b.symbol ?? '')) ||
+    String(a.variant ?? '').localeCompare(String(b.variant ?? '')) ||
+    String(a.pair ?? '').localeCompare(String(b.pair ?? '')) ||
+    (a.holdingBars ?? 0) - (b.holdingBars ?? 0) ||
+    (a.rMultiple ?? 0) - (b.rMultiple ?? 0) ||
+    String(a.exitReason ?? '').localeCompare(String(b.exitReason ?? ''))
+}
+
 function summarizeVariant(entriesBySymbol, timestamps, periodCount) {
-  const allTrades = entriesBySymbol.flatMap((entry) => entry.trades)
+  const allTrades = entriesBySymbol.flatMap((entry) => entry.trades).sort(comparePooledTrades)
   const bySymbol = entriesBySymbol.map((entry) => ({
     symbol: entry.symbol,
     beforeCosts: computeMetrics(entry.trades, false),
@@ -187,7 +210,9 @@ export function runRelativeValueExperiment(rawSeriesBySymbol, settings = {}) {
     // Variant D — combined: baseline bullish signal AND relative-value confirmation both true.
     const dTrades = []
     scanSetups(primaryEnriched).forEach((signal) => {
-      if (signal.score < options.minimumScore || signal.status !== 'Bullish') return
+      // Variant D is explicitly the Variant A baseline plus RV confirmation; Variant A's
+      // default backtest accepts qualified setups only (potential setups are not entries).
+      if (!isQualifiedSetupSignal(signal, options.minimumScore)) return
       const index = primaryEnriched.findIndex((candle) => candle.timestamp === signal.timestamp)
       if (index < 0 || index >= primaryEnriched.length - 1) return
       if (!confirmation[index]?.confirmed) return

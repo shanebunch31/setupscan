@@ -10,10 +10,10 @@ import {
   scoreBucketDefinitions,
   buildAlignedSeries,
   buildCatalogueBySymbol,
-  buildTradeFromIndex,
   summarizeTrades,
   assessScoreMonotonicity,
 } from './signalQualityBacktest.js'
+import { buildTradeWithinEvaluationWindow } from './evaluationWindow.js'
 
 export const walkForwardDefaults = {
   ...signalQualityDefaults,
@@ -39,6 +39,21 @@ function median(values) {
   const sorted = [...values].sort((a, b) => a - b)
   const mid = Math.floor(sorted.length / 2)
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+/** Compare yearly regime expectancy only when both regimes have valid trade observations. */
+export function compareRegimeExpectancyByYear(evidenceTable) {
+  const comparableYears = evidenceTable.filter((row) => (
+    row.low.tradeCount > 0
+    && row.medium.tradeCount > 0
+    && Number.isFinite(row.low.expectancy)
+    && Number.isFinite(row.medium.expectancy)
+  ))
+  return {
+    comparableYearCount: comparableYears.length,
+    mediumExceedsLowCount: comparableYears.filter((row) => row.medium.expectancy > row.low.expectancy).length,
+    lowExceedsMediumCount: comparableYears.filter((row) => row.low.expectancy > row.medium.expectancy).length,
+  }
 }
 
 // --- Causal building block, self-contained so Experiment #5's file is never touched. ---
@@ -148,14 +163,18 @@ export function runWalkForwardRegimeResearch(rawSeriesBySymbol, settings = {}) {
   const options = { ...walkForwardDefaults, ...settings }
   const { aligned, catalogueBySymbol, symbols, timestamps, windows: builtWindows } = computeWalkForwardWindows(rawSeriesBySymbol, options)
 
-  const baselinePredicate = (entry) => entry.score >= options.minimumScore && entry.status === 'Bullish'
+  const baselinePredicate = (entry) => entry.researchEligible && entry.score >= options.minimumScore
   const rvConfirmedPredicate = (entry) => baselinePredicate(entry) && entry.components.rvConfirmation
 
-  function summarizeForPredicate(predicate) {
+  function summarizeForPredicate(predicate, evaluationEndIndexByTimestamp = null) {
     const tradesBySymbol = symbols.map((symbol) => {
       const trades = catalogueBySymbol[symbol]
         .filter(predicate)
-        .map((entry) => buildTradeFromIndex(aligned.raw[symbol], entry.index, options, { symbol }))
+        .map((entry) => buildTradeWithinEvaluationWindow(
+          aligned.raw[symbol], entry.index, options,
+          evaluationEndIndexByTimestamp?.get(entry.timestamp) ?? timestamps.length - 1,
+          { symbol },
+        ))
         .filter(Boolean)
       return { symbol, trades }
     })
@@ -163,25 +182,31 @@ export function runWalkForwardRegimeResearch(rawSeriesBySymbol, settings = {}) {
   }
 
   const globalTestRegimeByTimestamp = new Map()
+  const globalTestWindowEndByTimestamp = new Map()
 
   const windows = builtWindows.map((windowEntry) => {
     const { boundaries, testRegimeByIndex, testIndices } = windowEntry
-    testIndices.forEach((index) => globalTestRegimeByTimestamp.set(timestamps[index], testRegimeByIndex.get(index)))
+    const testWindowEndIndex = testIndices.at(-1) ?? -1
+    testIndices.forEach((index) => {
+      globalTestRegimeByTimestamp.set(timestamps[index], testRegimeByIndex.get(index))
+      globalTestWindowEndByTimestamp.set(timestamps[index], testWindowEndIndex)
+    })
     const testTimestampSet = new Set(testIndices.map((index) => timestamps[index]))
+    const testWindowEndByTimestamp = new Map(testIndices.map((index) => [timestamps[index], testWindowEndIndex]))
     const regimeOfEntry = (entry) => testRegimeByIndex.get(entry.index) ?? null
 
-    const baseline = summarizeForPredicate((entry) => testTimestampSet.has(entry.timestamp) && baselinePredicate(entry))
-    const rvConfirmed = summarizeForPredicate((entry) => testTimestampSet.has(entry.timestamp) && rvConfirmedPredicate(entry))
+    const baseline = summarizeForPredicate((entry) => testTimestampSet.has(entry.timestamp) && baselinePredicate(entry), testWindowEndByTimestamp)
+    const rvConfirmed = summarizeForPredicate((entry) => testTimestampSet.has(entry.timestamp) && rvConfirmedPredicate(entry), testWindowEndByTimestamp)
 
     const volatilityGroups = volatilityLabels.map((label) => ({
       label,
-      baseline: flagged(summarizeForPredicate((entry) => testTimestampSet.has(entry.timestamp) && baselinePredicate(entry) && regimeOfEntry(entry) === label), options.smallSampleThreshold),
-      rvConfirmed: flagged(summarizeForPredicate((entry) => testTimestampSet.has(entry.timestamp) && rvConfirmedPredicate(entry) && regimeOfEntry(entry) === label), options.smallSampleThreshold),
+      baseline: flagged(summarizeForPredicate((entry) => testTimestampSet.has(entry.timestamp) && baselinePredicate(entry) && regimeOfEntry(entry) === label, testWindowEndByTimestamp), options.smallSampleThreshold),
+      rvConfirmed: flagged(summarizeForPredicate((entry) => testTimestampSet.has(entry.timestamp) && rvConfirmedPredicate(entry) && regimeOfEntry(entry) === label, testWindowEndByTimestamp), options.smallSampleThreshold),
     }))
 
     const scoreByVolatility = volatilityLabels.map((volatilityLabel) => {
       const buckets = scoreBucketDefinitions.map(([bucketLabel, min, max]) => {
-        const summary = summarizeForPredicate((entry) => testTimestampSet.has(entry.timestamp) && entry.score >= min && entry.score <= max && entry.status === 'Bullish' && regimeOfEntry(entry) === volatilityLabel)
+        const summary = summarizeForPredicate((entry) => testTimestampSet.has(entry.timestamp) && entry.score >= min && entry.score <= max && entry.researchEligible && regimeOfEntry(entry) === volatilityLabel, testWindowEndByTimestamp)
         return { label: bucketLabel, min, max, smallSample: summary.overall.tradeCount < options.smallSampleThreshold, ...summary }
       })
       return { volatilityLabel, buckets, monotonicity: monotonicityIfSufficient(buckets, options.smallSampleThreshold) }
@@ -211,8 +236,8 @@ export function runWalkForwardRegimeResearch(rawSeriesBySymbol, settings = {}) {
   // Part C (pooled) / Part D: pool every test period's trades by regime, using each window's own frozen boundaries.
   const pooledVolatilityGroups = volatilityLabels.map((label) => ({
     label,
-    baseline: flagged(summarizeForPredicate((entry) => baselinePredicate(entry) && globalTestRegimeByTimestamp.get(entry.timestamp) === label), options.smallSampleThreshold),
-    rvConfirmed: flagged(summarizeForPredicate((entry) => rvConfirmedPredicate(entry) && globalTestRegimeByTimestamp.get(entry.timestamp) === label), options.smallSampleThreshold),
+    baseline: flagged(summarizeForPredicate((entry) => baselinePredicate(entry) && globalTestRegimeByTimestamp.get(entry.timestamp) === label, globalTestWindowEndByTimestamp), options.smallSampleThreshold),
+    rvConfirmed: flagged(summarizeForPredicate((entry) => rvConfirmedPredicate(entry) && globalTestRegimeByTimestamp.get(entry.timestamp) === label, globalTestWindowEndByTimestamp), options.smallSampleThreshold),
   }))
 
   const evidenceTable = windows.map((windowEntry) => ({
@@ -228,8 +253,7 @@ export function runWalkForwardRegimeResearch(rawSeriesBySymbol, settings = {}) {
   const criticalTest = {
     highVolatilityPositiveCount: evidenceTable.filter((row) => row.high.tradeCount > 0 && row.high.expectancy > 0).length,
     highVolatilityNegativeCount: evidenceTable.filter((row) => row.high.tradeCount > 0 && row.high.expectancy < 0).length,
-    mediumExceedsLowCount: evidenceTable.filter((row) => row.medium.expectancy > row.low.expectancy).length,
-    lowExceedsMediumCount: evidenceTable.filter((row) => row.low.expectancy > row.medium.expectancy).length,
+    ...compareRegimeExpectancyByYear(evidenceTable),
     averageHighVolatilityExpectancy: average(highExpectancies),
     averageMediumVolatilityExpectancy: average(mediumExpectancies),
     averageLowVolatilityExpectancy: average(lowExpectancies),

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { classifyTimeOfDay, runBreakoutContextResearch } from './breakoutContextResearch.js'
+import { classifyTimeOfDay, computeFirstObservedDailyRangeLabels, runBreakoutContextResearch } from './breakoutContextResearch.js'
 
 function makeCandle(dayIndex, hourIndex, overrides = {}) {
   const totalHours = dayIndex * 24 + hourIndex
@@ -42,6 +42,33 @@ test('classifyTimeOfDay buckets Eastern-time sessions correctly across both EST 
 
   // 20:30 ET, well outside the regular session.
   assert.equal(classifyTimeOfDay('2023-06-16T00:30:00Z'), 'Outside Regular Session (Pre/Post-Market)')
+})
+
+test('first-observed daily range uses a premarket candle before the regular session', () => {
+  const labels = computeFirstObservedDailyRangeLabels([
+    { timestamp: '2023-01-03T13:00:00Z', high: 105 }, // 08:00 ET premarket reference
+    { timestamp: '2023-01-03T14:30:00Z', high: 103 }, // regular session begins
+    { timestamp: '2023-01-03T15:30:00Z', high: 106 },
+  ])
+  assert.equal(labels[0], 'Insufficient History')
+  assert.equal(labels[1], 'Not Above First-Observed Daily Range')
+  assert.equal(labels[2], 'Breakout Above First-Observed Daily Range')
+})
+
+test('missing expected regular-session opening data is not fabricated or substituted for first-observed data', () => {
+  const labels = computeFirstObservedDailyRangeLabels([
+    { timestamp: '2023-01-03T13:00:00Z', high: 105 }, // observed premarket bar
+    // No 14:30Z (09:30 ET) opening bar was supplied.
+    { timestamp: '2023-01-03T15:30:00Z', high: 104 },
+    { timestamp: '2023-01-03T16:30:00Z', high: 106 },
+  ])
+  assert.equal(labels[1], 'Not Above First-Observed Daily Range')
+  assert.equal(labels[2], 'Breakout Above First-Observed Daily Range')
+
+  const singleObservedBar = computeFirstObservedDailyRangeLabels([
+    { timestamp: '2023-01-04T14:30:00Z', high: 100 },
+  ])
+  assert.deepEqual(singleObservedBar, ['Insufficient History'])
 })
 
 test('reports unavailable, without inventing results, when the SPY/QQQ/IWM universe is not fully available', () => {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   runWalkForwardRegimeResearch,
+  compareRegimeExpectancyByYear,
   walkForwardWindows,
   walkForwardDefaults,
   buildRealizedVol20Series,
@@ -9,7 +10,26 @@ import {
   classifyVolatility,
   volatilityLabels,
 } from './walkForwardRegimeBacktest.js'
-import { buildAlignedSeries, buildCatalogueBySymbol, buildTradeFromIndex } from './signalQualityBacktest.js'
+import { buildAlignedSeries, buildCatalogueBySymbol } from './signalQualityBacktest.js'
+import { buildTradeWithinEvaluationWindow } from './evaluationWindow.js'
+import { buildWalkForwardRegimeExpectancyObservations, buildWalkForwardTimelineRows } from './labChartData.js'
+
+test('yearly regime comparison excludes years with an empty side or no trades in either regime', () => {
+  const result = compareRegimeExpectancyByYear([
+    { low: { tradeCount: 0, expectancy: 0 }, medium: { tradeCount: 4, expectancy: 0.7 } },
+    { low: { tradeCount: 0, expectancy: 0 }, medium: { tradeCount: 0, expectancy: 0 } },
+  ])
+  assert.deepEqual(result, { comparableYearCount: 0, mediumExceedsLowCount: 0, lowExceedsMediumCount: 0 })
+})
+
+test('yearly regime comparison counts expectancy direction only for years with trades in both regimes', () => {
+  const result = compareRegimeExpectancyByYear([
+    { low: { tradeCount: 3, expectancy: 0.1 }, medium: { tradeCount: 2, expectancy: 0.5 } },
+    { low: { tradeCount: 1, expectancy: 0.4 }, medium: { tradeCount: 1, expectancy: -0.2 } },
+    { low: { tradeCount: 0, expectancy: 0 }, medium: { tradeCount: 2, expectancy: 0.8 } },
+  ])
+  assert.deepEqual(result, { comparableYearCount: 2, mediumExceedsLowCount: 1, lowExceedsMediumCount: 1 })
+})
 
 function makeDailySeries(symbol, count, startDate, waveShift = 0, seed = 1) {
   const start = new Date(startDate)
@@ -37,6 +57,44 @@ test('chronological window construction: each window\'s train period ends before
   walkForwardWindows.forEach((windowDef) => {
     assert.ok(new Date(windowDef.trainEnd).getTime() < new Date(windowDef.testStart).getTime())
   })
+  const research = runWalkForwardRegimeResearch(buildDataset(), {})
+  assert.ok(research.windows.some((windowEntry) => windowEntry.baseline.overall.tradeCount > 0), 'walk-forward candidate results must not silently be empty')
+})
+
+test('walk-forward chart data matches test-year regimes and actual realized training/test boundaries', () => {
+  const research = runWalkForwardRegimeResearch(buildDataset(), {})
+  const expectancyRows = buildWalkForwardRegimeExpectancyObservations(research.evidenceTable)
+  const timelineRows = buildWalkForwardTimelineRows(research.windows)
+
+  assert.deepEqual(expectancyRows.map((row) => row.label), research.evidenceTable.map((row) => String(row.testYear)))
+  expectancyRows.forEach((row, rowIndex) => {
+    const sourceYear = research.evidenceTable[rowIndex]
+    for (const [seriesIndex, regimeKey] of ['low', 'medium', 'high'].entries()) {
+      assert.equal(row.series[seriesIndex].tradeCount, sourceYear[regimeKey].tradeCount)
+      assert.equal(row.series[seriesIndex].value,
+        sourceYear[regimeKey].tradeCount > 0 && Number.isFinite(sourceYear[regimeKey].expectancy)
+          ? sourceYear[regimeKey].expectancy
+          : null)
+    }
+  })
+
+  assert.deepEqual(timelineRows.map((row, index) => [
+    row.label,
+    row.training.start,
+    row.training.end,
+    row.test.start,
+    row.test.end,
+    row.training.candleCount,
+    row.test.candleCount,
+  ]), research.windows.map((window) => [
+    `${window.label} · ${window.testYear}`,
+    window.trainRealizedStart,
+    window.trainRealizedEnd,
+    window.testRealizedStart,
+    window.testRealizedEnd,
+    window.trainCandleCount,
+    window.testCandleCount,
+  ]))
 })
 
 test('training/test separation: no timestamp is realized in both a window\'s training and test ranges', () => {
@@ -101,7 +159,7 @@ test('no-future-information invariance: future volatility data cannot alter trai
   assert.deepEqual(before.windows[0].boundaries, after.windows[0].boundaries)
 })
 
-test('no-future-information invariance: changing candles after a test period ends does not change that test period\'s regime classification', () => {
+test('no-future-information invariance: changing candles after a test period ends cannot change its resolved trade results', () => {
   const dataset = buildDataset()
   const before = runWalkForwardRegimeResearch(dataset, {})
   const mutatedDataset = {
@@ -110,14 +168,14 @@ test('no-future-information invariance: changing candles after a test period end
     IWM: dataset.IWM,
   }
   const after = runWalkForwardRegimeResearch(mutatedDataset, {})
-  // Window 1's test period (2023) regime *classification* (boundaries and per-bar labels) must be
-  // identical. Trade exit prices/R may legitimately extend into subsequent (mutated) candles when a
-  // signal near year-end holds for up to maxHoldingBars — that is normal exit evaluation, not a
-  // regime-classification look-ahead, so we compare classification counts rather than full trades.
+  // Window 1's 2023 outcomes must be fully resolved by the 2023 test end, so changing 2024 onward
+  // cannot alter which trades qualify or their results.
   assert.deepEqual(before.windows[0].boundaries, after.windows[0].boundaries)
+  assert.deepEqual(before.windows[0].baseline.trades, after.windows[0].baseline.trades)
+  assert.equal(before.windows[0].baseline.overall.totalR, after.windows[0].baseline.overall.totalR)
   before.windows[0].volatilityGroups.forEach((group, index) => {
     assert.equal(group.label, after.windows[0].volatilityGroups[index].label)
-    assert.equal(group.baseline.overall.tradeCount, after.windows[0].volatilityGroups[index].baseline.overall.tradeCount)
+    assert.deepEqual(group.baseline.trades, after.windows[0].volatilityGroups[index].baseline.trades)
   })
 })
 
@@ -146,11 +204,13 @@ test('the scanner\'s trade entries remain unchanged by the walk-forward regime r
   const testStart = new Date(window1.testStart).getTime()
   const testEnd = new Date(window1.testEnd).getTime()
   const expectedTrades = Object.keys(catalogueBySymbol).flatMap((symbol) => catalogueBySymbol[symbol]
-    .filter((entry) => entry.score >= 75 && entry.status === 'Bullish' && new Date(entry.timestamp).getTime() >= testStart && new Date(entry.timestamp).getTime() <= testEnd)
-    .map((entry) => buildTradeFromIndex(aligned.raw[symbol], entry.index, walkForwardDefaults, { symbol }))
+    .filter((entry) => entry.score >= 75 && entry.researchEligible && new Date(entry.timestamp).getTime() >= testStart && new Date(entry.timestamp).getTime() <= testEnd)
+    .map((entry) => buildTradeWithinEvaluationWindow(
+      aligned.raw[symbol], entry.index, walkForwardDefaults, research.aligned.timestamps.indexOf(window1.testRealizedEnd), { symbol },
+    ))
     .filter(Boolean))
   assert.equal(window1.baseline.overall.tradeCount, expectedTrades.length)
-  assert.equal(window1.baseline.overall.totalR, expectedTrades.reduce((sum, trade) => sum + trade.rMultiple, 0))
+  assert.ok(Math.abs(window1.baseline.overall.totalR - expectedTrades.reduce((sum, trade) => sum + trade.rMultiple, 0)) < 1e-9)
 })
 
 test('no-look-ahead: every trade in every window enters strictly after its own signal candle', () => {
@@ -164,6 +224,24 @@ test('no-look-ahead: every trade in every window enters strictly after its own s
         assert.ok(signalIndex >= 0)
         assert.ok(signalIndex < timestamps.length - 1)
       })
+    })
+  })
+})
+
+test('walk-forward trades and pooled regime summaries stay inside each test window', () => {
+  const research = runWalkForwardRegimeResearch(buildDataset(), {})
+  research.windows.forEach((windowEntry) => {
+    const endIndex = research.aligned.timestamps.indexOf(windowEntry.testRealizedEnd)
+    const tradeSets = [
+      windowEntry.baseline.trades,
+      windowEntry.rvConfirmed.trades,
+      ...windowEntry.volatilityGroups.flatMap((group) => [group.baseline.trades, group.rvConfirmed.trades]),
+      ...windowEntry.scoreByVolatility.flatMap((regime) => regime.buckets.map((bucket) => bucket.trades)),
+    ]
+    tradeSets.flat().forEach((trade) => {
+      const signalIndex = research.aligned.timestamps.indexOf(trade.timestamp)
+      assert.ok(signalIndex + trade.holdingBars <= endIndex)
+      if (trade.exitReason === 'Expired') assert.equal(trade.holdingBars, research.options.maxHoldingBars)
     })
   })
 })

@@ -8,6 +8,8 @@
 // Research only. Not used by, and does not modify, the production scanner, paper trading, the
 // Render worker, the API, or any existing research/backtest module.
 
+import { candleCompletesBy } from '../../data/historicalDataContract.js'
+
 export const strategyDiscoveryResearchWindows = {
   development: { start: '2022-01-01T00:00:00Z', end: '2024-12-31T23:59:59Z', label: 'Development' },
   outOfSample: { start: '2025-01-01T00:00:00Z', end: '2025-12-31T23:59:59Z', label: 'Out-of-Sample' },
@@ -80,33 +82,40 @@ export function computeSessionVwapSeries(candles) {
 }
 
 /**
- * Determines, bar by bar starting after entryIndex, whether the lower barrier (stopPrice) or the
- * upper barrier (upperPrice) is reached first, within maxBars completed candles. If both the low
+ * Determines, bar by bar starting after signalIndex, whether the lower barrier (stopPrice) or the
+ * upper barrier (upperPrice) is reached first, within maxBars completed candles. The first checked
+ * candle is the entry candle at the next candle's open. A stop gapped
+ * through at the open fills at that open; a target remains filled at its limit price (no assumed
+ * price improvement). If neither barrier is crossed at the open and both the low
  * and the high of the same bar cross their respective barriers, intrabar order cannot be
  * determined from OHLC data alone — per protocol, this is never guessed and is reported as
  * 'Ambiguous' rather than silently resolved in either direction.
  */
-export function evaluateBarrierOutcome(candles, entryIndex, stopPrice, upperPrice, maxBars) {
+export function evaluateBarrierOutcome(candles, signalIndex, stopPrice, upperPrice, maxBars) {
   for (let offset = 1; offset <= maxBars; offset += 1) {
-    const index = entryIndex + offset
+    const index = signalIndex + offset
     if (index >= candles.length) return { status: 'InsufficientData', barsElapsed: offset - 1, exitPrice: null }
     const candle = candles[index]
+    // The open is the first known price in this candle and resolves a barrier gap
+    // before considering later OHLC extremes. Target fills stay at the limit price.
+    if (Number.isFinite(candle.open) && candle.open <= stopPrice) return { status: 'Stop', barsElapsed: offset, exitPrice: candle.open }
+    if (Number.isFinite(candle.open) && candle.open >= upperPrice) return { status: 'Target', barsElapsed: offset, exitPrice: upperPrice }
     const hitStop = candle.low <= stopPrice
     const hitUpper = candle.high >= upperPrice
     if (hitStop && hitUpper) return { status: 'Ambiguous', barsElapsed: offset, exitPrice: null, reason: 'stop-and-target-both-within-same-candle-range' }
     if (hitStop) return { status: 'Stop', barsElapsed: offset, exitPrice: stopPrice }
     if (hitUpper) return { status: 'Target', barsElapsed: offset, exitPrice: upperPrice }
   }
-  const finalIndex = Math.min(entryIndex + maxBars, candles.length - 1)
+  const finalIndex = Math.min(signalIndex + maxBars, candles.length - 1)
   return { status: 'Expired', barsElapsed: maxBars, exitPrice: candles[finalIndex].close }
 }
 
-/** Maximum favorable/adverse excursion, in R, over a fixed causal window (no leakage beyond it). */
-export function computeExcursion(candles, entryIndex, entryPrice, risk, maxBars) {
+/** Maximum favorable/adverse excursion, in R, from the entry candle over a fixed causal window. */
+export function computeExcursion(candles, signalIndex, entryPrice, risk, maxBars) {
   let mfe = null
   let mae = null
   for (let offset = 1; offset <= maxBars; offset += 1) {
-    const index = entryIndex + offset
+    const index = signalIndex + offset
     if (index >= candles.length) break
     const favorable = (candles[index].high - entryPrice) / risk
     const adverse = (candles[index].low - entryPrice) / risk
@@ -119,7 +128,7 @@ export function computeExcursion(candles, entryIndex, entryPrice, risk, maxBars)
 /** Converts a barrier-outcome result into a final R-multiple. Ambiguous/InsufficientData -> null (excluded, not guessed). */
 export function outcomeToFinalR(outcome, entryPrice, risk, upperMultiple) {
   if (outcome.status === 'Target') return upperMultiple
-  if (outcome.status === 'Stop') return -1
+  if (outcome.status === 'Stop') return (outcome.exitPrice - entryPrice) / risk
   if (outcome.status === 'Expired') return (outcome.exitPrice - entryPrice) / risk
   return null
 }
@@ -131,6 +140,21 @@ export function classifyResearchPeriod(timestamp) {
   if (time >= new Date(outOfSample.start).getTime() && time <= new Date(outOfSample.end).getTime()) return outOfSample.label
   if (time >= new Date(holdout.start).getTime()) return holdout.label
   return null
+}
+
+function researchPeriodEnd(periodLabel) {
+  return Object.values(strategyDiscoveryResearchWindows).find((period) => period.label === periodLabel)?.end ?? null
+}
+
+function outcomeContainedInPeriod(candles, signalIndex, barsElapsed, periodLabel) {
+  const periodEnd = researchPeriodEnd(periodLabel)
+  if (!periodLabel || !periodEnd || !(barsElapsed > 0)) return Boolean(periodLabel)
+  const outcomeCandle = candles[signalIndex + barsElapsed]
+  return Boolean(outcomeCandle && candleCompletesBy(
+    outcomeCandle,
+    outcomeCandle.timeframe ?? '1Hour',
+    periodEnd,
+  ))
 }
 
 /**
@@ -160,10 +184,22 @@ export function buildOccurrence({
   const primaryUpperPrice = getPrimaryUpperPrice(entryPrice, risk)
   if (!(primaryUpperPrice > entryPrice)) return null
   const primaryUpperMultiple = (primaryUpperPrice - entryPrice) / risk
-  const primaryOutcome = evaluateBarrierOutcome(candles, entryIndex, stopPrice, primaryUpperPrice, primaryMaxBars)
-  const secondary1R5Outcome = evaluateBarrierOutcome(candles, entryIndex, stopPrice, entryPrice + risk, 5)
-  const secondary2R10Outcome = evaluateBarrierOutcome(candles, entryIndex, stopPrice, entryPrice + 2 * risk, 10)
-  const { mfeR, maeR } = computeExcursion(candles, entryIndex, entryPrice, risk, 10)
+  // The signal candle is complete before entry. Starting after it counts the entry candle as bar 1,
+  // so the existing 5/10-bar outcome and excursion horizons do not gain an extra candle.
+  const primaryOutcome = evaluateBarrierOutcome(candles, signalIndex, stopPrice, primaryUpperPrice, primaryMaxBars)
+  const secondary1R5Outcome = evaluateBarrierOutcome(candles, signalIndex, stopPrice, entryPrice + risk, 5)
+  const secondary2R10Outcome = evaluateBarrierOutcome(candles, signalIndex, stopPrice, entryPrice + 2 * risk, 10)
+  const { mfeR, maeR } = computeExcursion(candles, signalIndex, entryPrice, risk, 10)
+  const period = classifyResearchPeriod(entryCandle.timestamp)
+  const primaryPeriodBoundaryExcluded = period !== null && primaryOutcome.status !== 'InsufficientData' &&
+    !outcomeContainedInPeriod(candles, signalIndex, primaryOutcome.barsElapsed, period)
+  const secondary1R5PeriodBoundaryExcluded = period !== null && secondary1R5Outcome.status !== 'InsufficientData' &&
+    !outcomeContainedInPeriod(candles, signalIndex, secondary1R5Outcome.barsElapsed, period)
+  const secondary2R10PeriodBoundaryExcluded = period !== null && secondary2R10Outcome.status !== 'InsufficientData' &&
+    !outcomeContainedInPeriod(candles, signalIndex, secondary2R10Outcome.barsElapsed, period)
+  const excursionPeriodBoundaryExcluded = period !== null &&
+    candles[signalIndex + 10] !== undefined &&
+    !outcomeContainedInPeriod(candles, signalIndex, 10, period)
 
   return {
     symbol,
@@ -176,11 +212,13 @@ export function buildOccurrence({
     primaryStatus: primaryOutcome.status,
     primaryR: outcomeToFinalR(primaryOutcome, entryPrice, risk, primaryUpperMultiple),
     holdingBars: primaryOutcome.barsElapsed,
-    secondary1R5: { status: secondary1R5Outcome.status, r: outcomeToFinalR(secondary1R5Outcome, entryPrice, risk, 1), barsElapsed: secondary1R5Outcome.barsElapsed },
-    secondary2R10: { status: secondary2R10Outcome.status, r: outcomeToFinalR(secondary2R10Outcome, entryPrice, risk, 2), barsElapsed: secondary2R10Outcome.barsElapsed },
+    secondary1R5: { status: secondary1R5Outcome.status, r: outcomeToFinalR(secondary1R5Outcome, entryPrice, risk, 1), barsElapsed: secondary1R5Outcome.barsElapsed, periodBoundaryExcluded: secondary1R5PeriodBoundaryExcluded },
+    secondary2R10: { status: secondary2R10Outcome.status, r: outcomeToFinalR(secondary2R10Outcome, entryPrice, risk, 2), barsElapsed: secondary2R10Outcome.barsElapsed, periodBoundaryExcluded: secondary2R10PeriodBoundaryExcluded },
+    excursionPeriodBoundaryExcluded,
     mfeR,
     maeR,
-    period: classifyResearchPeriod(entryCandle.timestamp),
+    period,
+    primaryPeriodBoundaryExcluded,
   }
 }
 
@@ -227,22 +265,36 @@ function summarizeR(rValues) {
  */
 export function summarizeOccurrences(occurrences) {
   const resolved = occurrences
-    .filter((occurrence) => occurrence.primaryR !== null && occurrence.period !== null)
+    .filter((occurrence) => occurrence.primaryR !== null && occurrence.period !== null && !occurrence.primaryPeriodBoundaryExcluded)
     // Cumulative-R/drawdown calculations depend on chronological order. Occurrences are generated
     // per symbol (all SPY, then all QQQ, then all IWM), so they must be re-sorted here by actual
     // entry timestamp into one interleaved sequence before any equity curve is computed below —
     // otherwise drawdown would be measured across an artificial symbol-by-symbol concatenation
     // rather than the order trades would actually have occurred in.
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+    // Candle timestamps can tie across symbols. Use stable trade fields after time so pooled
+    // drawdown does not depend on the order symbols happened to be fetched or inserted.
+    .sort((a, b) =>
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime() ||
+      String(a.symbol ?? '').localeCompare(String(b.symbol ?? '')) ||
+      (a.holdingBars ?? 0) - (b.holdingBars ?? 0) ||
+      (a.primaryR ?? 0) - (b.primaryR ?? 0) ||
+      String(a.primaryStatus ?? '').localeCompare(String(b.primaryStatus ?? '')),
+    )
   const excludedAmbiguous = occurrences.filter((occurrence) => occurrence.primaryStatus === 'Ambiguous')
+  const ambiguousInResearchWindow = excludedAmbiguous.filter((occurrence) => occurrence.period !== null && occurrence.period !== undefined && !occurrence.primaryPeriodBoundaryExcluded)
   const excludedInsufficientData = occurrences.filter((occurrence) => occurrence.primaryStatus === 'InsufficientData')
   const excludedOutsideWindow = occurrences.filter((occurrence) => occurrence.primaryR !== null && occurrence.period === null)
+  const excludedPeriodBoundary = occurrences.filter((occurrence) => occurrence.primaryPeriodBoundaryExcluded)
+  const classifiableInResearchWindowCount = resolved.length + ambiguousInResearchWindow.length
+  const excursionResolved = resolved.filter((occurrence) =>
+    !occurrence.excursionPeriodBoundaryExcluded && occurrence.mfeR !== null && occurrence.maeR !== null)
 
   const overall = {
     ...summarizeR(resolved.map((occurrence) => occurrence.primaryR)),
     averageHoldingBars: average(resolved.map((occurrence) => occurrence.holdingBars)),
-    averageMfeR: average(resolved.filter((o) => o.mfeR !== null).map((o) => o.mfeR)),
-    averageMaeR: average(resolved.filter((o) => o.maeR !== null).map((o) => o.maeR)),
+    excursionObservationCount: excursionResolved.length,
+    averageMfeR: excursionResolved.length ? average(excursionResolved.map((occurrence) => occurrence.mfeR)) : null,
+    averageMaeR: excursionResolved.length ? average(excursionResolved.map((occurrence) => occurrence.maeR)) : null,
   }
 
   const groupBy = (keyFn) => {
@@ -272,8 +324,19 @@ export function summarizeOccurrences(occurrences) {
     costTiers,
     excluded: {
       ambiguousCount: excludedAmbiguous.length,
+      ambiguousInResearchWindowCount: ambiguousInResearchWindow.length,
+      classifiableInResearchWindowCount,
+      ambiguousInResearchWindowRate: classifiableInResearchWindowCount
+        ? ambiguousInResearchWindow.length / classifiableInResearchWindowCount
+        : null,
       insufficientDataCount: excludedInsufficientData.length,
       outsideResearchWindowCount: excludedOutsideWindow.length,
+      periodBoundaryCount: excludedPeriodBoundary.length,
+      periodBoundaryByPeriod: Object.values(strategyDiscoveryResearchWindows).map(({ label }) => ({
+        period: label,
+        count: excludedPeriodBoundary.filter((occurrence) => occurrence.period === label).length,
+      })),
+      excursionPeriodBoundaryCount: occurrences.filter((occurrence) => occurrence.excursionPeriodBoundaryExcluded).length,
     },
   }
 }
@@ -282,13 +345,15 @@ export function summarizeOccurrences(occurrences) {
 export function summarizeSecondaryOutcome(occurrences, key) {
   const resolved = occurrences
     .map((occurrence) => occurrence[key])
-    .filter((outcome) => outcome && outcome.r !== null)
+    .filter((outcome) => outcome && outcome.r !== null && !outcome.periodBoundaryExcluded)
   const wins = resolved.filter((outcome) => outcome.r > 0)
+  const boundaryExcluded = occurrences.filter((occurrence) => occurrence[key]?.periodBoundaryExcluded)
   return {
     occurrenceCount: resolved.length,
     winRate: resolved.length ? wins.length / resolved.length : 0,
     averageR: resolved.length ? average(resolved.map((outcome) => outcome.r)) : 0,
-    ambiguousCount: occurrences.filter((occurrence) => occurrence[key]?.status === 'Ambiguous').length,
+    ambiguousCount: occurrences.filter((occurrence) => occurrence[key]?.status === 'Ambiguous' && !occurrence[key]?.periodBoundaryExcluded).length,
     insufficientDataCount: occurrences.filter((occurrence) => occurrence[key]?.status === 'InsufficientData').length,
+    periodBoundaryExcludedCount: boundaryExcluded.length,
   }
 }

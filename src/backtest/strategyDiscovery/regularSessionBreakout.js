@@ -117,13 +117,28 @@ export function runRegularSessionBreakoutResearch(datasets) {
  * labels either version as better, best, superior, validated, or profitable.
  */
 export function compareToBatchA(batchASummary, batchCSummary) {
-  const diffMetric = (key) => ({
-    batchA: batchASummary.overall[key],
-    batchC: batchCSummary.overall[key],
-    diff: typeof batchASummary.overall[key] === 'number' && typeof batchCSummary.overall[key] === 'number' && Number.isFinite(batchASummary.overall[key]) && Number.isFinite(batchCSummary.overall[key])
-      ? batchCSummary.overall[key] - batchASummary.overall[key]
-      : null,
-  })
+  const diffMetric = (key) => {
+    const batchAValue = batchASummary.overall[key]
+    const batchCValue = batchCSummary.overall[key]
+    const isCount = key === 'occurrenceCount'
+    const hasSamples =
+      batchASummary.overall.occurrenceCount > 0 &&
+      batchCSummary.overall.occurrenceCount > 0
+
+    return {
+      batchA: batchAValue,
+      batchC: batchCValue,
+      diff:
+        typeof batchAValue === 'number' &&
+        typeof batchCValue === 'number' &&
+        Number.isFinite(batchAValue) &&
+        Number.isFinite(batchCValue) &&
+        (isCount || hasSamples)
+          ? batchCValue - batchAValue
+          : null,
+    }
+  }
+
   const overall = Object.fromEntries([
     'occurrenceCount', 'winRate', 'profitFactor', 'expectancy', 'medianR', 'totalR', 'maximumDrawdown', 'averageHoldingBars', 'averageMfeR', 'averageMaeR',
   ].map((key) => [key, diffMetric(key)]))

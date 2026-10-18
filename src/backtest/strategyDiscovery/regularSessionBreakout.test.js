@@ -105,7 +105,7 @@ test('classifies a genuinely ambiguous stop/target bar as excluded rather than g
   const entryDay = [
     makeCandle(5, 9),
     makeCandle(5, 10, { open: 106, high: 108, low: 105, close: 107 }),
-    makeCandle(5, 11, { high: 500, low: 1, close: 100 }), // both stop and target fall within this bar's range
+    makeCandle(5, 11, { open: 106, high: 500, low: 1, close: 100 }), // open is between barriers; both are touched intrabar
   ]
   const occurrences = runRegularSessionBreakoutForSymbol([...days, ...signalDay, ...entryDay], 'TEST')
   assert.equal(occurrences.length, 1)
@@ -185,6 +185,74 @@ test('compareToBatchA reports numeric diffs only, without labeling either versio
   const json = JSON.stringify(diff).toLowerCase()
   ;['better', 'best', 'superior', 'validated', 'profitable', 'winner', 'the edge'].forEach((word) => assert.ok(!json.includes(word)))
 })
+
+
+test('compareToBatchA marks performance differences unavailable when either batch has no resolved observations', () => {
+  const makeSummary = (occurrenceCount, expectancy, winRate) => ({
+    overall: {
+      occurrenceCount,
+      winRate,
+      profitFactor: occurrenceCount === 0 ? 0 : 1.5,
+      expectancy,
+      medianR: expectancy,
+      totalR: expectancy * occurrenceCount,
+      maximumDrawdown: 0,
+      averageHoldingBars: 1,
+      averageMfeR: 1,
+      averageMaeR: -1,
+    },
+    byPeriod: [],
+    bySymbol: [],
+    costTiers: [],
+  })
+
+  const emptyBatch = makeSummary(0, 0, 0)
+  const populatedBatch = makeSummary(10, 0.25, 0.6)
+
+  const result = compareToBatchA(emptyBatch, populatedBatch)
+
+  assert.equal(result.overall.occurrenceCount.diff, 10)
+  assert.equal(result.overall.winRate.diff, null)
+  assert.equal(result.overall.profitFactor.diff, null)
+  assert.equal(result.overall.expectancy.diff, null)
+  assert.equal(result.overall.medianR.diff, null)
+  assert.equal(result.overall.totalR.diff, null)
+  assert.equal(result.overall.maximumDrawdown.diff, null)
+  assert.equal(result.overall.averageHoldingBars.diff, null)
+  assert.equal(result.overall.averageMfeR.diff, null)
+  assert.equal(result.overall.averageMaeR.diff, null)
+})
+
+test('compareToBatchA preserves empty and populated cost-tier counts independently for display', () => {
+  const withCostTier = (occurrenceCount, expectancy, winRate) => ({
+    occurrenceCount,
+    expectancy,
+    winRate,
+  })
+  const makeSummary = (tierMetrics) => ({
+    overall: { occurrenceCount: 1 },
+    byPeriod: [],
+    bySymbol: [],
+    costTiers: [{ label: 'Low friction (1bp / 1bp)', metrics: tierMetrics }],
+  })
+
+  const emptyA = withCostTier(0, 0, 0)
+  const populatedC = withCostTier(8, 0.25, 0.625)
+  const emptyAResult = compareToBatchA(makeSummary(emptyA), makeSummary(populatedC)).costTiers[0]
+  assert.equal(emptyAResult.batchA.occurrenceCount, 0)
+  assert.equal(emptyAResult.batchA.expectancy, 0)
+  assert.equal(emptyAResult.batchA.winRate, 0)
+  assert.deepEqual(emptyAResult.batchC, populatedC)
+
+  const populatedA = withCostTier(5, 0.1, 0.6)
+  const emptyC = withCostTier(0, 0, 0)
+  const emptyCResult = compareToBatchA(makeSummary(populatedA), makeSummary(emptyC)).costTiers[0]
+  assert.deepEqual(emptyCResult.batchA, populatedA)
+  assert.equal(emptyCResult.batchC.occurrenceCount, 0)
+  assert.equal(emptyCResult.batchC.expectancy, 0)
+  assert.equal(emptyCResult.batchC.winRate, 0)
+})
+
 
 test('regression: the frozen Batch A momentum-breakout definition and detection function are unchanged by Batch C', () => {
   assert.equal(momentumBreakoutMeta.parameters.lookbackBars, 20)

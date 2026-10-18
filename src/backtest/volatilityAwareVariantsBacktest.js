@@ -5,7 +5,8 @@
 // walk-forward volatility classification (training-only boundaries, no future information).
 // Research only — no production files are touched, no variant is deployed, and no thresholds are
 // searched or optimized after seeing results.
-import { buildTradeFromIndex, summarizeTrades, scoreBucketDefinitions } from './signalQualityBacktest.js'
+import { summarizeTrades, scoreBucketDefinitions } from './signalQualityBacktest.js'
+import { buildTradeWithinEvaluationWindow } from './evaluationWindow.js'
 import { computeWalkForwardWindows, walkForwardDefaults, classifyVolatility, volatilityLabels } from './walkForwardRegimeBacktest.js'
 
 export const volatilityAwareDefaults = { ...walkForwardDefaults }
@@ -27,6 +28,18 @@ function median(values) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
+/** Summarizes per-year expectancy only for years with completed trades. */
+export function summarizeYearlyExpectancy(byYear) {
+  const expectancies = byYear
+    .filter((year) => year.overall.tradeCount > 0 && Number.isFinite(year.overall.expectancy))
+    .map((year) => year.overall.expectancy)
+  return {
+    expectancyYearsWithTrades: expectancies.length,
+    meanYearlyExpectancy: expectancies.length ? average(expectancies) : null,
+    medianYearlyExpectancy: median(expectancies),
+  }
+}
+
 /** Required minimum score for a variant under a given regime label; null means "reject entirely". */
 function requiredScore(variant, regimeLabel, options) {
   if (variant.key === 'control') return options.minimumScore
@@ -45,15 +58,15 @@ function makeRegimeLookup(realizedVol20, boundaries, warmup, lag) {
   }
 }
 
-function buildVariantTradesBySymbol(catalogueBySymbol, alignedRaw, testTimestampSet, regimeLookup, variant, options) {
+function buildVariantTradesBySymbol(catalogueBySymbol, alignedRaw, testTimestampSet, evaluationEndIndex, regimeLookup, variant, options) {
   return Object.keys(catalogueBySymbol).map((symbol) => {
     const trades = catalogueBySymbol[symbol]
-      .filter((entry) => testTimestampSet.has(entry.timestamp) && entry.status === 'Bullish')
+      .filter((entry) => testTimestampSet.has(entry.timestamp) && entry.researchEligible)
       .map((entry) => {
         const regimeLabel = regimeLookup(entry.index)
         const requirement = requiredScore(variant, regimeLabel, options)
         if (requirement === null || entry.score < requirement) return null
-        const trade = buildTradeFromIndex(alignedRaw[symbol], entry.index, options, { symbol })
+        const trade = buildTradeWithinEvaluationWindow(alignedRaw[symbol], entry.index, options, evaluationEndIndex, { symbol })
         return trade ? { ...trade, score: entry.score, regimeLabel } : null
       })
       .filter(Boolean)
@@ -88,11 +101,12 @@ export function runVolatilityAwareVariantsResearch(rawSeriesBySymbol, settings =
 
   const windows = builtWindows.map((windowEntry) => {
     const testTimestampSet = new Set(windowEntry.testIndices.map((index) => timestamps[index]))
+    const evaluationEndIndex = windowEntry.testIndices.at(-1) ?? -1
     const lookupLag0 = makeRegimeLookup(realizedVol20, windowEntry.boundaries, options.volatilityTrainingWarmup, 0)
     const lookupLag1 = makeRegimeLookup(realizedVol20, windowEntry.boundaries, options.volatilityTrainingWarmup, 1)
     const lookupLag2 = makeRegimeLookup(realizedVol20, windowEntry.boundaries, options.volatilityTrainingWarmup, 2)
 
-    const runVariant = (variant, lookup) => summarizeTrades(buildVariantTradesBySymbol(catalogueBySymbol, aligned.raw, testTimestampSet, lookup, variant, options), timestamps, 1)
+    const runVariant = (variant, lookup) => summarizeTrades(buildVariantTradesBySymbol(catalogueBySymbol, aligned.raw, testTimestampSet, evaluationEndIndex, lookup, variant, options), timestamps, 1)
 
     const variants = variantDefinitions.map((variant) => ({ key: variant.key, label: variant.label, summary: runVariant(variant, lookupLag0) }))
     const stress1 = variantDefinitions.filter((v) => v.key !== 'control').map((variant) => ({ key: variant.key, label: variant.label, summary: runVariant(variant, lookupLag1) }))
@@ -154,15 +168,14 @@ export function runVolatilityAwareVariantsResearch(rawSeriesBySymbol, settings =
   }))
 
   const consistency = evidenceTable.map((row) => {
-    const expectancies = row.byYear.map((y) => y.overall.expectancy)
     const pooledSummary = pooled.find((p) => p.key === row.key).summary.overall
     return {
       key: row.key,
       label: row.label,
       positivePeriods: row.byYear.filter((y) => y.overall.tradeCount > 0 && y.overall.expectancy > 0).length,
       negativePeriods: row.byYear.filter((y) => y.overall.tradeCount > 0 && y.overall.expectancy < 0).length,
-      meanYearlyExpectancy: average(expectancies),
-      medianYearlyExpectancy: median(expectancies),
+      ...summarizeYearlyExpectancy(row.byYear),
+      pooledTradeCount: pooledSummary.tradeCount,
       pooledExpectancy: pooledSummary.expectancy,
       pooledProfitFactor: pooledSummary.profitFactor,
       pooledMaxDrawdown: pooledSummary.maximumDrawdown,

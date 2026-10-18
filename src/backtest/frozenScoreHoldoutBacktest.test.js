@@ -36,6 +36,8 @@ test('splits the synchronized timeline into a holdout window and a development w
 
 test('no candle timestamp is counted in both the holdout and development windows', () => {
   const research = runFrozenScoreHoldoutResearch(buildDataset(), {})
+  assert.ok(research.holdoutBaseline.overall.tradeCount > 0, 'the 2022–2024 candidate baseline must contain trades')
+  assert.ok(research.developmentBaseline.overall.tradeCount > 0, 'the later candidate baseline must contain trades')
   const holdoutTimestamps = new Set(research.holdoutBaseline.trades.map((trade) => trade.timestamp))
   const developmentTimestamps = new Set(research.developmentBaseline.trades.map((trade) => trade.timestamp))
   const overlap = [...holdoutTimestamps].filter((timestamp) => developmentTimestamps.has(timestamp))
@@ -52,6 +54,32 @@ test('every trade in every split enters strictly after its own signal candle (no
       assert.ok(signalIndex < timestamps.length - 1)
     })
   })
+})
+
+test('frozen holdout trades never use candles beyond their split end', () => {
+  const research = runFrozenScoreHoldoutResearch(buildDataset(), {})
+  const timestamps = research.aligned.timestamps
+  const checkTrades = (trades, endTimestamp) => {
+    const endIndex = timestamps.indexOf(endTimestamp)
+    trades.forEach((trade) => {
+      const signalIndex = timestamps.indexOf(trade.timestamp)
+      assert.ok(signalIndex + trade.holdingBars <= endIndex)
+      if (trade.exitReason === 'Expired') assert.equal(trade.holdingBars, research.options.maxHoldingBars)
+    })
+  }
+
+  const holdoutTrades = [
+    ...research.holdoutBuckets.flatMap((bucket) => bucket.trades),
+    ...research.holdoutBaseline.trades,
+    ...research.holdoutRvConfirmed.trades,
+  ]
+  const developmentTrades = [
+    ...research.developmentBuckets.flatMap((bucket) => bucket.trades),
+    ...research.developmentBaseline.trades,
+    ...research.developmentRvConfirmed.trades,
+  ]
+  checkTrades(holdoutTrades, research.holdoutRange.end)
+  checkTrades(developmentTrades, research.developmentRange.end)
 })
 
 test('uses the existing frozen score bucket thresholds unmodified', () => {

@@ -160,3 +160,23 @@ test('regime stability groups only when causal labels are supplied', () => {
     'Uptrend / Low Volatility',
   )
 })
+
+test('pooled resilience drawdown is deterministic when trade timestamps tie', () => {
+  const simultaneous = [
+    trade({ timestamp: '2025-06-01T14:00:00Z', symbol: 'A', rMultiple: 5 }),
+    trade({ timestamp: '2025-06-01T14:00:00Z', symbol: 'B', rMultiple: -2 }),
+    trade({ timestamp: '2025-06-01T14:00:00Z', symbol: 'C', rMultiple: -2 }),
+  ]
+
+  const first = buildStrategyResilience({
+    candidateVariants: [{ id: 'same-candidate', trades: simultaneous }],
+  })
+  const reversed = buildStrategyResilience({
+    candidateVariants: [{ id: 'same-candidate', trades: [...simultaneous].reverse() }],
+  })
+
+  assert.equal(
+    first.parameterStability.groups[0].metrics.maximumDrawdown,
+    reversed.parameterStability.groups[0].metrics.maximumDrawdown,
+  )
+})

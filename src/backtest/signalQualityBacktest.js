@@ -4,9 +4,10 @@
 // relative-value confirmation. Research only — does not modify production scoring,
 // paper trading, the Render worker, or Supabase.
 import { enrichHistoricalCandles } from '../data/marketData.js'
-import { scanSetups } from '../logic/scanner.js'
+import { isResearchEligibleSignal, scanSetups } from '../logic/scanner.js'
 import { synchronizeCandleSeries, computeRelativeStrengthConfirmation } from './relativeValue.js'
 import { relativeValueDefaults } from './relativeValueBacktest.js'
+import { isAmbiguousStopTargetCandle, summarizeAmbiguousTrades } from './ambiguousCandle.js'
 
 export const signalQualityDefaults = {
   lookback: relativeValueDefaults.lookback,
@@ -27,13 +28,13 @@ export const scoreBucketDefinitions = [
 ]
 
 export const componentDefinitions = [
-  { key: 'aboveVwap', label: 'Price above VWAP', test: (candle) => candle.price > candle.vwap },
-  { key: 'emaAligned', label: 'EMA9 > EMA21', test: (candle) => candle.ema9 > candle.ema21 },
-  { key: 'rsiRange', label: 'RSI 55-70', test: (candle) => candle.rsi >= 55 && candle.rsi <= 70 },
-  { key: 'relVolume', label: 'Relative volume >= 1.2', test: (candle) => candle.relativeVolume >= 1.2 },
-  { key: 'breakout', label: 'Breakout / reclaim', test: (candle) => candle.breakout === true },
-  { key: 'bullishTrend', label: 'Bullish trend', test: (candle) => candle.trend === 'Bullish' },
-  { key: 'rvConfirmation', label: 'Relative-value confirmation (Experiment #1)', test: null },
+  { key: 'aboveVwap', label: 'Price above VWAP', available: (candle) => Number.isFinite(candle.price) && Number.isFinite(candle.vwap), test: (candle) => candle.price > candle.vwap },
+  { key: 'emaAligned', label: 'EMA9 > EMA21', available: (candle) => Number.isFinite(candle.ema9) && Number.isFinite(candle.ema21), test: (candle) => candle.ema9 > candle.ema21 },
+  { key: 'rsiRange', label: 'RSI 55-70', available: (candle) => Number.isFinite(candle.rsi), test: (candle) => candle.rsi >= 55 && candle.rsi <= 70 },
+  { key: 'relVolume', label: 'Relative volume >= 1.2', available: (candle) => Number.isFinite(candle.relativeVolume) && ['same-time-of-day', 'prior-daily-bars', 'prior-bars'].includes(candle.relativeVolumeMethod), test: (candle) => candle.relativeVolume >= 1.2 },
+  { key: 'breakout', label: 'Breakout / reclaim', available: (_candle, index) => index >= 20, test: (candle) => candle.breakout === true },
+  { key: 'bullishTrend', label: 'Bullish trend', available: (candle) => Number.isFinite(candle.ema9) && Number.isFinite(candle.ema21), test: (candle) => candle.trend === 'Bullish' },
+  { key: 'rvConfirmation', label: 'Relative-value confirmation (Experiment #1)', available: (_candle, _index, confirmation) => Number.isFinite(confirmation?.relativeReturn), test: null },
 ]
 
 export const costTierDefinitions = [
@@ -74,8 +75,15 @@ export function buildTradeFromIndex(candles, signalIndex, options, meta = {}) {
   let exitReason = 'Expired'
   let exitPrice = candles[signalIndex + maxBars]?.close ?? entryPrice
   let holdingBars = maxBars
+  let ambiguousCandle = false
+  let ambiguityDataAvailable = true
   for (let offset = 1; offset <= maxBars; offset += 1) {
     const candle = candles[signalIndex + offset]
+    const candleAmbiguity = isAmbiguousStopTargetCandle(candle, stopPrice, targetPrice)
+    if (candleAmbiguity === null) ambiguityDataAvailable = false
+    if (candleAmbiguity === true) ambiguousCandle = true
+    if (Number.isFinite(candle.open) && candle.open <= stopPrice) { exitReason = 'Stop'; exitPrice = candle.open; holdingBars = offset; break }
+    if (Number.isFinite(candle.open) && candle.open >= targetPrice) { exitReason = 'Target'; exitPrice = targetPrice; holdingBars = offset; break }
     if (candle.low <= stopPrice) { exitReason = 'Stop'; exitPrice = stopPrice; holdingBars = offset; break }
     if (candle.high >= targetPrice) { exitReason = 'Target'; exitPrice = targetPrice; holdingBars = offset; break }
   }
@@ -88,6 +96,7 @@ export function buildTradeFromIndex(candles, signalIndex, options, meta = {}) {
     targetPrice,
     exitPrice,
     exitReason,
+    ambiguousCandle: ambiguityDataAvailable ? ambiguousCandle : null,
     holdingBars,
     holdingTime: holdingBars * 60,
     rMultiple,
@@ -115,6 +124,7 @@ export function computeMetrics(trades, costR = 0) {
   const averageLoser = average(losses)
   return {
     tradeCount: trades.length,
+    ...summarizeAmbiguousTrades(trades),
     winRate,
     lossRate,
     profitFactor: grossLoss ? grossProfit / grossLoss : grossProfit ? Infinity : 0,
@@ -145,9 +155,22 @@ function periodBoundsFor(timestamps, periodCount) {
   }))
 }
 
+// These summaries accumulate completed R outcomes in signal-time order. When signal timestamps
+// tie, symbol and then stable trade fields make the plotted sequence reproducible regardless of
+// symbol insertion order. This sequential R curve does not model overlapping positions or capital.
+function comparePooledTrades(a, b) {
+  return a.timestamp.localeCompare(b.timestamp) ||
+    String(a.symbol ?? '').localeCompare(String(b.symbol ?? '')) ||
+    String(a.variant ?? '').localeCompare(String(b.variant ?? '')) ||
+    String(a.pair ?? '').localeCompare(String(b.pair ?? '')) ||
+    (a.holdingBars ?? 0) - (b.holdingBars ?? 0) ||
+    (a.rMultiple ?? 0) - (b.rMultiple ?? 0) ||
+    String(a.exitReason ?? '').localeCompare(String(b.exitReason ?? ''))
+}
+
 // Full breakdown (overall, by symbol, by period, by cost tier) for an arbitrary trade set.
 export function summarizeTrades(tradesBySymbol, timestamps, periodCount) {
-  const allTrades = tradesBySymbol.flatMap((entry) => entry.trades)
+  const allTrades = tradesBySymbol.flatMap((entry) => entry.trades).sort(comparePooledTrades)
   const periodLabelFor = periodLabelForFactory(timestamps, periodCount)
   const periods = periodBoundsFor(timestamps, periodCount).map((period) => ({
     ...period,
@@ -176,12 +199,27 @@ export function buildCatalogueBySymbol(aligned, options) {
     catalogueBySymbol[symbol] = enriched.map((candle, index) => {
       const signal = scoreByTimestamp.get(candle.timestamp)
       const componentFlags = {}
+      const componentAvailability = {}
       componentDefinitions.forEach((component) => {
-        componentFlags[component.key] = component.key === 'rvConfirmation'
+        const available = component.available(candle, index, confirmation[index])
+        componentAvailability[component.key] = available
+        componentFlags[component.key] = available && (component.key === 'rvConfirmation'
           ? Boolean(confirmation[index]?.confirmed)
-          : Boolean(component.test(candle))
+          : Boolean(component.test(candle)))
       })
-      return { index, timestamp: candle.timestamp, score: signal?.score ?? 0, status: signal?.status ?? 'No Setup', components: componentFlags }
+      return {
+  index,
+  timestamp: candle.timestamp,
+  score: signal?.score ?? 0,
+  status: signal?.status ?? 'No Setup',
+  researchEligible: isResearchEligibleSignal(signal, 75),
+  components: componentFlags,
+  componentAvailability,
+  vwapAvailable: componentAvailability.aboveVwap,
+  relativeVolume: candle.relativeVolume,
+  relativeVolumeMethod: candle.relativeVolumeMethod,
+  relativeVolumeAvailable: componentAvailability.relVolume,
+}
     })
   })
   return catalogueBySymbol
@@ -199,7 +237,7 @@ export function runSignalQualityResearch(rawSeriesBySymbol, settings = {}) {
   const scoreBuckets = scoreBucketDefinitions.map(([label, min, max]) => {
     const tradesBySymbol = symbols.map((symbol) => {
       const trades = catalogueBySymbol[symbol]
-        .filter((entry) => entry.score >= min && entry.score <= max && entry.status === 'Bullish')
+        .filter((entry) => entry.score >= min && entry.score <= max && entry.researchEligible)
         .map((entry) => buildTradeFromIndex(aligned.raw[symbol], entry.index, options, { symbol }))
         .filter(Boolean)
       return { symbol, trades }
@@ -214,7 +252,9 @@ export function runSignalQualityResearch(rawSeriesBySymbol, settings = {}) {
       const catalogue = catalogueBySymbol[symbol]
       const trades = []
       for (let index = 1; index < catalogue.length - 1; index += 1) {
-        if (catalogue[index].components[component.key] && !catalogue[index - 1].components[component.key]) {
+        if (catalogue[index].componentAvailability[component.key] &&
+          catalogue[index].components[component.key] &&
+          (!catalogue[index - 1].componentAvailability[component.key] || !catalogue[index - 1].components[component.key])) {
           const trade = buildTradeFromIndex(aligned.raw[symbol], index, options, { symbol })
           if (trade) trades.push(trade)
         }
@@ -224,7 +264,7 @@ export function runSignalQualityResearch(rawSeriesBySymbol, settings = {}) {
     const conditionalBySymbol = symbols.map((symbol) => {
       const catalogue = catalogueBySymbol[symbol]
       const trades = catalogue
-        .filter((entry) => entry.score >= options.minimumScore && entry.status === 'Bullish' && entry.components[component.key])
+        .filter((entry) => entry.researchEligible && entry.score >= options.minimumScore && entry.componentAvailability[component.key] && entry.components[component.key])
         .map((entry) => buildTradeFromIndex(aligned.raw[symbol], entry.index, options, { symbol }))
         .filter(Boolean)
       return { symbol, trades }
@@ -242,7 +282,12 @@ export function runSignalQualityResearch(rawSeriesBySymbol, settings = {}) {
     const presentBySymbol = symbols.map((symbol) => {
       const catalogue = catalogueBySymbol[symbol]
       const trades = catalogue
-        .filter((entry) => entry.score >= options.minimumScore && entry.status === 'Bullish' && entry.components[component.key])
+        .filter((entry) =>
+  entry.score >= options.minimumScore &&
+  entry.researchEligible &&
+  entry.componentAvailability[component.key] &&
+  entry.components[component.key]
+)
         .map((entry) => buildTradeFromIndex(aligned.raw[symbol], entry.index, options, { symbol }))
         .filter(Boolean)
       return { symbol, trades }
@@ -250,7 +295,12 @@ export function runSignalQualityResearch(rawSeriesBySymbol, settings = {}) {
     const absentBySymbol = symbols.map((symbol) => {
       const catalogue = catalogueBySymbol[symbol]
       const trades = catalogue
-        .filter((entry) => entry.score >= options.minimumScore && entry.status === 'Bullish' && !entry.components[component.key])
+        .filter((entry) =>
+  entry.score >= options.minimumScore &&
+  entry.researchEligible &&
+  entry.componentAvailability[component.key] &&
+  !entry.components[component.key]
+)
         .map((entry) => buildTradeFromIndex(aligned.raw[symbol], entry.index, options, { symbol }))
         .filter(Boolean)
       return { symbol, trades }

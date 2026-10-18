@@ -1,6 +1,8 @@
 // Research Experiment #3A — Frozen Score Holdout.
 // Tests whether the existing, unmodified SetupScan score/threshold relationship survives on a
-// genuinely held-out historical window. No scoring weights are changed or optimized here.
+// fixed retrospective historical window. It is not a prospective test: later data is used as
+// development data, and the code cannot establish whether people previously inspected this window.
+// No scoring weights are changed or optimized here.
 // Reuses Experiment #2's catalogue (score, status, and component flags including the
 // Experiment #1 relative-value confirmation) and trade-construction conventions unchanged.
 import {
@@ -9,13 +11,13 @@ import {
   buildAlignedSeries,
   buildCatalogueBySymbol,
   summarizeTrades,
-  buildTradeFromIndex,
   assessScoreMonotonicity,
 } from './signalQualityBacktest.js'
+import { buildTradeWithinEvaluationWindow } from './evaluationWindow.js'
 
 export const frozenScoreHoldoutDefaults = {
   ...signalQualityDefaults,
-  // Previously-unseen older window used by Experiment #1's robustness research.
+  // Fixed older comparison window used by Experiment #1's robustness research.
   holdoutStart: '2022-01-01T00:00:00Z',
   holdoutEnd: '2024-12-31T23:59:59Z',
 }
@@ -33,12 +35,12 @@ function splitTimestamps(timestamps, holdoutStart, holdoutEnd) {
   return { holdout, development }
 }
 
-function buildBucketsForSplit(catalogueBySymbol, alignedRaw, splitTimestampSet, splitTimestampList, options) {
+function buildBucketsForSplit(catalogueBySymbol, alignedRaw, splitTimestampSet, splitTimestampList, evaluationEndIndex, options) {
   return scoreBucketDefinitions.map(([label, min, max]) => {
     const tradesBySymbol = Object.keys(catalogueBySymbol).map((symbol) => {
       const trades = catalogueBySymbol[symbol]
-        .filter((entry) => splitTimestampSet.has(entry.timestamp) && entry.score >= min && entry.score <= max && entry.status === 'Bullish')
-        .map((entry) => buildTradeFromIndex(alignedRaw[symbol], entry.index, options, { symbol }))
+        .filter((entry) => splitTimestampSet.has(entry.timestamp) && entry.score >= min && entry.score <= max && entry.researchEligible)
+        .map((entry) => buildTradeWithinEvaluationWindow(alignedRaw[symbol], entry.index, options, evaluationEndIndex, { symbol }))
         .filter(Boolean)
       return { symbol, trades }
     })
@@ -46,11 +48,11 @@ function buildBucketsForSplit(catalogueBySymbol, alignedRaw, splitTimestampSet, 
   })
 }
 
-function buildVariantForSplit(catalogueBySymbol, alignedRaw, splitTimestampSet, splitTimestampList, options, predicate) {
+function buildVariantForSplit(catalogueBySymbol, alignedRaw, splitTimestampSet, splitTimestampList, evaluationEndIndex, options, predicate) {
   const tradesBySymbol = Object.keys(catalogueBySymbol).map((symbol) => {
     const trades = catalogueBySymbol[symbol]
       .filter((entry) => splitTimestampSet.has(entry.timestamp) && predicate(entry))
-      .map((entry) => buildTradeFromIndex(alignedRaw[symbol], entry.index, options, { symbol }))
+      .map((entry) => buildTradeWithinEvaluationWindow(alignedRaw[symbol], entry.index, options, evaluationEndIndex, { symbol }))
       .filter(Boolean)
     return { symbol, trades }
   })
@@ -58,10 +60,11 @@ function buildVariantForSplit(catalogueBySymbol, alignedRaw, splitTimestampSet, 
 }
 
 /**
- * Splits the synchronized SPY/QQQ/IWM timeline into a holdout window (default: the
- * previously-unseen 2022-2024 period) and a development window (everything outside it),
- * then re-runs the existing frozen scoring formula and the Experiment #1 RV-confirmed
- * variant on each split independently. No scoring weights are changed.
+ * Splits the synchronized SPY/QQQ/IWM timeline into a fixed 2022-2024 retrospective comparison
+ * window and a development window containing timestamps after that window. Earlier timestamps
+ * are omitted. This is not a prospective holdout, and prior human inspection cannot be established
+ * from the code. The existing frozen scoring formula and Experiment #1 RV-confirmed variant are
+ * evaluated on each split independently. No scoring weights are changed.
  */
 export function runFrozenScoreHoldoutResearch(rawSeriesBySymbol, settings = {}) {
   const options = { ...frozenScoreHoldoutDefaults, ...settings }
@@ -70,17 +73,19 @@ export function runFrozenScoreHoldoutResearch(rawSeriesBySymbol, settings = {}) 
   const { holdout, development } = splitTimestamps(aligned.timestamps, options.holdoutStart, options.holdoutEnd)
   const holdoutSet = new Set(holdout)
   const developmentSet = new Set(development)
+  const holdoutEndIndex = holdout.length ? aligned.timestamps.indexOf(holdout.at(-1)) : -1
+  const developmentEndIndex = development.length ? aligned.timestamps.indexOf(development.at(-1)) : -1
 
-  const holdoutBuckets = buildBucketsForSplit(catalogueBySymbol, aligned.raw, holdoutSet, holdout, options)
-  const developmentBuckets = buildBucketsForSplit(catalogueBySymbol, aligned.raw, developmentSet, development, options)
+  const holdoutBuckets = buildBucketsForSplit(catalogueBySymbol, aligned.raw, holdoutSet, holdout, holdoutEndIndex, options)
+  const developmentBuckets = buildBucketsForSplit(catalogueBySymbol, aligned.raw, developmentSet, development, developmentEndIndex, options)
 
-  const baselinePredicate = (entry) => entry.score >= options.minimumScore && entry.status === 'Bullish'
+  const baselinePredicate = (entry) => entry.researchEligible && entry.score >= options.minimumScore
   const rvConfirmedPredicate = (entry) => baselinePredicate(entry) && entry.components.rvConfirmation
 
-  const holdoutBaseline = buildVariantForSplit(catalogueBySymbol, aligned.raw, holdoutSet, holdout, options, baselinePredicate)
-  const holdoutRvConfirmed = buildVariantForSplit(catalogueBySymbol, aligned.raw, holdoutSet, holdout, options, rvConfirmedPredicate)
-  const developmentBaseline = buildVariantForSplit(catalogueBySymbol, aligned.raw, developmentSet, development, options, baselinePredicate)
-  const developmentRvConfirmed = buildVariantForSplit(catalogueBySymbol, aligned.raw, developmentSet, development, options, rvConfirmedPredicate)
+  const holdoutBaseline = buildVariantForSplit(catalogueBySymbol, aligned.raw, holdoutSet, holdout, holdoutEndIndex, options, baselinePredicate)
+  const holdoutRvConfirmed = buildVariantForSplit(catalogueBySymbol, aligned.raw, holdoutSet, holdout, holdoutEndIndex, options, rvConfirmedPredicate)
+  const developmentBaseline = buildVariantForSplit(catalogueBySymbol, aligned.raw, developmentSet, development, developmentEndIndex, options, baselinePredicate)
+  const developmentRvConfirmed = buildVariantForSplit(catalogueBySymbol, aligned.raw, developmentSet, development, developmentEndIndex, options, rvConfirmedPredicate)
 
   return {
     aligned,

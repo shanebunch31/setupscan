@@ -112,6 +112,7 @@ test('volatility classification requires the configured warmup before leaving In
 
 test('year/regime attribution: every baseline trade in the yearly distribution belongs to the year it was counted under', () => {
   const research = runCausalRegimeResearch(buildDataset(), {})
+  assert.ok(research.combinedBaseline.overall.tradeCount > 0, 'the candidate baseline must contain trades')
   const total = research.yearRegimeDistribution.reduce((sum, year) => sum + year.totalBaselineTrades, 0)
   assert.equal(total, research.combinedBaseline.overall.tradeCount)
   research.yearRegimeDistribution.forEach((yearEntry) => {

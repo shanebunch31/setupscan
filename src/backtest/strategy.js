@@ -1,4 +1,5 @@
 import { scanSetups } from '../logic/scanner.js'
+import { isAmbiguousStopTargetCandle, summarizeAmbiguousTrades } from './ambiguousCandle.js'
 
 const timeframeMinutes = { '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1D': 1440 }
 const average = (values) => values.length ? values.reduce((total, value) => total + value, 0) / values.length : 0
@@ -26,6 +27,7 @@ function getMetrics(trades) {
 	return {
 		totalTrades: trades.length,
 		numberOfTrades: trades.length,
+		...summarizeAmbiguousTrades(trades),
 		winningTrades: wins.length,
 		losingTrades: losses.length,
 		expiredTrades: trades.filter((trade) => trade.exitReason === 'Expired').length,
@@ -57,10 +59,20 @@ function createTrade(signal, entryCandle, candles, signalIndex, settings) {
 	let exitReason = 'Expired'
 	let exitPrice = candles[signalIndex + maxBars]?.close ?? entryPrice
 	let holdingBars = maxBars
+	let ambiguousCandle = false
+	let ambiguityDataAvailable = true
 	for (let offset = 1; offset <= maxBars; offset += 1) {
 		const candle = candles[signalIndex + offset]
+		const candleAmbiguity = isAmbiguousStopTargetCandle(candle, stopPrice, targetPrice)
+		if (candleAmbiguity === null) ambiguityDataAvailable = false
+		if (candleAmbiguity === true) ambiguousCandle = true
 		maximumFavorableExcursion = Math.max(maximumFavorableExcursion, candle.high - entryPrice)
 		maximumAdverseExcursion = Math.min(maximumAdverseExcursion, candle.low - entryPrice)
+		// A gap through a stop is filled at the opening price, not at a barrier the
+		// market skipped. A target remains filled at its limit price (no assumed
+		// price improvement). Open gaps establish which barrier came first.
+		if (Number.isFinite(candle.open) && candle.open <= stopPrice) { exitReason = 'Stop'; exitPrice = candle.open; holdingBars = offset; break }
+		if (Number.isFinite(candle.open) && candle.open >= targetPrice) { exitReason = 'Target'; exitPrice = targetPrice; holdingBars = offset; break }
 		if (candle.low <= stopPrice) { exitReason = 'Stop'; exitPrice = stopPrice; holdingBars = offset; break }
 		if (candle.high >= targetPrice) { exitReason = 'Target'; exitPrice = targetPrice; holdingBars = offset; break }
 	}
@@ -77,6 +89,7 @@ function createTrade(signal, entryCandle, candles, signalIndex, settings) {
 		exitPrice,
 		outcome: rMultiple > 0 ? 'Win' : rMultiple < 0 ? 'Loss' : 'Breakeven',
 		exitReason,
+		ambiguousCandle: ambiguityDataAvailable ? ambiguousCandle : null,
 		rMultiple,
 		maximumFavorableExcursion,
 		maximumAdverseExcursion,
@@ -104,9 +117,14 @@ function createTrailingStopTrade(signal, entryCandle, candles, signalIndex, sett
   let exitReason = 'Expired'
   let exitPrice = candles[signalIndex + maxBars]?.close ?? entryPrice
   let holdingBars = maxBars
+  let ambiguousCandle = false
+  let ambiguityDataAvailable = true
 
   for (let offset = 1; offset <= maxBars; offset += 1) {
     const candle = candles[signalIndex + offset]
+    const candleAmbiguity = isAmbiguousStopTargetCandle(candle, stopPrice, targetPrice)
+    if (candleAmbiguity === null) ambiguityDataAvailable = false
+    if (candleAmbiguity === true) ambiguousCandle = true
 
     maximumFavorableExcursion = Math.max(
       maximumFavorableExcursion,
@@ -120,6 +138,22 @@ function createTrailingStopTrade(signal, entryCandle, candles, signalIndex, sett
 
     // Evaluate the stop carried into this candle first.
     // Only after the candle survives can the trail ratchet upward.
+    // If the open is beyond a carried barrier, use the open for stops and the
+    // conservative limit price for targets. The open establishes event order.
+    if (Number.isFinite(candle.open) && candle.open <= stopPrice) {
+      exitReason = trailingStopActive ? 'Trailing Stop' : 'Stop'
+      exitPrice = candle.open
+      holdingBars = offset
+      break
+    }
+
+    if (Number.isFinite(candle.open) && candle.open >= targetPrice) {
+      exitReason = 'Target'
+      exitPrice = targetPrice
+      holdingBars = offset
+      break
+    }
+
     if (candle.low <= stopPrice) {
       exitReason = trailingStopActive ? 'Trailing Stop' : 'Stop'
       exitPrice = stopPrice
@@ -176,6 +210,7 @@ function createTrailingStopTrade(signal, entryCandle, candles, signalIndex, sett
           ? 'Loss'
           : 'Breakeven',
     exitReason,
+    ambiguousCandle: ambiguityDataAvailable ? ambiguousCandle : null,
     rMultiple,
     maximumFavorableExcursion,
     maximumAdverseExcursion,

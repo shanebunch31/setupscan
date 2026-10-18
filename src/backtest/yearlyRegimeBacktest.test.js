@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { runYearlyRegimeResearch, groupTimestampsByYear, yearlyRegimeDefaults } from './yearlyRegimeBacktest.js'
 import { scoreBucketDefinitions } from './signalQualityBacktest.js'
+import { buildYearlyExpectancyObservations } from './labChartData.js'
 
 function makeDailySeries(symbol, count, startDate, waveShift = 0, seed = 1) {
   const start = new Date(startDate)
@@ -35,10 +36,26 @@ test('year splitting respects calendar boundaries at the UTC year edge', () => {
 
 test('every year in a multi-year dataset only contains its own timestamps (no future-year leakage into grouping)', () => {
   const research = runYearlyRegimeResearch(buildDataset(), {})
+  assert.ok(research.combinedBaseline.overall.tradeCount > 0, 'the candidate baseline must contain trades')
   research.years.forEach((yearEntry) => {
     yearEntry.regime.SPY && assert.ok(true)
     const allTimestampsBelongToYear = new Set(groupTimestampsByYear(research.aligned.timestamps).find((g) => g.year === yearEntry.year).timestamps)
     assert.equal(allTimestampsBelongToYear.size, yearEntry.candleCount)
+  })
+})
+
+test('yearly expectancy chart rows match source metrics, preserve year order, counts, and genuine zero values', () => {
+  const research = runYearlyRegimeResearch(buildDataset(), {})
+  const observations = buildYearlyExpectancyObservations(research.years)
+  assert.deepEqual(observations.map((row) => row.label), research.years.map((year) => String(year.year)))
+  observations.forEach((row, index) => {
+    const sourceYear = research.years[index]
+    for (const [seriesIndex, variantKey] of ['baseline', 'rvConfirmed'].entries()) {
+      const source = sourceYear[variantKey].overall
+      const chartPoint = row.series[seriesIndex]
+      assert.equal(chartPoint.tradeCount, source.tradeCount)
+      assert.equal(chartPoint.value, source.tradeCount > 0 && Number.isFinite(source.expectancy) ? source.expectancy : null)
+    }
   })
 })
 

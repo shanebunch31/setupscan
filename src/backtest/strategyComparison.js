@@ -3,6 +3,7 @@ import {
   runSetupScanBacktest,
   runTrailingStopBacktest,
 } from './strategy.js'
+import { isAmbiguousStopTargetCandle, summarizeAmbiguousTrades } from './ambiguousCandle.js'
 
 export const trendMomentumParameters = {
   momentumLookback: 20,
@@ -33,6 +34,7 @@ export function calculateResearchMetrics(trades) {
   const averageLoser = average(losses.map((trade) => trade.rMultiple))
   return {
     totalTrades: trades.length,
+    ...summarizeAmbiguousTrades(trades),
     winningTrades: wins.length,
     losingTrades: losses.length,
     expiredTrades: trades.filter((trade) => trade.exitReason === 'Expired').length,
@@ -64,7 +66,7 @@ function averageTrueRange(candles, index, period) {
   return average(ranges)
 }
 
-function createTrendMomentumTrade(candle, entryCandle, candles, signalIndex, atr, settings) {
+export function createTrendMomentumTrade(candle, entryCandle, candles, signalIndex, atr, settings) {
   const entryPrice = entryCandle.open
   const risk = atr * settings.stopAtrMultiple
   const stopPrice = entryPrice - risk
@@ -73,13 +75,20 @@ function createTrendMomentumTrade(candle, entryCandle, candles, signalIndex, atr
   let exitReason = 'Expired'
   let exitPrice = candles[signalIndex + maxBars]?.close ?? entryPrice
   let holdingBars = maxBars
+  let ambiguousCandle = false
+  let ambiguityDataAvailable = true
   for (let offset = 1; offset <= maxBars; offset += 1) {
     const futureCandle = candles[signalIndex + offset]
+    const candleAmbiguity = isAmbiguousStopTargetCandle(futureCandle, stopPrice, targetPrice)
+    if (candleAmbiguity === null) ambiguityDataAvailable = false
+    if (candleAmbiguity === true) ambiguousCandle = true
+    if (Number.isFinite(futureCandle.open) && futureCandle.open <= stopPrice) { exitReason = 'Stop'; exitPrice = futureCandle.open; holdingBars = offset; break }
+    if (Number.isFinite(futureCandle.open) && futureCandle.open >= targetPrice) { exitReason = 'Target'; exitPrice = targetPrice; holdingBars = offset; break }
     if (futureCandle.low <= stopPrice) { exitReason = 'Stop'; exitPrice = stopPrice; holdingBars = offset; break }
     if (futureCandle.high >= targetPrice) { exitReason = 'Target'; exitPrice = targetPrice; holdingBars = offset; break }
   }
   const rMultiple = (exitPrice - entryPrice) / risk
-  return { symbol: candle.symbol, timeframe: '1h', timestamp: candle.timestamp, setupType: 'Trend / Momentum', direction: 'Long', entryPrice, stopPrice, targetPrice, exitPrice, exitReason, holdingBars, holdingTime: holdingBars * 60, rMultiple, outcome: rMultiple > 0 ? 'Win' : rMultiple < 0 ? 'Loss' : 'Breakeven' }
+  return { symbol: candle.symbol, timeframe: '1h', timestamp: candle.timestamp, setupType: 'Trend / Momentum', direction: 'Long', entryPrice, stopPrice, targetPrice, exitPrice, exitReason, ambiguousCandle: ambiguityDataAvailable ? ambiguousCandle : null, holdingBars, holdingTime: holdingBars * 60, rMultiple, outcome: rMultiple > 0 ? 'Win' : rMultiple < 0 ? 'Loss' : 'Breakeven' }
 }
 
 export function runTrendMomentumBacktest(candles, settings = {}) {

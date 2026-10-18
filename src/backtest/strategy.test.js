@@ -75,6 +75,60 @@ test('a final-data holding window remains truncated and is assigned by its obser
   assert.equal(result.excludedCrossBoundaryTradeCount, 0)
 })
 
+test('generic backtest fills a long stop gap at the open while ordinary intrabar stops use the barrier', () => {
+  const makeRun = (bar) => {
+    const rows = candles(12, [2])
+    rows[3] = { ...rows[3], open: 100, high: 101, low: 99.5, close: 100 }
+    rows[4] = { ...rows[4], ...bar }
+    return runSetupScanBacktest(rows, { splitIndex: 12, maxHoldingBars: 2, stopDistance: 5, targetDistance: 10 })
+  }
+
+  const gap = makeRun({ open: 94, high: 100, low: 93, close: 96 })
+  assert.equal(gap.trades[0].exitReason, 'Stop')
+  assert.equal(gap.trades[0].exitPrice, 94)
+
+  const intrabar = makeRun({ open: 100, high: 105, low: 94, close: 99 })
+  assert.equal(intrabar.trades[0].exitReason, 'Stop')
+  assert.equal(intrabar.trades[0].exitPrice, 95)
+})
+
+test('generic backtest keeps target gap fills conservative and resolves same-candle touches stop-first', () => {
+  const makeRun = (bar) => {
+    const rows = candles(12, [2])
+    rows[3] = { ...rows[3], open: 100, high: 101, low: 99.5, close: 100 }
+    rows[4] = { ...rows[4], ...bar }
+    return runSetupScanBacktest(rows, { splitIndex: 12, maxHoldingBars: 2, stopDistance: 5, targetDistance: 10 })
+  }
+
+  const targetGap = makeRun({ open: 112, high: 114, low: 111, close: 113 })
+  assert.equal(targetGap.trades[0].exitReason, 'Target')
+  assert.equal(targetGap.trades[0].exitPrice, 110) // no assumed price improvement
+
+  const intrabarTarget = makeRun({ open: 100, high: 112, low: 99.5, close: 111 })
+  assert.equal(intrabarTarget.trades[0].exitReason, 'Target')
+  assert.equal(intrabarTarget.trades[0].exitPrice, 110)
+
+  const ambiguous = makeRun({ open: 100, high: 111, low: 94, close: 100 })
+  assert.equal(ambiguous.trades[0].exitReason, 'Stop')
+  assert.equal(ambiguous.trades[0].exitPrice, 95)
+  assert.equal(ambiguous.trades[0].ambiguousCandle, true)
+  assert.equal(ambiguous.metrics.ambiguousTradeCount, 1)
+  assert.equal(ambiguous.metrics.ambiguityRateDenominator, 1)
+  assert.equal(ambiguous.metrics.ambiguousTradeRate, 1)
+
+  const ordinaryStop = makeRun({ open: 100, high: 104, low: 94, close: 99 })
+  assert.equal(ordinaryStop.trades[0].ambiguousCandle, false)
+  assert.equal(ordinaryStop.metrics.ambiguousTradeCount, 0)
+  assert.equal(ordinaryStop.metrics.ambiguousTradeRate, 0)
+})
+
+test('ambiguity count is zero and percentage unavailable when there are no simulated trades', () => {
+  const result = runSetupScanBacktest(candles(12), { splitIndex: 12, maxHoldingBars: 2, stopDistance: 5, targetDistance: 10 })
+  assert.equal(result.metrics.ambiguousTradeCount, 0)
+  assert.equal(result.metrics.ambiguityRateDenominator, 0)
+  assert.equal(result.metrics.ambiguousTradeRate, null)
+})
+
 test('partition correction preserves all trades and aggregate metrics', () => {
   const candlesForRun = candles(12, [2, 4, 8])
   const splitRun = runSetupScanBacktest(candlesForRun, { splitIndex: 6, maxHoldingBars: 2, stopDistance: 5, targetDistance: 10 })
@@ -135,6 +189,50 @@ test('trailing stop activates after +1R and ratchets upward without same-bar opt
   assert.ok(trade.stopPrice > 99.5)
   assert.ok(trade.exitPrice > 99.5)
   assert.ok(trade.rMultiple > -1)
+})
+
+test('trailing backtest applies conservative stop and target fills when a candle opens beyond a barrier', async () => {
+  const { runTrailingStopBacktest } = await import('./strategy.js')
+  const makeRun = (nextCandle) => {
+    const rows = candles(10, [2])
+    rows[3] = { ...rows[3], open: 100, high: 100.2, low: 99.9, close: 100 }
+    rows[4] = { ...rows[4], ...nextCandle }
+    return runTrailingStopBacktest(rows, {
+      minimumScore: 75,
+      maxHoldingBars: 2,
+      stopDistance: 0.5,
+      targetDistance: 10,
+      splitIndex: 9,
+    })
+  }
+
+  const stopGap = makeRun({ open: 99, high: 100, low: 98.5, close: 99.5 })
+  assert.equal(stopGap.trades[0].exitReason, 'Stop')
+  assert.equal(stopGap.trades[0].exitPrice, 99)
+
+  const targetGap = makeRun({ open: 112, high: 114, low: 111, close: 113 })
+  assert.equal(targetGap.trades[0].exitReason, 'Target')
+  assert.equal(targetGap.trades[0].exitPrice, 110)
+})
+
+test('trailing backtest counts a same-candle touch against the active trailing stop and target', async () => {
+  const { runTrailingStopBacktest } = await import('./strategy.js')
+  const rows = candles(10, [2])
+  rows[3] = { ...rows[3], open: 100, high: 100.6, low: 99.9, close: 100.5 }
+  rows[4] = { ...rows[4], open: 100.5, high: 101.2, low: 100.2, close: 100.5 }
+  const result = runTrailingStopBacktest(rows, {
+    minimumScore: 75,
+    activationR: 1,
+    trailDistancePercent: 0.003,
+    maxHoldingBars: 2,
+    stopDistance: 0.5,
+    targetDistance: 1,
+    splitIndex: 9,
+  })
+  assert.equal(result.trades[0].ambiguousCandle, true)
+  assert.equal(result.trades[0].exitReason, 'Trailing Stop')
+  assert.equal(result.metrics.ambiguousTradeCount, 1)
+  assert.equal(result.metrics.ambiguousTradeRate, 1)
 })
 
 test('Resilience thresholds change trade eligibility for potential setups', () => {

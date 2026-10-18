@@ -49,7 +49,7 @@ function bucketsForYear(catalogueBySymbol, alignedRaw, yearTimestamps, options) 
       catalogueBySymbol,
       alignedRaw,
       yearTimestamps,
-      (entry) => entry.score >= min && entry.score <= max && entry.status === 'Bullish',
+      (entry) => entry.score >= min && entry.score <= max && entry.researchEligible,
       options,
     )
     return { label, min, max, smallSample: summary.overall.tradeCount < options.smallSampleThreshold, ...summary }
@@ -93,7 +93,7 @@ export function runYearlyRegimeResearch(rawSeriesBySymbol, settings = {}) {
   const symbols = Object.keys(aligned.raw)
   const yearGroups = groupTimestampsByYear(aligned.timestamps)
 
-  const baselinePredicate = (entry) => entry.score >= options.minimumScore && entry.status === 'Bullish'
+  const baselinePredicate = (entry) => entry.researchEligible && entry.score >= options.minimumScore
   const rvConfirmedPredicate = (entry) => baselinePredicate(entry) && entry.components.rvConfirmation
 
   const years = yearGroups.map(({ year, timestamps }) => {

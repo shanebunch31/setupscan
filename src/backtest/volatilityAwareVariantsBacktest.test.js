@@ -1,7 +1,29 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { runVolatilityAwareVariantsResearch, variantDefinitions } from './volatilityAwareVariantsBacktest.js'
+import { runVolatilityAwareVariantsResearch, summarizeYearlyExpectancy, variantDefinitions } from './volatilityAwareVariantsBacktest.js'
 import { runWalkForwardRegimeResearch } from './walkForwardRegimeBacktest.js'
+import { buildVolatilityAwareControlDifferenceObservations, buildVolatilityAwareExpectancyObservations } from './labChartData.js'
+
+test('yearly expectancy mean and median exclude empty years and disclose the populated-year denominator', () => {
+  const summary = summarizeYearlyExpectancy([
+    { testYear: 2023, overall: { tradeCount: 2, expectancy: 0.5 } },
+    { testYear: 2024, overall: { tradeCount: 0, expectancy: 0 } },
+    { testYear: 2025, overall: { tradeCount: 4, expectancy: 1.5 } },
+  ])
+  assert.deepEqual(summary, {
+    expectancyYearsWithTrades: 2,
+    meanYearlyExpectancy: 1,
+    medianYearlyExpectancy: 1,
+  })
+})
+
+test('yearly expectancy is unavailable when no test year contains trades', () => {
+  assert.deepEqual(summarizeYearlyExpectancy([{ testYear: 2024, overall: { tradeCount: 0, expectancy: 0 } }]), {
+    expectancyYearsWithTrades: 0,
+    meanYearlyExpectancy: null,
+    medianYearlyExpectancy: null,
+  })
+})
 
 function makeDailySeries(symbol, count, startDate, waveShift = 0, seed = 1) {
   const start = new Date(startDate)
@@ -29,12 +51,47 @@ test('frozen control equivalence: Control trades match Experiment #6 baseline tr
   const dataset = buildDataset()
   const variantsResearch = runVolatilityAwareVariantsResearch(dataset, {})
   const walkForwardResearch = runWalkForwardRegimeResearch(dataset, {})
+  assert.ok(variantsResearch.windows.some((windowEntry) => windowEntry.variants.find((v) => v.key === 'control').summary.overall.tradeCount > 0), 'volatility-aware control must contain candidate trades')
   variantsResearch.windows.forEach((windowEntry, index) => {
     const control = windowEntry.variants.find((v) => v.key === 'control').summary.overall
     const baseline = walkForwardResearch.windows[index].baseline.overall
     assert.equal(control.tradeCount, baseline.tradeCount)
     assert.equal(control.totalR, baseline.totalR)
     assert.equal(control.winRate, baseline.winRate)
+  })
+})
+
+test('variant charts match the existing per-window results, dates, counts, and comparable Control differences', () => {
+  const research = runVolatilityAwareVariantsResearch(buildDataset(), {})
+  const expectancyRows = buildVolatilityAwareExpectancyObservations(research.windows)
+  const differenceRows = buildVolatilityAwareControlDifferenceObservations(research.windows)
+
+  assert.deepEqual(expectancyRows.map((row) => row.label), research.windows.map((window) => `${window.label} · ${window.testYear}`))
+  assert.deepEqual(expectancyRows.map((row) => row.detail), research.windows.map((window) =>
+    `${window.testRealizedStart} through ${window.testRealizedEnd} UTC`))
+  expectancyRows.forEach((row, index) => {
+    const sourceVariants = research.windows[index].variants
+    assert.deepEqual(row.series.map((point) => point.label), sourceVariants.map((variant) => variant.label))
+    row.series.forEach((point, variantIndex) => {
+      const metrics = sourceVariants[variantIndex].summary.overall
+      assert.equal(point.tradeCount, metrics.tradeCount)
+      assert.equal(point.value, metrics.tradeCount > 0 && Number.isFinite(metrics.expectancy) ? metrics.expectancy : null)
+    })
+  })
+
+  differenceRows.forEach((row, index) => {
+    const window = research.windows[index]
+    assert.deepEqual(row.series.map((point) => point.label), window.diffsVsControl.map((entry) => entry.label))
+    row.series.forEach((point, diffIndex) => {
+      const entry = window.diffsVsControl[diffIndex]
+      const variantCount = window.variants.find((variant) => variant.key === entry.key).summary.overall.tradeCount
+      const controlCount = window.variants.find((variant) => variant.key === 'control').summary.overall.tradeCount
+      assert.equal(point.tradeCount, variantCount)
+      assert.equal(point.comparisonTradeCount, controlCount)
+      assert.equal(point.value, variantCount > 0 && controlCount > 0 && Number.isFinite(entry.diff.expectancyChange)
+        ? entry.diff.expectancyChange
+        : null)
+    })
   })
 })
 
@@ -89,6 +146,23 @@ test('no-look-ahead: every trade in every variant enters strictly after its own 
   })
 })
 
+test('volatility-aware variants and lag stress summaries inherit walk-forward outcome boundaries', () => {
+  const research = runVolatilityAwareVariantsResearch(buildDataset(), {})
+  research.windows.forEach((windowEntry) => {
+    const endIndex = research.aligned.timestamps.indexOf(windowEntry.testRealizedEnd)
+    const summaries = [
+      ...windowEntry.variants,
+      ...windowEntry.stress1,
+      ...windowEntry.stress2,
+    ]
+    summaries.flatMap((entry) => entry.summary.trades).forEach((trade) => {
+      const signalIndex = research.aligned.timestamps.indexOf(trade.timestamp)
+      assert.ok(signalIndex + trade.holdingBars <= endIndex)
+      if (trade.exitReason === 'Expired') assert.equal(trade.holdingBars, research.options.maxHoldingBars)
+    })
+  })
+})
+
 test('walk-forward boundaries match Experiment #6 exactly (same training-only tercile boundaries)', () => {
   const dataset = buildDataset()
   const variantsResearch = runVolatilityAwareVariantsResearch(dataset, {})
@@ -120,6 +194,10 @@ test('produces deterministic results across repeated runs on the same input', ()
   const second = runVolatilityAwareVariantsResearch(dataset, {})
   assert.equal(JSON.stringify(first.evidenceTable), JSON.stringify(second.evidenceTable))
   assert.equal(JSON.stringify(first.consistency), JSON.stringify(second.consistency))
+  first.consistency.forEach((row) => {
+    assert.equal(row.pooledTradeCount, first.pooled.find((variant) => variant.key === row.key).summary.overall.tradeCount)
+    if (row.pooledTradeCount === 0) assert.equal(row.expectancyYearsWithTrades, 0)
+  })
   assert.equal(JSON.stringify(first.windows.map((w) => w.boundaries)), JSON.stringify(second.windows.map((w) => w.boundaries)))
 })
 

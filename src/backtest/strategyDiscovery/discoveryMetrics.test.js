@@ -9,7 +9,9 @@ import {
   computeSessionVwapSeries,
   computeTrueRange,
   evaluateBarrierOutcome,
+  outcomeToFinalR,
   summarizeOccurrences,
+  summarizeSecondaryOutcome,
 } from './discoveryMetrics.js'
 
 function makeCandle({ timestamp, open = 100, high = 101, low = 99, close = 100, volume = 1000 }) {
@@ -63,6 +65,38 @@ test('evaluateBarrierOutcome resolves Stop, Target, Ambiguous, Expired, and Insu
   assert.equal(evaluateBarrierOutcome(tooShort, 0, 95, 110, 5).status, 'InsufficientData')
 })
 
+test('evaluateBarrierOutcome handles opening gaps conservatively and keeps ordinary intrabar touches at their barriers', () => {
+  const stopGap = [
+    makeCandle({ timestamp: 'entry', open: 100 }),
+    makeCandle({ timestamp: 'gap-stop', open: 94, high: 112, low: 93 }),
+  ]
+  assert.deepEqual(evaluateBarrierOutcome(stopGap, 0, 95, 110, 1), {
+    status: 'Stop', barsElapsed: 1, exitPrice: 94,
+  })
+
+  const targetGap = [
+    makeCandle({ timestamp: 'entry', open: 100 }),
+    makeCandle({ timestamp: 'gap-target', open: 112, high: 114, low: 94 }),
+  ]
+  assert.deepEqual(evaluateBarrierOutcome(targetGap, 0, 95, 110, 1), {
+    status: 'Target', barsElapsed: 1, exitPrice: 110,
+  })
+
+  const ordinaryStop = [makeCandle({ timestamp: 'entry', open: 100 }), makeCandle({ timestamp: 'stop', open: 100, low: 94, high: 104 })]
+  assert.equal(evaluateBarrierOutcome(ordinaryStop, 0, 95, 110, 1).exitPrice, 95)
+
+  const ordinaryTarget = [makeCandle({ timestamp: 'entry', open: 100 }), makeCandle({ timestamp: 'target', open: 100, low: 99, high: 111 })]
+  assert.equal(evaluateBarrierOutcome(ordinaryTarget, 0, 95, 110, 1).exitPrice, 110)
+
+  const ambiguous = [makeCandle({ timestamp: 'entry', open: 100 }), makeCandle({ timestamp: 'both', open: 100, low: 94, high: 111 })]
+  assert.equal(evaluateBarrierOutcome(ambiguous, 0, 95, 110, 1).status, 'Ambiguous')
+})
+
+test('outcomeToFinalR uses the adverse opening fill for a stop gap', () => {
+  assert.equal(outcomeToFinalR({ status: 'Stop', exitPrice: 94 }, 100, 1, 1), -6)
+  assert.equal(outcomeToFinalR({ status: 'Stop', exitPrice: 99 }, 100, 1, 1), -1)
+})
+
 test('computeExcursion only reads bars within the fixed window (no leakage beyond it)', () => {
   const candles = [
     makeCandle({ timestamp: 't0' }),
@@ -101,6 +135,191 @@ test('buildOccurrence enters at the next candle open and stops at 1R below entry
   assert.equal(noNextCandle, null)
 })
 
+test('buildOccurrence counts an entry-candle-only stop as the first holding bar', () => {
+  const occurrence = buildOccurrence({
+    candles: [
+      makeCandle({ timestamp: 'signal' }),
+      makeCandle({ timestamp: 'entry', open: 100, high: 100.5, low: 98, close: 100 }),
+      makeCandle({ timestamp: 'later', high: 105, low: 100 }),
+    ],
+    signalIndex: 0,
+    symbol: 'TEST',
+    risk: 1,
+    primaryMaxBars: 1,
+    primaryLabel: 'test',
+  })
+
+  assert.equal(occurrence.primaryStatus, 'Stop')
+  assert.equal(occurrence.primaryR, -1)
+  assert.equal(occurrence.holdingBars, 1)
+})
+
+test('buildOccurrence reports the full loss when a later candle gaps through its stop', () => {
+  const occurrence = buildOccurrence({
+    candles: [
+      makeCandle({ timestamp: 'signal' }),
+      makeCandle({ timestamp: 'entry', open: 100, high: 100.5, low: 99.5, close: 100 }),
+      makeCandle({ timestamp: 'gap-stop', open: 94, high: 96, low: 93, close: 95 }),
+      makeCandle({ timestamp: 'later', high: 110, low: 90 }),
+    ],
+    signalIndex: 0,
+    symbol: 'TEST',
+    risk: 1,
+    primaryMaxBars: 2,
+    primaryLabel: 'test',
+  })
+
+  assert.equal(occurrence.primaryStatus, 'Stop')
+  assert.equal(occurrence.primaryR, -6)
+  assert.equal(occurrence.holdingBars, 2)
+})
+
+test('buildOccurrence counts an entry-candle-only target as the first holding bar', () => {
+  const occurrence = buildOccurrence({
+    candles: [
+      makeCandle({ timestamp: 'signal' }),
+      makeCandle({ timestamp: 'entry', open: 100, high: 102, low: 99.5, close: 101 }),
+      makeCandle({ timestamp: 'later', high: 105, low: 100 }),
+    ],
+    signalIndex: 0,
+    symbol: 'TEST',
+    risk: 1,
+    primaryMaxBars: 1,
+    primaryLabel: 'test',
+  })
+
+  assert.equal(occurrence.primaryStatus, 'Target')
+  assert.equal(occurrence.primaryR, 1)
+  assert.equal(occurrence.holdingBars, 1)
+})
+
+test('buildOccurrence keeps an entry-candle stop and target conflict ambiguous', () => {
+  const occurrence = buildOccurrence({
+    candles: [
+      makeCandle({ timestamp: 'signal' }),
+      makeCandle({ timestamp: 'entry', open: 100, high: 102, low: 98, close: 100 }),
+      makeCandle({ timestamp: 'later', high: 105, low: 100 }),
+    ],
+    signalIndex: 0,
+    symbol: 'TEST',
+    risk: 1,
+    primaryMaxBars: 1,
+    primaryLabel: 'test',
+  })
+
+  assert.equal(occurrence.primaryStatus, 'Ambiguous')
+  assert.equal(occurrence.primaryR, null)
+  assert.equal(occurrence.holdingBars, 1)
+})
+
+test('buildOccurrence includes entry-candle high and low in excursion but ignores signal-candle hits', () => {
+  const excursion = buildOccurrence({
+    candles: [
+      makeCandle({ timestamp: 'signal', high: 500, low: 1 }),
+      makeCandle({ timestamp: 'entry', open: 100, high: 105, low: 95, close: 100 }),
+      makeCandle({ timestamp: 'later', high: 101, low: 99 }),
+    ],
+    signalIndex: 0,
+    symbol: 'TEST',
+    risk: 1,
+    primaryMaxBars: 1,
+    primaryLabel: 'test',
+  })
+
+  assert.equal(excursion.primaryStatus, 'Ambiguous')
+  assert.equal(excursion.mfeR, 5)
+  assert.equal(excursion.maeR, -5)
+
+  const signalCandleOnlyHit = buildOccurrence({
+    candles: [
+      makeCandle({ timestamp: 'signal', high: 500, low: 1 }),
+      makeCandle({ timestamp: 'entry', open: 100, high: 100.5, low: 99.5, close: 100 }),
+      makeCandle({ timestamp: 'later', high: 105, low: 100 }),
+    ],
+    signalIndex: 0,
+    symbol: 'TEST',
+    risk: 1,
+    primaryMaxBars: 1,
+    primaryLabel: 'test',
+  })
+
+  assert.equal(signalCandleOnlyHit.primaryStatus, 'Expired')
+  assert.equal(signalCandleOnlyHit.holdingBars, 1)
+})
+
+test('period summaries exclude a 2024 outcome candle that extends into 2025 and report it', () => {
+  const occurrence = buildOccurrence({
+    candles: [
+      makeCandle({ timestamp: '2024-12-31T22:00:00Z' }),
+      makeCandle({ timestamp: '2024-12-31T23:00:00Z', open: 100, high: 102, low: 99.5, close: 101 }),
+      makeCandle({ timestamp: '2025-01-01T00:00:00Z' }),
+    ],
+    signalIndex: 0,
+    symbol: 'TEST',
+    risk: 1,
+    primaryMaxBars: 1,
+  })
+  const summary = summarizeOccurrences([occurrence])
+
+  assert.equal(occurrence.period, 'Development')
+  assert.equal(occurrence.primaryR, 1)
+  assert.equal(occurrence.primaryPeriodBoundaryExcluded, true)
+  assert.equal(summary.overall.occurrenceCount, 0)
+  assert.equal(summary.excluded.periodBoundaryCount, 1)
+  assert.deepEqual(summary.excluded.periodBoundaryByPeriod.find((entry) => entry.period === 'Development'), { period: 'Development', count: 1 })
+})
+
+test('primary and secondary horizons are checked separately across the 2025/2026 boundary', () => {
+  const candles = Array.from({ length: 12 }, (_, index) => {
+    const time = Date.parse('2025-12-31T21:00:00Z') + index * 60 * 60 * 1000
+    return makeCandle({ timestamp: new Date(time).toISOString(), open: 100, high: 100.5, low: 99.5, close: 100 })
+  })
+  const occurrence = buildOccurrence({
+    candles,
+    signalIndex: 0,
+    symbol: 'TEST',
+    risk: 1,
+    getPrimaryUpperPrice: (entryPrice, risk) => entryPrice + 3 * risk,
+    primaryMaxBars: 1,
+  })
+  const secondary = summarizeSecondaryOutcome([occurrence], 'secondary1R5')
+  const secondaryLong = summarizeSecondaryOutcome([occurrence], 'secondary2R10')
+  const summary = summarizeOccurrences([occurrence])
+
+  assert.equal(occurrence.period, 'Out-of-Sample')
+  assert.equal(occurrence.primaryStatus, 'Expired')
+  assert.equal(occurrence.primaryPeriodBoundaryExcluded, false)
+  assert.equal(summary.overall.occurrenceCount, 1)
+  assert.equal(occurrence.secondary1R5.periodBoundaryExcluded, true)
+  assert.equal(occurrence.secondary2R10.periodBoundaryExcluded, true)
+  assert.equal(secondary.occurrenceCount, 0)
+  assert.equal(secondary.periodBoundaryExcludedCount, 1)
+  assert.equal(secondaryLong.periodBoundaryExcludedCount, 1)
+  assert.equal(occurrence.excursionPeriodBoundaryExcluded, true)
+  assert.equal(summary.excluded.excursionPeriodBoundaryCount, 1)
+  assert.equal(summary.overall.excursionObservationCount, 0)
+  assert.equal(summary.overall.averageMfeR, null)
+  assert.equal(summary.overall.averageMaeR, null)
+})
+
+test('an outcome whose last candle completes exactly before a period boundary remains eligible', () => {
+  const occurrence = buildOccurrence({
+    candles: [
+      makeCandle({ timestamp: '2024-12-31T21:00:00Z' }),
+      makeCandle({ timestamp: '2024-12-31T22:00:00Z', open: 100, high: 102, low: 99.5, close: 101 }),
+      makeCandle({ timestamp: '2024-12-31T23:00:00Z' }),
+    ],
+    signalIndex: 0,
+    symbol: 'TEST',
+    risk: 1,
+    primaryMaxBars: 1,
+  })
+  const summary = summarizeOccurrences([occurrence])
+  assert.equal(occurrence.primaryPeriodBoundaryExcluded, false)
+  assert.equal(summary.overall.occurrenceCount, 1)
+  assert.equal(summary.excluded.periodBoundaryCount, 0)
+})
+
 test('summarizeOccurrences excludes ambiguous/insufficient/out-of-window occurrences from the R statistics but still counts them', () => {
   const occurrences = [
     { symbol: 'A', timestamp: '2023-01-01T00:00:00Z', period: 'Development', primaryStatus: 'Target', primaryR: 1, holdingBars: 2, mfeR: 1, maeR: -0.2, entryPrice: 100, risk: 1 },
@@ -113,6 +332,34 @@ test('summarizeOccurrences excludes ambiguous/insufficient/out-of-window occurre
   assert.equal(summary.excluded.ambiguousCount, 1)
   assert.equal(summary.excluded.outsideResearchWindowCount, 1)
   assert.equal(summary.overall.winRate, 0.5)
+})
+
+test('summarizeOccurrences keeps empty cost-tier metrics at zero for the display layer to mark unavailable', () => {
+  const summary = summarizeOccurrences([])
+
+  assert.equal(summary.overall.occurrenceCount, 0)
+  assert.ok(summary.costTiers.length > 0)
+  summary.costTiers.forEach((tier) => {
+    assert.equal(tier.metrics.occurrenceCount, 0)
+    assert.equal(tier.metrics.winRate, 0)
+    assert.equal(tier.metrics.profitFactor, 0)
+    assert.equal(tier.metrics.averageR, 0)
+  })
+})
+
+test('summarizeOccurrences reports ambiguous count and rate against classifiable in-window outcomes only', () => {
+  const summary = summarizeOccurrences([
+    { symbol: 'A', timestamp: '2023-01-01T00:00:00Z', period: 'Development', primaryStatus: 'Target', primaryR: 1, holdingBars: 1, mfeR: 1, maeR: 0 },
+    { symbol: 'A', timestamp: '2023-01-02T00:00:00Z', period: 'Development', primaryStatus: 'Ambiguous', primaryR: null, holdingBars: 1, mfeR: null, maeR: null },
+    { symbol: 'A', timestamp: '2021-01-01T00:00:00Z', period: null, primaryStatus: 'Ambiguous', primaryR: null, holdingBars: 1, mfeR: null, maeR: null },
+    { symbol: 'A', timestamp: '2023-01-03T00:00:00Z', period: 'Development', primaryStatus: 'InsufficientData', primaryR: null, holdingBars: 0, mfeR: null, maeR: null },
+  ])
+
+  assert.equal(summary.excluded.ambiguousCount, 2)
+  assert.equal(summary.excluded.ambiguousInResearchWindowCount, 1)
+  assert.equal(summary.excluded.classifiableInResearchWindowCount, 2)
+  assert.equal(summary.excluded.ambiguousInResearchWindowRate, 0.5)
+  assert.equal(summarizeOccurrences([]).excluded.ambiguousInResearchWindowRate, null)
 })
 
 function makeOccurrence({ symbol, timestamp, primaryR }) {
@@ -160,5 +407,18 @@ test('summarizeOccurrences produces deterministic results regardless of input in
   const first = summarizeOccurrences(chronological)
   const second = summarizeOccurrences(symbolConcatenated)
   assert.deepEqual(first, second)
+})
+
+test('summarizeOccurrences uses deterministic ordering when entry timestamps tie', () => {
+  const simultaneous = [
+    makeOccurrence({ symbol: 'A', timestamp: '2023-01-02T00:00:00Z', primaryR: 5 }),
+    makeOccurrence({ symbol: 'B', timestamp: '2023-01-02T00:00:00Z', primaryR: -2 }),
+    makeOccurrence({ symbol: 'C', timestamp: '2023-01-02T00:00:00Z', primaryR: -2 }),
+  ]
+
+  assert.deepEqual(
+    summarizeOccurrences(simultaneous),
+    summarizeOccurrences([...simultaneous].reverse()),
+  )
 })
 

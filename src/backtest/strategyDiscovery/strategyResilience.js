@@ -45,7 +45,10 @@ function summarizeTrades(trades) {
     .sort(
       (a, b) =>
         new Date(a.timestamp).getTime() -
-        new Date(b.timestamp).getTime(),
+          new Date(b.timestamp).getTime() ||
+        String(a.symbol ?? '').localeCompare(String(b.symbol ?? '')) ||
+        (a.rMultiple ?? 0) - (b.rMultiple ?? 0) ||
+        (a.entryPrice ?? 0) - (b.entryPrice ?? 0),
     )
     .forEach((trade) => {
       equity += trade.rMultiple

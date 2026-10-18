@@ -56,10 +56,11 @@ export function classifyTimeOfDay(timestamp) {
   return 'Outside Regular Session (Pre/Post-Market)'
 }
 
-/** Dimension 6 — Opening-Range Context. Simple, non-optimized definition: the opening range of an
- * ET calendar day is the high of that day's first observed (1-hour) candle; only usable starting
- * from the day's second candle onward (never from the opening bar itself or a future bar). */
-function computeOpeningRangeLabels(candles) {
+/** Dimension 6 — First-Observed Daily Range Context. The reference is the high of the first
+ * observed candle for each Eastern calendar date, including premarket if that is the first data
+ * available. It is usable only from the second observed candle onward. Missing regular-session
+ * opening bars are never fabricated or silently substituted for the first observed bar. */
+export function computeFirstObservedDailyRangeLabels(candles) {
   const labels = new Array(candles.length).fill(INSUFFICIENT_HISTORY)
   let currentDayKey = null
   let openingRangeHigh = null
@@ -70,7 +71,7 @@ function computeOpeningRangeLabels(candles) {
       openingRangeHigh = candle.high
       return // this bar establishes the range; it cannot be classified against its own range
     }
-    labels[index] = candle.high > openingRangeHigh ? 'Breakout Above Opening Range' : 'Not Above Opening Range'
+    labels[index] = candle.high > openingRangeHigh ? 'Breakout Above First-Observed Daily Range' : 'Not Above First-Observed Daily Range'
   })
   return labels
 }
@@ -133,7 +134,7 @@ const DIMENSION_META = [
   { key: 'volatilityRegime', label: 'Volatility Regime' },
   { key: 'relativeStrength', label: 'Relative Strength' },
   { key: 'vwapContext', label: 'VWAP Context' },
-  { key: 'openingRangeContext', label: 'Opening-Range Context' },
+  { key: 'openingRangeContext', label: 'First-Observed Daily Range Context' },
   { key: 'priorDayContext', label: 'Prior-Day Context' },
   { key: 'volumeStrength', label: 'Volume Strength' },
 ]
@@ -199,7 +200,7 @@ export function runBreakoutContextResearch(datasets) {
   strategyDiscoveryUniverse.forEach((symbol) => {
     const candles = perSymbol[symbol]
     const signals = findMomentumBreakoutSignals(candles) // frozen Batch A definition, unmodified
-    const openingRangeLabels = computeOpeningRangeLabels(candles)
+    const openingRangeLabels = computeFirstObservedDailyRangeLabels(candles)
     const priorDayLabels = computePriorDayHighLabels(candles)
     const vwapLabels = computeVwapContextLabels(candles)
 
