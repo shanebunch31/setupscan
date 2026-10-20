@@ -1,6 +1,7 @@
 import { scanSetups } from '../src/logic/scanner.js'
 import { validateAndOrderHistoricalCandles } from '../src/data/marketData.js'
 import { historicalCandleEndTime } from '../src/data/historicalDataContract.js'
+import { DEFAULT_PAPER_SYMBOLS } from './paperSymbols.js'
 
 const STARTING_EQUITY = 10000
 const RISK_DOLLARS = 100
@@ -270,7 +271,14 @@ export function createPaperTradingEngine({
   // opportunity rather than replaying a price from before the new process saw it.
   const pendingEntries = new Map()
 
-  function processCandles(symbol, candles, { newEntrySignalTimestamp = null, signalDetectedAt = null } = {}) {
+  function retainPendingEntrySymbols(symbols) {
+    const enabled = new Set(symbols)
+    for (const symbol of pendingEntries.keys()) {
+      if (!enabled.has(symbol)) pendingEntries.delete(symbol)
+    }
+  }
+
+  function processCandles(symbol, candles, { newEntrySignalTimestamp = null, signalDetectedAt = null, allowNewEntries = true } = {}) {
     const { candles: sortedCandles } = validateAndOrderHistoricalCandles(candles)
     // Paper trading currently supports long, qualified setups only.
     const signals = scanSetups(sortedCandles).filter((signal) => signal.qualifiedSetup === true)
@@ -279,7 +287,7 @@ export function createPaperTradingEngine({
     const detectionTimeValue = typeof signalDetectedAt === 'function' ? signalDetectedAt() : signalDetectedAt
     const existing = new Set(journal.trades.map((trade) => trade.id))
     const latestIndex = sortedCandles.length - 1
-    const candidates = pendingEntries.get(symbol) ?? []
+    const candidates = allowNewEntries ? (pendingEntries.get(symbol) ?? []) : []
     const remaining = []
     for (const pending of candidates) {
       const detectionIndex = sortedCandles.findIndex((candle) => candle.timestamp === pending.detectionCandleTimestamp)
@@ -307,7 +315,7 @@ export function createPaperTradingEngine({
     // signal candle. The detection time is captured after fetching the completed
     // bars. If the latest bar had already closed by then, defer to the next
     // adjacent completed bar's close instead of using that stale close/open.
-    const signal = signals.find((item) => item.timestamp === newEntrySignalTimestamp)
+    const signal = allowNewEntries ? signals.find((item) => item.timestamp === newEntrySignalTimestamp) : null
     const signalIndex = signal ? sortedCandles.findIndex((candle) => candle.timestamp === signal.timestamp) : -1
     const detectedAt = detectionTimeValue == null
       ? (signalIndex >= 0 ? historicalCandleEndTime(signal.timestamp, timeframe) : null)
@@ -349,15 +357,16 @@ export function createPaperTradingEngine({
     return journal
   }
 
-  function getJournal() {
-    const bySymbol = Object.fromEntries(['SPY', 'QQQ', 'IWM'].map((symbol) => {
+  function getJournal({ symbols = DEFAULT_PAPER_SYMBOLS } = {}) {
+    const summarySymbols = [...new Set([...symbols, ...journal.trades.map((trade) => trade.symbol)])].sort()
+    const bySymbol = Object.fromEntries(summarySymbols.map((symbol) => {
       const trades = journal.trades.filter((trade) => trade.symbol === symbol)
       return [symbol, { trades, metrics: calculatePaperMetrics(trades) }]
     }))
     return { mode: 'LIVE PAPER MODE — NO REAL ORDERS', timeframe, account: { startingEquity: STARTING_EQUITY, riskPerTrade: RISK_DOLLARS }, bidAskAvailable: false, limitation: 'New entries use the close of the first adjacent completed OHLC bar whose interval ends after signal detection. This delayed historical approximation is not the exact first available quote or a guaranteed fill; bid/ask data is unavailable.', trades: journal.trades, metrics: calculatePaperMetrics(journal.trades), bySymbol }
   }
 
-  return { processCandles, getJournal, getState: () => ({ trades: journal.trades.map((trade) => ({ ...trade })) }) }
+  return { processCandles, retainPendingEntrySymbols, getJournal, getState: () => ({ trades: journal.trades.map((trade) => ({ ...trade })) }) }
 }
 
 export { calculatePaperMetrics, createPaperTrade, PAPER_ENTRY_PRICE_SOURCE, PAPER_FILL_MODEL_VERSION, STARTING_EQUITY, RISK_DOLLARS }

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { configFromEnvironment, createPaperObserver } from './paperObserverCore.js'
 import { completedHourlyCandles, isRegularSession } from './marketSession.js'
+import { preparePaperCandles } from './paperCandlePipeline.js'
+import { scanSetups } from '../src/logic/scanner.js'
 
 function candles() {
   const closes = [
@@ -396,6 +398,7 @@ test('overlapping calls share one cycle, repeated failures retry at a bounded ca
   const overlappingOne = observer.processOnce()
   const overlappingTwo = observer.processOnce()
   assert.equal(overlappingOne, overlappingTwo)
+  await new Promise((resolve) => setImmediate(resolve))
   assert.equal(fetchCalls, 1)
   releaseFirstFetch()
   await new Promise((resolve) => setImmediate(resolve))
@@ -414,4 +417,181 @@ test('overlapping calls share one cycle, repeated failures retry at a bounded ca
   await new Promise((resolve) => setImmediate(resolve))
   assert.equal(scheduled.length, 1, 'the fake queue retains the cancelled callback')
   assert.equal(fetchCalls, 2, 'a cancelled callback does not begin another cycle')
+})
+
+test('observer establishes a fresh baseline for a newly enabled symbol and reads the universe every cycle', async () => {
+  let symbols = []
+  const calls = []
+  const observer = await createPaperObserver({
+    store: store(),
+    symbolUniverse: { getSymbols: async () => symbols },
+    now: () => new Date('2026-09-22T16:00:00Z'),
+    fetchBars: async ({ symbol }) => { calls.push(symbol); return { candles: qualifiedSignalHistory() } },
+    onError: () => {},
+  })
+  await observer.processOnce()
+  assert.deepEqual(calls, [])
+  symbols = ['AMZN']
+  await observer.processOnce()
+  assert.deepEqual(calls, ['AMZN'])
+  assert.equal(observer.getJournal().trades.length, 0, 'a newly enabled symbol only establishes its baseline')
+  assert.deepEqual(observer.status().activeSymbols, ['AMZN'])
+})
+
+test('a removed symbol manages an existing open position but cannot create a new entry', async () => {
+  const history = candles().slice(0, 22)
+  const signal = history[20]
+  const entry = history[21]
+  const openTrade = {
+    id: `SPY:${signal.timestamp}`, symbol: 'SPY', status: 'open', signalTimestamp: signal.timestamp,
+    entryTimestamp: entry.timestamp, entryPrice: 100, stopPrice: 99.5, targetPrice: 102,
+    highestPrice: 100, trailingStopActive: false, holdingTime: 0, holdingBars: 0,
+    lastEvaluatedCandleTimestamp: entry.timestamp,
+  }
+  const stopCandleTimestamp = new Date(Date.parse(entry.timestamp) + 60 * 60 * 1000).toISOString()
+  const calls = []
+  const observer = await createPaperObserver({
+    store: { load: () => ({ trades: [openTrade], observer: { activeSymbols: ['SPY'], processedCandles: { SPY: entry.timestamp } } }), save: () => {} },
+    symbolUniverse: { getSymbols: async () => [] },
+    now: () => new Date('2026-09-22T17:30:00Z'),
+    fetchBars: async ({ symbol }) => { calls.push(symbol); return { candles: [...history, { timestamp: stopCandleTimestamp, open: 99, high: 100, low: 98, close: 99, volume: 1000 }] } },
+    onError: () => {},
+  })
+  await observer.processOnce()
+  assert.deepEqual(calls, ['SPY'])
+  assert.deepEqual(observer.status().activeSymbols, [])
+  assert.equal(observer.getJournal().trades.length, 1)
+  assert.equal(observer.getJournal().trades[0].exitReason, 'Stop')
+})
+
+
+test('re-added symbols retain their baseline requirement through market closure, failure and restart', async () => {
+  const history = qualifiedSignalHistory()
+  const last = history.at(-1)
+  const next = { ...last, timestamp: new Date(Date.parse(last.timestamp) + 3600000).toISOString(), open: last.close + 10, high: last.close + 10.2, low: last.close + 9.9, close: last.close + 10.1, volume: 100 }
+  const later = { ...next, timestamp: new Date(Date.parse(next.timestamp) + 3600000).toISOString() }
+  let persisted = { trades: [], observer: { activeSymbols: [], processedCandles: { XYZ: last.timestamp } } }
+  let current = new Date(Date.parse(last.timestamp) - 2 * 3600000) // Before the regular-session open.
+  let fail = false
+  let bars = [...history, next]
+  const options = {
+    store: { load: () => structuredClone(persisted), save: (state) => { persisted = structuredClone(state) } },
+    symbolUniverse: { getSymbols: async () => ['XYZ'] }, environment: {}, now: () => current,
+    fetchBars: async () => { if (fail) throw Error('provider unavailable'); return { candles: bars } }, onError: () => {},
+  }
+  const first = await createPaperObserver(options)
+  assert.equal((await first.processOnce()).skipped, 'MARKET_CLOSED')
+  assert.deepEqual(persisted.observer.baselinePendingSymbols, ['XYZ'])
+  current = new Date(Date.parse(next.timestamp) + 3600000)
+  fail = true
+  assert.equal((await first.processOnce()).status, 'ERROR')
+  assert.deepEqual(persisted.observer.baselinePendingSymbols, ['XYZ'])
+  fail = false
+  const restarted = await createPaperObserver(options)
+  await restarted.processOnce()
+  assert.deepEqual(persisted.observer.baselinePendingSymbols, [])
+  assert.equal(persisted.observer.processedCandles.XYZ, next.timestamp)
+  bars = [...bars, later]
+  current = new Date(Date.parse(later.timestamp) + 3600000)
+  await restarted.processOnce()
+  assert.equal(restarted.getJournal().trades.length, 0, 'the pre-baseline qualified signal cannot become a deferred historical entry')
+  assert.deepEqual(Object.keys(restarted.getJournal().bySymbol), ['XYZ'])
+})
+
+test('empty, invalid or incomplete provider data cannot complete a new symbol baseline or open a trade', async () => {
+  const memory = store()
+  let bars = []
+  const observer = await createPaperObserver({
+    store: memory, symbolUniverse: { getSymbols: async () => ['XYZ'] }, environment: {},
+    now: () => new Date('2026-09-22T16:30:00Z'), fetchBars: async () => ({ candles: bars }), onError: () => {},
+  })
+  for (const input of [[], [{ timestamp: '2026-09-22T15:00:00Z', open: NaN, high: 101, low: 99, close: 100, volume: 100 }], [{ timestamp: '2026-09-22T16:00:00Z', open: 100, high: 101, low: 99, close: 100, volume: 100 }]]) {
+    bars = input
+    await observer.processOnce()
+    assert.deepEqual(observer.status().baselinePendingSymbols, ['XYZ'])
+    assert.equal(observer.status().processedCandles.XYZ, undefined)
+    assert.equal(observer.getJournal().trades.length, 0)
+  }
+})
+
+test('restart manages a removed symbol with persisted trailing stop and cursor without reseeding entries', async () => {
+  const history = candles().slice(0, 22)
+  const last = history.at(-1)
+  const next = { ...last, timestamp: new Date(Date.parse(last.timestamp) + 3600000).toISOString(), open: 100.2, high: 100.4, low: 100.1, close: 100.2 }
+  let persisted = { trades: [{
+    id: 'fixture', symbol: 'XYZ', status: 'open', signalTimestamp: history[20].timestamp,
+    entryTimestamp: last.timestamp, entryPrice: 100, stopPrice: 100.3, targetPrice: 102,
+    trailingStopActive: true, highestPrice: 100.6, holdingBars: 1, holdingTime: 60,
+    lastEvaluatedCandleTimestamp: last.timestamp,
+  }], observer: { activeSymbols: ['XYZ'], processedCandles: { XYZ: last.timestamp } } }
+  const options = {
+    store: { load: () => structuredClone(persisted), save: (state) => { persisted = structuredClone(state) }, ensureObserverSymbols: async () => [] },
+    environment: { PAPER_SYMBOLS: 'malformed/seed' }, now: () => new Date(Date.parse(next.timestamp) + 3600000),
+    fetchBars: async () => ({ candles: [...history, next] }), onError: () => {},
+  }
+  await (await createPaperObserver(options)).processOnce()
+  assert.equal(persisted.trades.length, 1)
+  assert.equal(persisted.trades[0].exitReason, 'Trailing Stop')
+  assert.equal(persisted.trades[0].exitPrice, 100.2)
+  assert.equal(persisted.trades[0].trailingStopActive, true)
+  assert.equal(persisted.trades[0].highestPrice, 100.6)
+  const closed = structuredClone(persisted.trades)
+  await (await createPaperObserver(options)).processOnce()
+  assert.deepEqual(persisted.trades, closed)
+})
+
+test('a dynamically added symbol uses MAIN qualification and only a future post-detection close for entry', async () => {
+  let symbols = []
+  let bars = qualifiedSignalHistory()
+  const last = bars.at(-1)
+  let current = new Date(Date.parse(last.timestamp) + 3600000)
+  const memory = store()
+  const observer = await createPaperObserver({
+    store: memory, symbolUniverse: { getSymbols: async () => symbols }, environment: {},
+    now: () => current, fetchBars: async () => ({ candles: bars }), onError: () => {},
+  })
+  const evaluated = scanSetups(preparePaperCandles(bars, '1Hour', current).candles)
+  assert.equal(evaluated.find(signal => signal.timestamp === last.timestamp).qualifiedSetup, true, 'fixture must qualify under the unchanged MAIN scanner')
+  await observer.processOnce()
+  symbols = ['XYZ']
+  await observer.processOnce()
+  assert.equal(observer.getJournal().trades.length, 0)
+  for (let index = 1; index <= 2; index += 1) {
+    const timestamp = new Date(Date.parse(last.timestamp) + index * 3600000).toISOString()
+    bars = [...bars, { timestamp, open: 110, high: 111, low: 109, close: 110.25, volume: 100 }]
+    current = new Date(Date.parse(timestamp) + 3600000)
+    await observer.processOnce()
+    assert.equal(observer.getJournal().trades.length, index === 1 ? 0 : 1)
+  }
+  const trade = observer.getJournal().trades[0]
+  assert.equal(trade.symbol, 'XYZ')
+  assert.equal(trade.entryPrice, 110.25)
+  assert.ok(Date.parse(trade.entryTimestamp) > Date.parse(trade.signalDetectedAt))
+  assert.deepEqual(Object.keys(observer.getJournal().bySymbol), ['XYZ'])
+})
+
+test('removal at a cycle boundary cancels a pending observer entry before re-addition', async () => {
+  let symbols = ['XYZ']
+  let bars = qualifiedSignalHistory()
+  const last = bars.at(-1)
+  let current = new Date(Date.parse(last.timestamp) + 3600000)
+  const observer = await createPaperObserver({
+    store: store(), symbolUniverse: { getSymbols: async () => symbols }, environment: {},
+    now: () => current, fetchBars: async () => ({ candles: bars }), onError: () => {},
+  })
+  await observer.processOnce()
+  const nextTimestamp = new Date(Date.parse(last.timestamp) + 3600000).toISOString()
+  bars = [...bars, { timestamp: nextTimestamp, open: 110, high: 111, low: 109, close: 110, volume: 100 }]
+  current = new Date(Date.parse(nextTimestamp) + 3600000)
+  await observer.processOnce()
+  symbols = []
+  assert.equal((await observer.processOnce()).processed, 0, 'removal applies without another candle')
+  assert.deepEqual(observer.status().activeSymbols, [])
+  symbols = ['XYZ']
+  const laterTimestamp = new Date(Date.parse(nextTimestamp) + 3600000).toISOString()
+  bars = [...bars, { ...bars.at(-1), timestamp: laterTimestamp }]
+  current = new Date(Date.parse(laterTimestamp) + 3600000)
+  await observer.processOnce()
+  assert.equal(observer.getJournal().trades.length, 0)
+  assert.deepEqual(observer.status().baselinePendingSymbols, [])
 })

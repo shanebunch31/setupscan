@@ -1,49 +1,72 @@
 import path from 'node:path'
-import { fetchAlpacaHistoricalBars } from './alpacaProxy.js'
 import { createPaperTradingEngine } from './paperTrading.js'
 import { createPaperStore } from './paperStore.js'
-import { preparePaperCandles } from './paperCandlePipeline.js'
-import { historicalCandleEndTime } from '../src/data/historicalDataContract.js'
+import { createPostgresPaperStore } from './postgresPaperStore.js'
+import { configuredSeedSymbols } from './paperSymbols.js'
 
-const symbols = ['SPY', 'QQQ', 'IWM']
+function selectStore({ store, environment, createJsonStore, createPostgresStore }) {
+  if (store) return { store, storage: 'INJECTED TEST STORE' }
+  if (environment.DATABASE_URL) {
+    return { store: createPostgresStore(), storage: 'POSTGRES OBSERVER STATE' }
+  }
+  return {
+    store: createJsonStore(path.resolve('server/data/paper-trades.json')),
+    storage: 'LOCAL JSON DEVELOPMENT FALLBACK',
+  }
+}
 
-export function createPaperService({ store = createPaperStore(path.resolve('server/data/paper-trades.json')), fetchBars = fetchAlpacaHistoricalBars, now = () => new Date() } = {}) {
-  const initialState = store.load()
-  const engine = createPaperTradingEngine({ state: initialState, saveState: store.save })
-  // This UI service keeps an in-memory cursor. On a fresh process it establishes a
-  // baseline without replaying historical entry signals; existing open trades still recover.
-  const processedCandles = { ...(initialState.observer?.processedCandles ?? {}) }
-
-  async function refresh() {
-    const end = now()
-    const start = new Date(end)
-    start.setUTCDate(start.getUTCDate() - 45)
-    const results = []
-    for (const symbol of symbols) {
-      try {
-        const data = await fetchBars({ symbol, timeframe: '1Hour', start: start.toISOString(), end: end.toISOString() })
-        const prepared = preparePaperCandles(data.candles ?? [], '1Hour', end)
-        const { candles } = prepared
-        const latest = candles.at(-1)
-        if (latest) {
-          const previousTimestamp = processedCandles[symbol]
-          const previousIndex = candles.findIndex((candle) => candle.timestamp === previousTimestamp)
-          const latestIndex = candles.length - 1
-          const adjacent = previousIndex >= 0 && previousIndex === latestIndex - 1 &&
-            historicalCandleEndTime(candles[previousIndex].timestamp, '1Hour') === Date.parse(latest.timestamp)
-          engine.processCandles(symbol, candles, {
-            newEntrySignalTimestamp: adjacent ? previousTimestamp : null,
-            signalDetectedAt: () => now().toISOString(),
-          })
-          processedCandles[symbol] = latest.timestamp
-        }
-        results.push({ symbol, status: candles.length ? 'AVAILABLE' : 'UNAVAILABLE', ...(candles.length ? {} : { error: 'No valid completed historical candles were available.' }), provider: data.provider, candleCount: data.candleCount, dataQuality: prepared.dataQuality, entryPolicy: 'Forward-only; first refresh establishes a baseline. New entries wait for the close of an adjacent completed bar timestamped after detection; missed bars are skipped.' })
-      } catch (error) {
-        results.push({ symbol, status: 'UNAVAILABLE', error: error.message })
-      }
+function observerData(state, symbols, configuredSymbols) {
+  const observer = state.observer
+  const configured = new Set(configuredSymbols)
+  const openSymbols = new Set((state.trades ?? []).filter((trade) => trade.status === 'open').map((trade) => trade.symbol))
+  return symbols.map((symbol) => {
+    const dataQuality = observer?.dataQualityBySymbol?.[symbol]
+    const processedCandle = observer?.processedCandles?.[symbol] ?? null
+    return {
+      symbol,
+      status: configured.has(symbol)
+        ? (processedCandle && !observer?.baselinePendingSymbols?.includes(symbol) && observer?.activeSymbols?.includes(symbol) !== false ? 'AVAILABLE' : 'PENDING BASELINE')
+        : (openSymbols.has(symbol) ? 'REMOVED — OPEN POSITION MANAGEMENT ONLY' : 'HISTORICAL — NOT ENABLED'),
+      ...(processedCandle ? { lastProcessedCandle: processedCandle } : { error: configured.has(symbol)
+        ? 'No completed candle checkpoint is available for this symbol.'
+        : (openSymbols.has(symbol) ? 'This symbol is no longer enabled for new entries; an existing position is still managed.' : 'This symbol appears only in retained paper-trade history and is not enabled for new entries.') }),
+      ...(dataQuality ? { dataQuality } : {}),
+      entryPolicy: configured.has(symbol)
+        ? 'Observer-only; this dashboard does not fetch candles, create paper entries, or update paper trades.'
+        : (openSymbols.has(symbol) ? 'New entries are disabled. The observer continues managing an existing open paper position only.' : 'New entries are disabled. This symbol is retained only for historical paper-trade reporting.'),
     }
-    return { ...engine.getJournal(), refreshedAt: end.toISOString(), data: results }
+  })
+}
+
+export function createPaperService({
+  store,
+  environment = process.env,
+  createJsonStore = createPaperStore,
+  createPostgresStore = createPostgresPaperStore,
+  now = () => new Date(),
+} = {}) {
+  const selected = selectStore({ store, environment, createJsonStore, createPostgresStore })
+
+  async function readSnapshot() {
+    const state = await selected.store.read()
+    const configuredUniverse = typeof selected.store.readObserverSymbols === 'function'
+      ? await selected.store.readObserverSymbols()
+      : { initialized: false, symbols: [] }
+    const configuredSymbols = configuredUniverse.initialized ? configuredUniverse.symbols : configuredSeedSymbols(environment)
+    const activeSymbols = Array.isArray(state.observer?.activeSymbols) ? state.observer.activeSymbols : []
+    const cursorSymbols = Object.keys(state.observer?.processedCandles ?? {})
+    const tradeSymbols = (state.trades ?? []).map((trade) => trade.symbol)
+    const symbols = [...new Set([...configuredSymbols, ...activeSymbols, ...cursorSymbols, ...tradeSymbols])].sort()
+    const engine = createPaperTradingEngine({ state, saveState: () => {} })
+    return {
+      ...engine.getJournal({ symbols }),
+      refreshedAt: now().toISOString(),
+      storage: selected.storage,
+      observer: state.observer ?? null,
+      symbolUniverse: { initialized: configuredUniverse.initialized, symbols: configuredSymbols },
+      data: observerData(state, symbols, configuredSymbols),
+    }
   }
 
-  return { refresh, getJournal: engine.getJournal }
+  return { readSnapshot }
 }

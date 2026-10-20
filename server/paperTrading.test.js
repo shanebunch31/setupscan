@@ -404,3 +404,15 @@ test('trailing stop ratchets upward after activation and protects a winning trad
   assert.ok(trade.stopPrice > 99.5)
   assert.ok(trade.exitPrice > 99.5)
 })
+
+test('removing a symbol cancels its pending entry even without new candles to process', () => {
+  const rows = candles().slice(0, 3)
+  const engine = createPaperTradingEngine()
+  const detectedAt = new Date(Date.parse(rows[1].timestamp) + 3600000).toISOString()
+  engine.processCandles('SPY', rows.slice(0, 2), { newEntrySignalTimestamp: rows[0].timestamp, signalDetectedAt: detectedAt })
+  assert.equal(engine.getJournal().trades.length, 0)
+  engine.retainPendingEntrySymbols([])
+  engine.retainPendingEntrySymbols(['SPY'])
+  engine.processCandles('SPY', rows)
+  assert.equal(engine.getJournal().trades.length, 0, 're-enabling cannot revive a pending entry cancelled at removal')
+})

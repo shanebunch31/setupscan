@@ -6,8 +6,8 @@ import { createPaperStore } from './paperStore.js'
 import { createPostgresPaperStore } from './postgresPaperStore.js'
 import { preparePaperCandles } from './paperCandlePipeline.js'
 import { historicalCandleEndTime } from '../src/data/historicalDataContract.js'
+import { configuredSeedSymbols, resolvePaperSymbolCap } from './paperSymbols.js'
 
-const DEFAULT_SYMBOLS = ['SPY', 'QQQ', 'IWM']
 const HISTORY_LOOKBACK_DAYS = 45
 const DEFAULT_RETRY_MAX_MS = 15 * 60 * 1000
 
@@ -16,7 +16,7 @@ function configFromEnvironment(environment = process.env) {
   const requestedRetryMax = Number(environment.PAPER_RETRY_MAX_MS || DEFAULT_RETRY_MAX_MS)
   const pollIntervalMs = Number.isFinite(requestedPollInterval) ? Math.max(1000, requestedPollInterval) : 60000
   return {
-    symbols: (environment.PAPER_SYMBOLS || DEFAULT_SYMBOLS.join(',')).split(',').map((symbol) => symbol.trim()).filter(Boolean),
+    symbolCap: resolvePaperSymbolCap(environment.PAPER_SYMBOL_CAP),
     timeframe: environment.PAPER_TIMEFRAME || '1Hour',
     marketTimezone: environment.PAPER_MARKET_TIMEZONE || 'America/New_York',
     // A bad environment value must not turn a failed cycle into a tight retry loop.
@@ -36,16 +36,28 @@ function retryDelay(config, consecutiveFailures) {
   return Math.min(config.retryMaxMs, config.pollIntervalMs * (2 ** exponent))
 }
 
-export async function createPaperObserver({ store, fetchBars = fetchAlpacaHistoricalBars, now = () => new Date(), environment = process.env, onError = (error) => console.error('Paper observer cycle failed:', error), schedule = setTimeout, cancelSchedule = clearTimeout } = {}) {
+function sameSymbols(left = [], right = []) {
+  return left.length === right.length && left.every((symbol, index) => symbol === right[index])
+}
+
+export async function createPaperObserver({ store, symbolUniverse, fetchBars = fetchAlpacaHistoricalBars, now = () => new Date(), environment = process.env, onError = (error) => console.error('Paper observer cycle failed:', error), schedule = setTimeout, cancelSchedule = clearTimeout } = {}) {
   const config = configFromEnvironment(environment)
   const selectedStore = store ?? (environment.DATABASE_URL ? createPostgresPaperStore() : createPaperStore(path.resolve('server/data/paper-trades.json')))
   const initialState = await selectedStore.load()
   const engine = createPaperTradingEngine({ state: initialState, saveState: () => {}, timeframe: config.timeframe })
-  const state = { status: 'IDLE', lastSuccessfulUpdate: null, lastProcessedCandle: null, processedCandles: {}, dataQualityBySymbol: {}, currentError: null, consecutiveFailures: 0, nextExpectedProcessing: null, independent: true, ...initialState.observer }
+  const state = { status: 'IDLE', lastSuccessfulUpdate: null, lastProcessedCandle: null, processedCandles: {}, dataQualityBySymbol: {}, currentError: null, consecutiveFailures: 0, nextExpectedProcessing: null, independent: true, activeSymbols: [], baselinePendingSymbols: [], ...initialState.observer }
   const candleHistoryBySymbol = {}
   let running = false
   let timer
   let activeCycle = null
+
+  async function configuredSymbols() {
+    if (symbolUniverse) return symbolUniverse.getSymbols()
+    if (typeof selectedStore.ensureObserverSymbols === 'function') {
+      return selectedStore.ensureObserverSymbols(() => configuredSeedSymbols(environment), config.symbolCap)
+    }
+    return configuredSeedSymbols(environment)
+  }
 
   async function persist(metadata = {}) {
     state.status = metadata.status ?? state.status
@@ -58,8 +70,22 @@ export async function createPaperObserver({ store, fetchBars = fetchAlpacaHistor
     const current = now()
     let processed = 0
     try {
+      const activeSymbols = await configuredSymbols()
+      const previousActiveSymbols = Array.isArray(state.activeSymbols) ? state.activeSymbols : []
+      const addedSymbols = new Set(activeSymbols.filter((symbol) => !previousActiveSymbols.includes(symbol)))
+      const openSymbols = engine.getState().trades.filter((trade) => trade.status === 'open').map((trade) => trade.symbol)
+      const symbolsToManage = [...new Set([...activeSymbols, ...openSymbols])].sort()
+      const activeSet = new Set(activeSymbols)
+      const universeChanged = !sameSymbols(activeSymbols, previousActiveSymbols)
+      const baselinePending = new Set((state.baselinePendingSymbols ?? []).filter((symbol) => activeSet.has(symbol)))
+      for (const symbol of addedSymbols) baselinePending.add(symbol)
+      state.baselinePendingSymbols = [...baselinePending].sort()
+      state.activeSymbols = activeSymbols
+      // Removal cancels pending entries even without new candles or an open position.
+      engine.retainPendingEntrySymbols(activeSymbols)
+
       if (!isRegularSession(current)) {
-        const shouldPersist = state.status !== 'IDLE' || state.currentError !== null || !state.nextExpectedProcessing
+        const shouldPersist = universeChanged || state.status !== 'IDLE' || state.currentError !== null || !state.nextExpectedProcessing
         state.status = 'IDLE'
         state.consecutiveFailures = 0
         state.currentError = null
@@ -67,7 +93,7 @@ export async function createPaperObserver({ store, fetchBars = fetchAlpacaHistor
         if (shouldPersist) await persist()
         return { ...state, skipped: 'MARKET_CLOSED' }
       }
-      for (const symbol of config.symbols) {
+      for (const symbol of symbolsToManage) {
         const end = current
         // The first cycle obtains the indicator warm-up history. Later cycles request
         // only the last completed candle and any new bars, then retain the same local
@@ -80,7 +106,10 @@ export async function createPaperObserver({ store, fetchBars = fetchAlpacaHistor
         candleHistoryBySymbol[symbol] = candles.filter((candle) => Date.parse(candle.timestamp) >= Date.parse(historyStart(end)))
         state.dataQualityBySymbol[symbol] = prepared.dataQuality
         const latest = candles.at(-1)
-        if (!latest || latest.timestamp === state.processedCandles[symbol]) continue
+        const needsBaseline = baselinePending.has(symbol)
+        if (!latest || (!needsBaseline && latest.timestamp === state.processedCandles[symbol])) continue
+        // Cached candles alone cannot clear a baseline after a failed/empty provider response.
+        if (needsBaseline && !preparePaperCandles(data.candles ?? [], config.timeframe, current).candles.length) continue
         const previousTimestamp = state.processedCandles[symbol]
         const previousIndex = candles.findIndex((candle) => candle.timestamp === previousTimestamp)
         const latestIndex = candles.length - 1
@@ -89,14 +118,17 @@ export async function createPaperObserver({ store, fetchBars = fetchAlpacaHistor
         // On startup, establish a baseline without creating a trade from fetched history.
         // After downtime, evaluate existing trades but skip missed entry opportunities.
         engine.processCandles(symbol, candles, {
-          newEntrySignalTimestamp: adjacent ? previousTimestamp : null,
+          newEntrySignalTimestamp: activeSet.has(symbol) && !needsBaseline && adjacent ? previousTimestamp : null,
           signalDetectedAt: () => now().toISOString(),
+          allowNewEntries: activeSet.has(symbol) && !needsBaseline,
         })
+        baselinePending.delete(symbol)
+        state.baselinePendingSymbols = [...baselinePending].sort()
         state.processedCandles[symbol] = latest.timestamp
         state.lastProcessedCandle = latest.timestamp
         processed += 1
       }
-      const shouldPersist = processed > 0 || state.status !== 'RUNNING' || state.currentError !== null || state.consecutiveFailures > 0
+      const shouldPersist = universeChanged || processed > 0 || state.status !== 'RUNNING' || state.currentError !== null || state.consecutiveFailures > 0
       state.status = 'RUNNING'
       state.lastSuccessfulUpdate = current.toISOString()
       state.currentError = null
@@ -143,8 +175,8 @@ export async function createPaperObserver({ store, fetchBars = fetchAlpacaHistor
     tick()
   }
   function stop() { running = false; if (timer !== undefined) cancelSchedule(timer); timer = undefined }
-  function status() { return { ...state, config: { ...config }, mode: 'AUTOMATED PAPER OBSERVER — NO REAL ORDERS', storage: environment.DATABASE_URL ? 'POSTGRES' : 'LOCAL JSON DEVELOPMENT FALLBACK' } }
-  return { config, processOnce, start, stop, status, getJournal: engine.getJournal, getState: engine.getState }
+  function status() { return { ...state, config: { ...config, symbols: state.activeSymbols }, mode: 'AUTOMATED PAPER OBSERVER — NO REAL ORDERS', storage: environment.DATABASE_URL ? 'POSTGRES' : 'LOCAL JSON DEVELOPMENT FALLBACK' } }
+  return { config, processOnce, start, stop, status, getJournal: () => engine.getJournal({ symbols: state.activeSymbols }), getState: engine.getState }
 }
 
 export { configFromEnvironment }

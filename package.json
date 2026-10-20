@@ -10,7 +10,8 @@
     "test": "node --test server/*.test.js src/backtest/*.test.js src/backtest/strategyDiscovery/*.test.js src/data/*.test.js src/logic/*.test.js src/research/*.test.js",
     "preview": "vite preview",
     "server": "node server/index.js",
-    "research:daily": "node --env-file=.env server/dailyStrategyDiscovery.js"
+    "research:daily": "node --env-file=.env server/dailyStrategyDiscovery.js",
+    "paper-symbols": "node scripts/manage-paper-symbols.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

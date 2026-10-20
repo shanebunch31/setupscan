@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { createLocalPaperUniverseStore } from './localPaperUniverseStore.js'
 
 export function createPaperStore(filePath) {
   function load() {
@@ -18,5 +19,5 @@ export function createPaperStore(filePath) {
     fs.renameSync(temporaryPath, filePath)
   }
 
-  return { load, save }
+  return { load, read: load, save, ...createLocalPaperUniverseStore(`${filePath}.symbols.json`) }
 }

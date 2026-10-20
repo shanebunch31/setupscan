@@ -3,8 +3,10 @@ import http from 'node:http'
 import { fetchAlpacaHistoricalBars } from './alpacaProxy.js'
 import {
   getPaperTradingAccount,
-  submitPaperOrder,
 } from './alpacaTrading.js'
+import { handlePaperAccountRequest } from './paperAccountRoute.js'
+import { createPaperDashboardRoute } from './paperDashboardRoute.js'
+import { handlePaperOrderRequest } from './paperOrderRoute.js'
 import { createPaperService } from './paperService.js'
 import { createResearchInvestigationApi } from './researchInvestigationApi.js'
 import { createResearchRunApi } from './researchRunApi.js'
@@ -17,6 +19,9 @@ dotenv.config()
 
 const port = Number(process.env.PORT || 3001)
 const paperService = createPaperService()
+const handlePaperDashboardRequest = createPaperDashboardRoute({
+  paperService,
+})
 const researchRunStore = process.env.DATABASE_URL
   ? createResearchRunStore()
   : null
@@ -99,84 +104,38 @@ const server = http.createServer(
     )
 
     if (url.pathname === '/api/paper-trading') {
-      try {
-        sendJson(
-          response,
-          200,
-          await paperService.refresh(),
-        )
-      } catch (error) {
-        sendJson(
-          response,
-          error.code === 'MISSING_ALPACA_ENV'
-            ? 503
-            : 502,
-          {
-            error: error.message,
-          },
-        )
-      }
+      await handlePaperDashboardRequest({
+        request,
+        response,
+        sendJson,
+      })
 
       return
     }
 
-    if (
-  url.pathname ===
-  '/api/trading/paper-account'
-) {
-  try {
-    sendJson(
-      response,
-      200,
-      await getPaperTradingAccount(),
-    )
-  } catch (error) {
-    const status =
-      error.code === 'MISSING_ALPACA_ENV'
-        ? 503
-        : error.status || 502
+    if (url.pathname === '/api/trading/paper-account') {
+      await handlePaperAccountRequest({
+        request,
+        response,
+        authorizationSecret: process.env.PAPER_ORDER_API_SECRET,
+        getAccount: getPaperTradingAccount,
+        sendJson,
+      })
 
-    sendJson(response, status, {
-      error: error.message,
-      code: error.code ?? null,
-    })
-  }
-
-    return
-}
+      return
+    }
 
     if (
       url.pathname ===
         '/api/trading/paper-orders' &&
       request.method === 'POST'
     ) {
-      try {
-        let body = ''
-
-        for await (const chunk of request) {
-          body += chunk
-        }
-
-        const order = body ? JSON.parse(body) : {}
-
-        sendJson(
-          response,
-          201,
-          await submitPaperOrder(order),
-        )
-      } catch (error) {
-        const status =
-          error.code === 'INVALID_PAPER_ORDER'
-            ? 400
-            : error.code === 'MISSING_ALPACA_ENV'
-              ? 503
-              : error.status || 502
-
-        sendJson(response, status, {
-          error: error.message,
-          code: error.code ?? null,
-        })
-      }
+      await handlePaperOrderRequest({
+        request,
+        response,
+        authorizationSecret: process.env.PAPER_ORDER_API_SECRET,
+        sendJson,
+      })
 
       return
     }
