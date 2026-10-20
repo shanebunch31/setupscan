@@ -90,7 +90,11 @@ const EMA_PREROLL_DAYS = {
 }
 
 
-function emaSeries(candles, period) {
+/**
+ * Causal EMA series using the application's existing SMA-seeded recursive contract.
+ * Exported for research strategies that need periods other than the scanner's 9 and 21.
+ */
+export function calculateEmaSeries(candles, period) {
   const alpha = 2 / (period + 1)
   const seed = []
   let value = null
@@ -182,8 +186,8 @@ export function enrichHistoricalCandles(candles, timeframe = '1Hour') {
     return timeframeCache.get(timeframe)
   }
 
-  const ema9Series = emaSeries(candles, 9)
-  const ema21Series = emaSeries(candles, 21)
+  const ema9Series = calculateEmaSeries(candles, 9)
+  const ema21Series = calculateEmaSeries(candles, 21)
   const rsiValues = rsiSeries(candles)
 
   let cumulativePriceVolume = 0
@@ -424,7 +428,7 @@ export function buildHistoricalMarketDataResult(
     : acceptedCandles
   dataQuality.requestedEndExcludedCandleCount = acceptedCandles.length - fetchedCandles.length
 
-  const ema9ByBar = emaSeries(fetchedCandles, 9)
+  const ema9ByBar = calculateEmaSeries(fetchedCandles, 9)
   const breakoutByTimestamp = new Map()
 
   for (let index = 0; index < fetchedCandles.length; index += 1) {
@@ -433,7 +437,7 @@ export function buildHistoricalMarketDataResult(
     const priorHigh = priorCandles.reduce((highest, candle) => Math.max(highest, candle.high), -Infinity)
     breakoutByTimestamp.set(fetchedCandles[index].timestamp, priorCandles.length >= 20 && fetchedCandles[index].close > priorHigh)
   }
-  const ema21ByBar = emaSeries(fetchedCandles, 21)
+  const ema21ByBar = calculateEmaSeries(fetchedCandles, 21)
   const rsiByBar = rsiSeries(fetchedCandles)
 
   const requestedStartTime = fetchRange.requestedStart ? new Date(fetchRange.requestedStart).getTime() : null
