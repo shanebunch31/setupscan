@@ -39,18 +39,46 @@ Required secrets:
 
 - `ALPACA_API_KEY`
 - `ALPACA_API_SECRET`
+- `PAPER_ORDER_API_SECRET` — required to enable `POST /api/trading/paper-orders` and `GET /api/trading/paper-account`. Set a long, randomly generated value in Render only; callers must send the exact value as `Authorization: Bearer <secret>`. Never place it in browser code, source control, or logs.
 - `DATABASE_URL` (the connection string for a persistent hosted PostgreSQL database)
 
 Optional observer settings and current defaults:
 
-- `PAPER_SYMBOLS=SPY,QQQ,IWM`
+- `PAPER_SYMBOLS=SPY,QQQ,IWM` — initial seed only, consulted only before the universe has been initialized.
+- `PAPER_SYMBOL_CAP=10` — maximum requested active symbols for seeding/add/replace; valid integers from 1 to 100. Invalid values default to 10. A valid smaller value is restrictive; excessive requests are rejected, never truncated.
 - `PAPER_TIMEFRAME=1Hour`
 - `PAPER_MARKET_TIMEZONE=America/New_York`
 - `PAPER_POLL_INTERVAL_MS=60000`
 - `OBSERVER_PORT=3102`
 - `DATABASE_SSL` defaults to enabled; set `DATABASE_SSL=false` only when the PostgreSQL deployment explicitly does not use SSL.
 
-The Postgres store creates these tables on startup: observer state, paper trades with a unique `(symbol, signal_timestamp)` key, and processed candle checkpoints. The local JSON journal is retained only as a development fallback when `DATABASE_URL` is absent; deployed operation should always provide persistent Postgres.
+The Postgres store creates these tables on startup: observer state, paper trades with a unique `(symbol, signal_timestamp)` key, and processed candle checkpoints. This implementation also adds `paper_observer_symbol_universe` (initialization marker) and `paper_observer_symbols` (enabled symbols). Initialization and universe writes use transactions with a shared advisory lock; a first-time add/remove failure rolls back its seed and schema changes together. Dashboard reads and CLI `list` never initialize schema. No existing research table, trade record, or journal is migrated by universe operations. These universe operations were subsequently validated against an isolated local PostgreSQL 17 database. The validation completed 22/22 database checks covering initialization, authoritative empty state, persistence, normalization, symbol caps, add/remove/re-add behavior, duplicate handling, transactional rollback, advisory-lock concurrency scenarios, and reconnect behavior. This does not establish production Supabase/network/permission readiness. The local JSON journal is retained only as a development fallback when `DATABASE_URL` is absent; deployed operation should always provide persistent Postgres.
+
+### Private operator-managed paper universe
+
+The observer evaluates one shared, server-managed universe with the existing SetupScan qualification and paper-risk rules. The browser scanner watchlist remains separate. There is no public universe-management endpoint, browser-held server secret, or real-order submission in this workflow.
+
+Before first initialization only, `PAPER_SYMBOLS` seeds the universe; if absent, the seed is SPY, QQQ, IWM. Symbols are trimmed, uppercased and deduplicated. Empty entries and malformed symbols are rejected; this format check does not guarantee provider support. Once initialized, the persisted list overrides environment defaults, including an intentionally empty `[]`. Remove every enabled symbol to disable new entries; do not set an empty environment seed. Existing open positions remain managed.
+
+With a privately configured `DATABASE_URL`, the operator CLI supports:
+
+```powershell
+npm.cmd run paper-symbols -- list
+npm.cmd run paper-symbols -- add SYMBOL --confirm-target HOST:PORT/DATABASE
+npm.cmd run paper-symbols -- remove SYMBOL --confirm-target HOST:PORT/DATABASE
+```
+
+Replace uppercase placeholders locally, not in chat or source control. `list` shows the host, port and database name without passwords or a connection string. Verify the target independently before supplying the exact confirmation for a mutation; the confirmation is an accident-prevention check, not proof of non-production isolation. Do not run the tool against production until separately approved. Unexpected driver errors are reported generically to avoid exposing credentials. A connection failure during commit can leave the outcome uncertain: inspect the list before retrying.
+
+Choose the cap based on the market-data subscription, request limits, hosting costs and cycle duration. Each additional symbol requires warm-up data initially and incremental requests thereafter; symbols with open positions remain managed even after removal, so the cap is not a hard bound on total monitoring requests. Lowering the cap does not silently remove previously persisted symbols.
+
+The worker reads the universe at each cycle boundary. A newly enabled or re-enabled symbol establishes a fresh completed-candle baseline before entry eligibility. Baseline-pending state survives market closure, failed fetches and restarts. Removal cancels pending entries and prevents new ones from the next boundary, while open trades retain their trailing stops and evaluation cursors. Provider failures or invalid/incomplete data cannot authorize a new baseline or fabricate an entry. Current failure handling retries the cycle with bounded backoff; a provider failure can delay the remaining symbols in that cycle.
+
+Without `DATABASE_URL`, the separate local sidecar is `server/data/paper-trades.json.symbols.json`. Universe operations do not rewrite `paper-trades.json`; reads create nothing. The local adapter supports read/ensure/set/add/remove through its server-side store interface and uses temporary-file rename, refusing to overwrite an existing temporary file. It supports one writer only; concurrent operators should use PostgreSQL. The CLI is PostgreSQL-only. Inspect any interrupted sidecar write deliberately; do not delete or replace it automatically.
+
+The dashboard remains read-only and includes configured symbols, baseline-pending symbols, removed symbols with open positions, and retained history. Its cached snapshot can lag a configuration change. `AVAILABLE` indicates an existing baseline/checkpoint, not proof of a current healthy heartbeat; inspect observer errors and timestamps separately. The existing dashboard is publicly readable wherever the API is exposed. CORS is not authentication; keep access private pending a separate access-policy decision.
+
+Real PostgreSQL transaction and concurrency behavior has been validated against an isolated local PostgreSQL 17 database with 22/22 checks passing. Remote Supabase permissions, SSL/network behavior, production load, and crash-recovery behavior remain separate deployment-readiness checks. Do not infer production readiness from local validation alone.
 
 ### Research Run History (initial private, single-user boundary)
 
@@ -58,9 +86,13 @@ The research history API is separate from the paper observer journal and uses `r
 
 Available endpoints are `POST /api/research-runs`, `GET /api/research-runs/:runId`, and `GET /api/research-runs` with limit/offset, symbols, datasetId, experimentId, and status filters. Persisted datasets retain fetch metadata but not a separate copy of `rawSeriesBySymbol`; historical retrieval is for inspection and is not a replayable dataset. Native experiment payloads remain in each saved record and can themselves contain candle arrays. A representative three-symbol, 220-candle Signal Quality record plus synthesis serialized to 605,938 bytes in the persistence test; larger histories and multiple experiments scale higher. The run envelope stores persistence schema version `3`; synthesis retains its own schema version. Research runs record the EMA contract, historical adjustment mode, and build Git revision. The build uses `GIT_COMMIT_SHA` when supplied, otherwise the checked-out Git `HEAD`; if neither is available, code revision remains unknown. Existing runs are not changed.
 
-This first boundary has no authentication or per-user ownership and must only be exposed in a trusted private/single-user deployment. CORS is not authentication. Do not expose these endpoints to untrusted users until an application identity and authorization policy exist. Research history is stored in separate tables and never reads or writes paper-observer state, paper trades, or processed-candle checkpoints.
+Paper-order submission and paper-account access are disabled unless `PAPER_ORDER_API_SECRET` is configured. When enabled, callers must present it as a bearer credential; the server compares hashed values with a timing-safe comparison and never returns or logs the secret. This is a single shared-secret control, not a multi-user identity or authorization system. CORS is not authentication.
 
-Do not run the browser dashboard as the process responsible for observation. Codespaces and browser sessions are not reliable always-on hosting environments. No Alpaca trading or order endpoint is used.
+The browser paper dashboard uses `GET /api/paper-trading` and remains intentionally browser-accessible until a real user-authentication design is introduced. The dashboard is read-only: it reads the selected persisted paper journal and does not fetch market data, create entries, advance positions, or write paper trades.
+
+The Research History API still has no authentication or per-user ownership and must only be exposed in a trusted private/single-user deployment. Do not expose the research endpoints to untrusted users until an application identity and authorization policy exists. Research history is stored in separate tables and never reads or writes paper-observer state, paper trades, or processed-candle checkpoints.
+
+Do not run the browser dashboard as the process responsible for observation. Codespaces and browser sessions are not reliable always-on hosting environments. No automated SetupScan process submits Alpaca orders. The separate paper-order endpoint is disabled unless its server-only authorization secret is configured, and it is not called by the browser dashboard.
 
 ## V1 scope
 
