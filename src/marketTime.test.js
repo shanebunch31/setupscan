@@ -19,6 +19,6 @@ test('refresh timestamp records the actual supplied refresh-event time', () => {
   const refreshedAt = createRefreshTimestamp(() => eventTime)
   assert.equal(refreshedAt, eventTime)
   assert.equal(formatMarketTime(refreshedAt), '10:15 AM ET')
-  assert.equal(formatLastRefresh(refreshedAt), 'Last refreshed 10:15 AM ET')
-  assert.equal(formatLastRefresh(null), 'Not refreshed')
+  assert.equal(formatLastRefresh(refreshedAt), 'Updated 10:15 AM ET')
+  assert.equal(formatLastRefresh(null), 'Loading market data…')
 })

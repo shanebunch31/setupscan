@@ -28,19 +28,19 @@ export function PaperTradingPanel() {
       <span className="paper-mode">LIVE PAPER MODE — NO REAL ORDERS</span>
     </div>
     <PaperTradingEducation account={snapshot?.account} />
-    {loading && !snapshot && <p className="paper-state">Loading real Alpaca market data...</p>}
+    {loading && !snapshot && <p className="paper-state">Loading the persisted paper journal...</p>}
     {error && <p className="paper-error">{error}</p>}
     {snapshot && <>
-      <p className="paper-disclaimer">Server-side Alpaca OHLCV only. {snapshot.limitation}</p>
+      <p className="paper-disclaimer">Paper journal source: {snapshot.storage === 'POSTGRES OBSERVER STATE' ? 'the independent observer’s PostgreSQL state' : 'the local JSON development fallback'}. {snapshot.limitation}</p>
       <p className="paper-disclaimer">New paper entries use the close of the first adjacent completed OHLC bar whose interval ends after the signal is detected. This delayed bar-close estimate is not the exact first post-signal quote or a guaranteed fill. New records use paper-first-post-signal-close-v1. Older paper-ohlc-gap-aware-v1 records used the following bar's open; records with no version remain Legacy / unknown.</p>
-      <p className="paper-disclaimer">This dashboard journal uses the main server's local JSON file. The automated Paper Observer runs separately. If it uses PostgreSQL, its records are separate and are not shown here; its local-file fallback may be shared only when both processes use the same data file.</p>
+      <p className="paper-disclaimer">This dashboard only reads its selected journal. It does not fetch market data, create entries, advance positions, or write paper trades. When PostgreSQL is configured, it shows the independent Paper Observer’s persisted state.</p>
       <PaperMetrics metrics={snapshot.metrics} />
       <div className="paper-symbol-grid">{Object.entries(snapshot.bySymbol).map(([symbol, data]) => <div key={symbol}><strong>{symbol}</strong><span>{data.metrics.totalTrades} trades · {data.metrics.closedTrades} closed · {formatR(data.metrics.cumulativeR)}</span></div>)}</div>
       <div className="paper-table-wrap"><table className="paper-table"><thead><tr>
         <th>Symbol</th><th>Signal · ET</th>
-        <th>Entry · ET <TermHelp term="Entry" explanation="Modeled entry: the next bar's open." /></th>
+        <th>Entry · ET <TermHelp term="Entry" explanation="Modeled entry: the close of the first completed one-hour candle after signal detection." /></th>
         <th>Score</th><th>Setup</th>
-        <th>Theoretical entry <TermHelp term="Theoretical entry" explanation="Modeled entry: the next bar's open." /></th>
+        <th>Theoretical entry <TermHelp term="Theoretical entry" explanation="The same modeled completed-candle close; it is not an executable quoted price." /></th>
         <th>Stop</th>
         <th>Protection</th>
         <th>Exit <TermHelp term="Exit" explanation="The simulated trade closing event; Stop, Target, or Trailing Stop describes why it closed." /></th>
