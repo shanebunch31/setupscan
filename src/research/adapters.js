@@ -216,6 +216,20 @@ export function adaptStandardResearchOutput(definition, payload, context = {}) {
   return createAdaptedRecord(definition, payload, context)
 }
 
+export function adaptJoinedContextOutput(definition, payload, context = {}) {
+  const metrics = Object.fromEntries((payload?.rows ?? []).map((row) => [
+    `${row.period.key}::${row.symbol}::${row.key}`,
+    {
+      ...normalizeMetrics(row.matched.metrics ?? { tradeCount: 0 }), strategyId: 'setup-scan-baseline',
+      membershipRule: 'research-eligible-75-plus', ruleSetVariant: `context-${row.key}`,
+      symbol: row.symbol, periodRole: row.period.key, accounting: row.accounting,
+      evidenceStrength: row.matched.evidenceStrength, comparisonEvidence: row.comparisonEvidence,
+      baseline: row.baseline, comparison: row.comparison, costTiers: row.matched.costTiers,
+    },
+  ]))
+  return createAdaptedRecord(definition, payload, { ...context, costModel: context.costModel ?? withCostStatus('modeled', payload) }, metrics)
+}
+
 /**
  * Robustness has no single runner function — the lab combines runThresholdResearch's array of
  * per-threshold results with runMarketConditionResearch's array of per-period results. Callers

@@ -1,4 +1,5 @@
 import {
+  adaptJoinedContextOutput,
   adaptCausalRegimeOutput,
   adaptFrozenScoreHoldoutOutput,
   adaptRelativeValueOutput,
@@ -135,6 +136,13 @@ const definitions = [
     description: 'Control versus trend and momentum comparison.',
     methodology: 'Keep the two native strategy result structures side by side.',
     adapter: adaptStrategyComparisonOutput,
+  },
+  {
+    id: 'joined-context', methodologyVersion: 'joined-context-1', requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
+    title: 'Joined Context Study', category: 'context-regime', ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
+    description: 'Ten predefined context groups joined on the same research-eligible 75+ occurrence.',
+    methodology: 'Development 2022–2024; holdout 2025; observational follow-up 2026. Hourly completed-bar contexts; no optimization. Outcomes must finish within their decision period. Discovery VWAP uses UTC dates; first-observed range uses Eastern dates. Repeatedly explored holdout data is not untouched evidence.',
+    adapter: adaptJoinedContextOutput,
   },
 ]
 

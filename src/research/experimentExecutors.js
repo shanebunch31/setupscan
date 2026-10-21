@@ -1,4 +1,5 @@
 import { enrichHistoricalCandles } from '../data/marketData.js'
+import { runJoinedContextStudy } from '../backtest/joinedContextStudy.js'
 import { runCausalRegimeResearch } from '../backtest/causalRegimeBacktest.js'
 import { runFrozenScoreHoldoutResearch } from '../backtest/frozenScoreHoldoutBacktest.js'
 import { runRelativeValueResearch } from '../backtest/relativeValueBacktest.js'
@@ -47,6 +48,7 @@ function discoveryDatasetsFor(symbols, availableBySymbol) {
  * No executor fetches, aligns, filters, or rewrites the shared raw candles.
  */
 export const researchExperimentExecutors = Object.freeze({
+  'joined-context': freezeExecutor('joined-context', ({ availableBySymbol, runContext }) => runJoinedContextStudy(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol), { requestedStart: runContext?.requestedStart, requestedEnd: runContext?.requestedEnd ?? undefined })),
     robustness: freezeExecutor('robustness', ({ availableBySymbol }) => {
     const thresholdResults = []
     const periodResults = []

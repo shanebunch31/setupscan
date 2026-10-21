@@ -104,7 +104,7 @@ test('the bridge dispatches every registered experiment through the registry-bac
     dataset(),
   ))
 
-  assert.equal(records.length, 10)
+  assert.equal(records.length, 11)
   records.forEach((record) => {
     assert.equal(record.status, 'completed')
     assert.equal(record.nativePayload, nativeOutput)

@@ -13,7 +13,7 @@ import { normalizeMetrics } from './researchRecord.js'
 export const EVIDENCE_FAMILIES = {
   'signal-quality-catalogue': {
     id: 'signal-quality-catalogue',
-    experimentIds: ['signal-quality', 'frozen-score-holdout', 'yearly-regime', 'causal-regime', 'walk-forward-regime'],
+    experimentIds: ['signal-quality', 'frozen-score-holdout', 'yearly-regime', 'causal-regime', 'walk-forward-regime', 'joined-context'],
     note: 'These experiments reuse the same underlying trade construction/catalogue (signalQualityBacktest.js).',
   },
   'walk-forward-windows': {
@@ -118,8 +118,10 @@ function flattenRecord(record) {
       ruleSetVariant,
       membershipRule,
       rest,
-      inferPartition(metricsKey),
-      inferOutOfSampleRole(metricsKey, record.outOfSample),
+      record.id === 'joined-context' ? { type: value.periodRole, label: metricsKey } : inferPartition(metricsKey),
+      record.id === 'joined-context' ? value.periodRole : inferOutOfSampleRole(metricsKey, record.outOfSample),
+      'explicit',
+      record.id === 'joined-context' && value.symbol !== 'pooled' ? [value.symbol] : null,
     ))
   })
 

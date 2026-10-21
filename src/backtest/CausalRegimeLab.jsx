@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react'
+import { JoinedContextStudy } from './JoinedContextStudy.jsx'
 import { runCausalRegimeResearch } from './causalRegimeBacktest.js'
 import { HowToReadResults, LearningDetails, MetricsGlossary, ResearchFirstAnswer } from './MetricsGlossary.jsx'
 import { hasPerformanceObservations } from './labEvidence.js'
@@ -186,6 +187,7 @@ export function CausalRegimeLab({ datasets }) {
           </LearningDetails>
         </>
       )}
+      {hasAllSymbols && <JoinedContextStudy rawSeriesBySymbol={rawSeriesBySymbol} />}
       <LearningDetails label="What does this mean?">
         <MetricsGlossary title="Causal Market-Regime terms" intro="Plain-English explanations for terms used in this test." definitions={CAUSAL_REGIME_DEFINITIONS} />
       </LearningDetails>
