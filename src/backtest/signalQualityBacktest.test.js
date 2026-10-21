@@ -10,6 +10,7 @@ import {
   scoreBucketDefinitions,
   componentDefinitions,
   signalQualityDefaults,
+  classifyComponentContribution,
 } from './signalQualityBacktest.js'
 
 function makeHourlySeries(symbol, count, waveShift = 0, seed = 1) {
@@ -145,7 +146,33 @@ test('decomposition present/absent groups are disjoint and both drawn from 75+ b
     const presentTimestamps = new Set(entry.present.trades.map((trade) => `${trade.symbol}:${trade.timestamp}`))
     const absentTimestamps = new Set(entry.absent.trades.map((trade) => `${trade.symbol}:${trade.timestamp}`))
     presentTimestamps.forEach((key) => assert.ok(!absentTimestamps.has(key), `${entry.key} present/absent sets must be disjoint`))
-    assert.ok(['positive', 'negative', 'negligible', 'insufficient-data'].includes(entry.classification))
+    assert.ok(['positive', 'negative', 'negligible', 'insufficient-evidence'].includes(entry.classification))
+    assert.equal(entry.accounting.baselineCount, entry.accounting.presentCount + entry.accounting.absentCount + entry.accounting.unavailableCount)
+    assert.equal(entry.accounting.baselineResolvedCount, entry.accounting.presentResolvedCount + entry.accounting.absentResolvedCount + entry.accounting.unavailableResolvedCount)
+    assert.equal(entry.accounting.outcomeExcludedCount, entry.accounting.baselineCount - entry.accounting.baselineResolvedCount)
+    assert.equal(entry.accounting.reconciliationStatus, 'reconciled')
+  })
+})
+
+test('component contribution requires 30 resolved observations on both sides', () => {
+  assert.deepEqual(classifyComponentContribution({ contributionR: -0.5, presentResolvedCount: 200, absentResolvedCount: 7 }), {
+    classification: 'insufficient-evidence',
+    exploratory: true,
+  })
+})
+
+test('component contribution is exploratory below 100 per side and negligible is symmetric', () => {
+  assert.deepEqual(classifyComponentContribution({ contributionR: 0.03, presentResolvedCount: 99, absentResolvedCount: 100 }), {
+    classification: 'positive',
+    exploratory: true,
+  })
+  assert.deepEqual(classifyComponentContribution({ contributionR: 0.01, presentResolvedCount: 100, absentResolvedCount: 100 }), {
+    classification: 'negligible',
+    exploratory: false,
+  })
+  assert.deepEqual(classifyComponentContribution({ contributionR: -0.01, presentResolvedCount: 100, absentResolvedCount: 100 }), {
+    classification: 'negligible',
+    exploratory: false,
   })
 })
 

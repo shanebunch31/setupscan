@@ -64,7 +64,7 @@ function evidenceId(sourceRecordId, metricsKey) {
   return `${sourceRecordId}::${metricsKey}`
 }
 
-function makeEvidence(record, metricsKey, strategyId, ruleSetVariant, metrics, partition, outOfSampleRole, strategyAssociation = 'explicit', scopedSymbols = null) {
+function makeEvidence(record, metricsKey, strategyId, ruleSetVariant, membershipRule, metrics, partition, outOfSampleRole, strategyAssociation = 'explicit', scopedSymbols = null) {
   return {
     id: evidenceId(record.id, metricsKey),
     sourceRecordId: record.id,
@@ -72,6 +72,7 @@ function makeEvidence(record, metricsKey, strategyId, ruleSetVariant, metrics, p
     methodologyVersion: record.methodologyVersion ?? null,
     strategyId: strategyId ?? null,
     ruleSetVariant: ruleSetVariant ?? null,
+    membershipRule: membershipRule ?? 'legacy-unknown',
     // 'explicit': strategyId came directly from the adapter's own metrics-key output.
     // 'inferred-uniform': not directly labeled, but every other evidence entry from this same
     //   record shares exactly one strategyId, so it is deterministically the only strategy this
@@ -109,12 +110,13 @@ function flattenRecord(record) {
   const metrics = record?.metrics ?? {}
   Object.entries(metrics).forEach(([metricsKey, value]) => {
     if (!value || typeof value !== 'object') return
-    const { strategyId, ruleSetVariant, ...rest } = value
+    const { strategyId, ruleSetVariant, membershipRule, ...rest } = value
     entries.push(makeEvidence(
       record,
       metricsKey,
       strategyId,
       ruleSetVariant,
+      membershipRule,
       rest,
       inferPartition(metricsKey),
       inferOutOfSampleRole(metricsKey, record.outOfSample),
@@ -134,11 +136,15 @@ function flattenRecord(record) {
         ))
         const distinctStrategyIds = new Set(symbolEntries.map((entry) => entry.strategyId))
         const distinctRuleSetVariants = new Set(symbolEntries.map((entry) => entry.ruleSetVariant))
+        const distinctMembershipRules = new Set(symbolEntries.map((entry) => entry.membershipRule))
         const uniform = distinctStrategyIds.size === 1
         const inferredStrategyId = uniform ? [...distinctStrategyIds][0] : null
         const inferredRuleSetVariant = uniform && distinctRuleSetVariants.size === 1
           ? [...distinctRuleSetVariants][0]
           : null
+        const inferredMembershipRule = uniform && distinctMembershipRules.size === 1
+          ? [...distinctMembershipRules][0]
+          : 'legacy-unknown'
         const strategyAssociation = uniform ? 'inferred-uniform' : 'unknown'
 
         if (partitionMetrics?.inSampleMetrics) {
@@ -147,6 +153,7 @@ function flattenRecord(record) {
             `__outOfSample.${symbol}.inSample`,
             inferredStrategyId,
             inferredRuleSetVariant,
+            inferredMembershipRule,
             normalizeMetrics(partitionMetrics.inSampleMetrics),
             null,
             'in-sample',
@@ -161,6 +168,7 @@ function flattenRecord(record) {
             `__outOfSample.${symbol}.outOfSample`,
             inferredStrategyId,
             inferredRuleSetVariant,
+            inferredMembershipRule,
             normalizeMetrics(partitionMetrics.outOfSampleMetrics),
             null,
             'out-of-sample',
@@ -174,11 +182,15 @@ function flattenRecord(record) {
       // and legacy single-symbol Resilience records.
       const distinctStrategyIds = new Set(entries.map((entry) => entry.strategyId))
       const distinctRuleSetVariants = new Set(entries.map((entry) => entry.ruleSetVariant))
+      const distinctMembershipRules = new Set(entries.map((entry) => entry.membershipRule))
       const uniform = distinctStrategyIds.size === 1
       const inferredStrategyId = uniform ? [...distinctStrategyIds][0] : null
       const inferredRuleSetVariant = uniform && distinctRuleSetVariants.size === 1
         ? [...distinctRuleSetVariants][0]
         : null
+      const inferredMembershipRule = uniform && distinctMembershipRules.size === 1
+        ? [...distinctMembershipRules][0]
+        : 'legacy-unknown'
       const strategyAssociation = uniform ? 'inferred-uniform' : 'unknown'
 
       if (record.outOfSample.inSampleMetrics) {
@@ -187,6 +199,7 @@ function flattenRecord(record) {
           '__outOfSample.inSample',
           inferredStrategyId,
           inferredRuleSetVariant,
+          inferredMembershipRule,
           normalizeMetrics(record.outOfSample.inSampleMetrics),
           null,
           'in-sample',
@@ -200,6 +213,7 @@ function flattenRecord(record) {
           '__outOfSample.outOfSample',
           inferredStrategyId,
           inferredRuleSetVariant,
+          inferredMembershipRule,
           normalizeMetrics(record.outOfSample.outOfSampleMetrics),
           null,
           'out-of-sample',
@@ -256,6 +270,7 @@ export function compareEvidence(evidenceA, evidenceB) {
   compareKnownField('provider', evidenceA.provider, evidenceB.provider, hardConflicts, unknowns)
   compareKnownField('emaContractVersion', evidenceA.emaContractVersion, evidenceB.emaContractVersion, hardConflicts, unknowns)
   compareKnownField('methodologyVersion', evidenceA.methodologyVersion, evidenceB.methodologyVersion, hardConflicts, unknowns)
+  compareKnownField('membershipRule', evidenceA.membershipRule, evidenceB.membershipRule, hardConflicts, unknowns)
   compareKnownField('adjustmentMode', evidenceA.adjustmentMode ?? 'legacy-unknown', evidenceB.adjustmentMode ?? 'legacy-unknown', hardConflicts, unknowns)
 
   // Out-of-sample role differences (e.g. development vs holdout, in-sample vs out-of-sample) are

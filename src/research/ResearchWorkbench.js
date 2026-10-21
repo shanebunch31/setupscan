@@ -478,6 +478,7 @@ h('details', { className: 'workbench-result-disclosure' },
                         h('strong', null, experimentLabel),
                         h('span', null, workbenchEvidenceTitle(evidence)),
                         h('span', { className: 'research-methodology-version' }, `Methodology: ${evidence.methodologyVersion ?? 'Legacy / unknown'}`),
+                        h('span', { className: 'research-membership-rule' }, `Population: ${evidence.membershipRule ?? 'legacy-unknown'}`),
                         evidencePartitionLabel(evidence.partition)
                           ? h('span', null, evidencePartitionLabel(evidence.partition))
                           : null,

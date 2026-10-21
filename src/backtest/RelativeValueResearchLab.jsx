@@ -54,10 +54,10 @@ function MetricCells({ metrics }) {
 }
 
 const variantMeta = [
-  ['A', 'Baseline existing strategy', 'Unmodified SetupScan bullish signal (score ≥ 75) — no relative-value logic involved.'],
+  ['A', 'Baseline existing strategy', 'Qualified-only SetupScan signal: every required scanner condition passed. The 75-point minimum is retained, but Qualified signals currently score 100. No relative-value logic is involved.'],
   ['B', 'Relative-value confirmation filter (standalone)', 'Enters whenever the primary symbol starts outperforming the average of its peers over the lookback window, independent of the baseline scanner.'],
   ['C', 'Relative-value mean-reversion signal', 'Enters long when a symbol becomes unusually cheap relative to a peer (rolling z-score ≤ −2) and tests whether the relationship mean-reverts.'],
-  ['D', 'Combined: baseline + relative-value confirmation', 'Requires both the baseline bullish signal and the relative-value confirmation filter to be true on the same candle.'],
+  ['D', 'Combined: baseline + relative-value confirmation', 'Requires both the Qualified-only baseline signal and the relative-value confirmation filter to be true on the same candle.'],
 ]
 
 function VariantSection({ variantKey, label, description, summary }) {

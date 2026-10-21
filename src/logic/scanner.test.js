@@ -61,3 +61,18 @@ test('research eligibility includes both qualified and potential setups without 
   assert.equal(isQualifiedSetupSignal(qualified, 75), true)
   assert.equal(isQualifiedSetupSignal(potential, 75), false)
 })
+
+test('qualified-only and research-eligible populations remain distinct while 95+ currently equals exactly 100', () => {
+  const signals = scanSetups([
+    { symbol: 'QUALIFIED', price: 101, vwap: 100, ema9: 101, ema21: 100, rsi: 60, relativeVolume: 1.2, breakout: true, trend: 'Bullish' },
+    { symbol: 'POTENTIAL', price: 101, vwap: 100, ema9: 101, ema21: 100, rsi: 60, relativeVolume: 1.2, breakout: true, trend: 'Bearish' },
+  ])
+  const qualifiedOnly = signals.filter((signal) => isQualifiedSetupSignal(signal, 75))
+  const researchEligible = signals.filter((signal) => isResearchEligibleSignal(signal, 75))
+  const ninetyFivePlus = signals.filter((signal) => isResearchEligibleSignal(signal, 95))
+  const exactlyOneHundred = signals.filter((signal) => isResearchEligibleSignal(signal, 100))
+
+  assert.deepEqual(qualifiedOnly.map((signal) => signal.symbol), ['QUALIFIED'])
+  assert.deepEqual(researchEligible.map((signal) => signal.symbol), ['QUALIFIED', 'POTENTIAL'])
+  assert.deepEqual(ninetyFivePlus.map((signal) => signal.symbol), exactlyOneHundred.map((signal) => signal.symbol))
+})

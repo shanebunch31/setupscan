@@ -39,7 +39,7 @@ const definitions = [
   },
   {
     id: 'relative-value',
-    methodologyVersion: 'relative-value-2',
+    methodologyVersion: 'relative-value-3',
     requiredSymbols: [],
     title: 'Relative Value',
     ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
@@ -50,7 +50,7 @@ const definitions = [
   },
   {
     id: 'signal-quality',
-    methodologyVersion: 'signal-quality-2',
+    methodologyVersion: 'signal-quality-3',
     requiredSymbols: MULTI_SYMBOL_REQUIREMENTS,
     title: 'Signal Quality',
     ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,

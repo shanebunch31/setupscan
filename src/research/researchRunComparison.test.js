@@ -10,6 +10,7 @@ function evidence(overrides = {}) {
     methodologyVersion: 'signal-quality-1',
     strategyId: 'setup-scan-baseline',
     ruleSetVariant: null,
+    membershipRule: 'research-eligible-75-plus',
     strategyAssociation: 'explicit',
     partition: null,
     metricsKey: '75-79',

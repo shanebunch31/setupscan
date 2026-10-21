@@ -17,6 +17,8 @@ export const signalQualityDefaults = {
   maxHoldingBars: 12,
   periodCount: 4,
   negligibleThresholdR: 0.02,
+  minimumDirectionalSample: 30,
+  exploratorySampleThreshold: 100,
 }
 
 export const scoreBucketDefinitions = [
@@ -277,48 +279,89 @@ export function runSignalQualityResearch(rawSeriesBySymbol, settings = {}) {
     }
   })
 
-  // Decomposition: among the existing 75+ baseline signals, present vs. absent per component.
+  // Decomposition: among the existing research-eligible 75+ signals, present vs. absent per
+  // component. Unavailable inputs remain a third group; they are never silently treated as absent.
   const decomposition = componentDefinitions.map((component) => {
-    const presentBySymbol = symbols.map((symbol) => {
+    const accountingBySymbol = []
+    const groupedBySymbol = symbols.map((symbol) => {
       const catalogue = catalogueBySymbol[symbol]
-      const trades = catalogue
-        .filter((entry) =>
-  entry.score >= options.minimumScore &&
-  entry.researchEligible &&
-  entry.componentAvailability[component.key] &&
-  entry.components[component.key]
-)
+      const baselineEntries = catalogue.filter((entry) => entry.score >= options.minimumScore && entry.researchEligible)
+      const presentEntries = baselineEntries.filter((entry) => entry.componentAvailability[component.key] && entry.components[component.key])
+      const absentEntries = baselineEntries.filter((entry) => entry.componentAvailability[component.key] && !entry.components[component.key])
+      const unavailableEntries = baselineEntries.filter((entry) => !entry.componentAvailability[component.key])
+      const resolve = (entries) => entries
         .map((entry) => buildTradeFromIndex(aligned.raw[symbol], entry.index, options, { symbol }))
         .filter(Boolean)
-      return { symbol, trades }
+      const presentTrades = resolve(presentEntries)
+      const absentTrades = resolve(absentEntries)
+      const unavailableTrades = resolve(unavailableEntries)
+      accountingBySymbol.push({
+        baselineCount: baselineEntries.length,
+        baselineResolvedCount: presentTrades.length + absentTrades.length + unavailableTrades.length,
+        presentCount: presentEntries.length,
+        absentCount: absentEntries.length,
+        unavailableCount: unavailableEntries.length,
+        presentResolvedCount: presentTrades.length,
+        absentResolvedCount: absentTrades.length,
+        unavailableResolvedCount: unavailableTrades.length,
+      })
+      return { symbol, presentTrades, absentTrades }
     })
-    const absentBySymbol = symbols.map((symbol) => {
-      const catalogue = catalogueBySymbol[symbol]
-      const trades = catalogue
-        .filter((entry) =>
-  entry.score >= options.minimumScore &&
-  entry.researchEligible &&
-  entry.componentAvailability[component.key] &&
-  !entry.components[component.key]
-)
-        .map((entry) => buildTradeFromIndex(aligned.raw[symbol], entry.index, options, { symbol }))
-        .filter(Boolean)
-      return { symbol, trades }
-    })
+    const presentBySymbol = groupedBySymbol.map(({ symbol, presentTrades }) => ({ symbol, trades: presentTrades }))
+    const absentBySymbol = groupedBySymbol.map(({ symbol, absentTrades }) => ({ symbol, trades: absentTrades }))
     const present = summarizeTrades(presentBySymbol, timestamps, options.periodCount)
     const absent = summarizeTrades(absentBySymbol, timestamps, options.periodCount)
-    const contributionR = present.overall.averageR - absent.overall.averageR
-    const classification = present.overall.tradeCount === 0 || absent.overall.tradeCount === 0
-      ? 'insufficient-data'
-      : contributionR < 0
-        ? 'negative'
-        : Math.abs(contributionR) < options.negligibleThresholdR
-          ? 'negligible'
-          : 'positive'
-    return { key: component.key, label: component.label, present, absent, contributionR, classification }
+    const contributionR = present.overall.tradeCount && absent.overall.tradeCount
+      ? present.overall.averageR - absent.overall.averageR
+      : null
+    const accounting = accountingBySymbol.reduce((totals, row) => {
+      Object.keys(totals).forEach((key) => { totals[key] += row[key] })
+      return totals
+    }, {
+      baselineCount: 0,
+      baselineResolvedCount: 0,
+      presentCount: 0,
+      absentCount: 0,
+      unavailableCount: 0,
+      presentResolvedCount: 0,
+      absentResolvedCount: 0,
+      unavailableResolvedCount: 0,
+    })
+    accounting.outcomeExcludedCount = accounting.baselineCount - accounting.baselineResolvedCount
+    accounting.reconciliationStatus = accounting.baselineCount === accounting.presentCount + accounting.absentCount + accounting.unavailableCount &&
+      accounting.baselineResolvedCount === accounting.presentResolvedCount + accounting.absentResolvedCount + accounting.unavailableResolvedCount
+      ? 'reconciled'
+      : 'mismatch'
+    const evidence = classifyComponentContribution({
+      contributionR,
+      presentResolvedCount: accounting.presentResolvedCount,
+      absentResolvedCount: accounting.absentResolvedCount,
+      minimumDirectionalSample: options.minimumDirectionalSample,
+      exploratorySampleThreshold: options.exploratorySampleThreshold,
+      negligibleThresholdR: options.negligibleThresholdR,
+    })
+    return { key: component.key, label: component.label, present, absent, contributionR, ...evidence, accounting }
   })
 
   return { aligned, options, scoreBuckets, components, decomposition }
+}
+
+/** Applies descriptive evidence floors without changing any trade or score membership. */
+export function classifyComponentContribution({
+  contributionR,
+  presentResolvedCount,
+  absentResolvedCount,
+  minimumDirectionalSample = signalQualityDefaults.minimumDirectionalSample,
+  exploratorySampleThreshold = signalQualityDefaults.exploratorySampleThreshold,
+  negligibleThresholdR = signalQualityDefaults.negligibleThresholdR,
+}) {
+  const insufficient = presentResolvedCount < minimumDirectionalSample || absentResolvedCount < minimumDirectionalSample
+  if (insufficient || !Number.isFinite(contributionR)) {
+    return { classification: 'insufficient-evidence', exploratory: true }
+  }
+  const exploratory = presentResolvedCount < exploratorySampleThreshold || absentResolvedCount < exploratorySampleThreshold
+  if (Math.abs(contributionR) < negligibleThresholdR) return { classification: 'negligible', exploratory }
+  return { classification: contributionR > 0 ? 'positive' : 'negative', exploratory }
 }
 
 /** Descriptive check: do higher score buckets actually show better average-R / win-rate trends? */

@@ -357,6 +357,27 @@ test('missing methodology versions remain unknown and are not inferred', () => {
   assert.equal(result.strategyGroups[0].evidence[0].methodologyVersion, null)
 })
 
+test('saved evidence preserves explicit population membership and legacy records remain readable', () => {
+  const relativeValue = synthesizeResearch([relativeValueRecord()])
+  assert.equal(findEvidence(findGroup(relativeValue, 'setup-scan-baseline'), 'A').membershipRule, 'qualified-only')
+
+  const signalQuality = synthesizeResearch([signalQualityRecord()])
+  assert.equal(findEvidence(findGroup(signalQuality, 'setup-scan-baseline'), '75-79').membershipRule, 'research-eligible-75-plus')
+
+  const legacyRecord = signalQualityRecord()
+  delete legacyRecord.metrics['75-79'].membershipRule
+  const legacy = synthesizeResearch([legacyRecord])
+  assert.equal(findEvidence(findGroup(legacy, 'setup-scan-baseline'), '75-79').membershipRule, 'legacy-unknown')
+})
+
+test('different known population memberships are a hard evidence conflict', () => {
+  const qualified = flattenViaSynthesis(relativeValueRecord())[0]
+  const researchEligible = flattenViaSynthesis(signalQualityRecord())[0]
+  const comparison = compareEvidence(qualified, researchEligible)
+  assert.equal(comparison.compatible, false)
+  assert.ok(comparison.hardConflicts.some((entry) => entry.field === 'membershipRule'))
+})
+
 test('split and legacy-unknown adjustment modes produce a hard conflict', () => {
   const splitRecord = robustnessRecord({ context: { provenance: { adjustmentMode: 'split' } } })
   const legacyRecord = robustnessRecord({ context: { provenance: { adjustmentMode: 'legacy-unknown' } } })

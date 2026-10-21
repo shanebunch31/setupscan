@@ -69,6 +69,7 @@ function EvidenceSummary({ reference, side }) {
     ['Variant', evidence.ruleSetVariant], ['Partition', evidence.partition?.label ?? evidence.partition?.type],
     ['Out-of-sample role', evidence.outOfSampleRole], ['Symbols', evidence.symbols], ['Timeframe', evidence.timeframe],
     ['Methodology version', evidence.methodologyVersion ?? 'Legacy / unknown'],
+    ['Population membership', evidence.membershipRule ?? 'legacy-unknown'],
     ['EMA contract', evidence.emaContractVersion],
     ['Provider', evidence.provider], ['Cost model', evidence.costModelStatus],
   ].filter(([, value]) => value !== null && value !== undefined && value !== '')

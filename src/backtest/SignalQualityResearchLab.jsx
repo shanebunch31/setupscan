@@ -17,7 +17,9 @@ const SIGNAL_QUALITY_DEFINITIONS = [
   { term: 'Expectancy', description: 'The average result per trade, in R-multiples, before real-world costs and slippage.' },
   { term: 'Average R / median R', description: 'The mean and the middle value of each trade\u2019s result, in R-multiples. Median is less swayed by one unusually large win or loss than average.' },
   { term: 'Correlation', description: 'A statistic between \u22121 and 1 describing whether two things moved together historically (here, bucket order vs. average R or win rate). It does not show that one caused the other.' },
-  { term: 'Component contribution / decomposition', description: 'How average R differed between trades where one scoring component was present versus absent, among otherwise-similar 75+ signals. It is a historical comparison, not a causal measurement.' },
+  { term: 'Component contribution / decomposition', description: 'How average R differed between research-eligible 75+ signals where one component was present versus absent. Unavailable means the input could not be evaluated; it is not counted as absent. This is a historical comparison, not a causal measurement.' },
+  { term: 'Research-eligible 75+', description: 'Includes Potential Setups scoring 75 or more as well as Qualified Setups. A Qualified-only population is narrower because every required scanner condition must pass.' },
+  { term: 'Exploratory', description: 'Both comparison groups have at least 30 resolved observations, but at least one has fewer than 100. The directional label remains a small-sample research observation, not strong evidence.' },
 ]
 
 const SIGNAL_QUALITY_HOW_TO_READ = [
@@ -163,17 +165,18 @@ export function SignalQualityResearchLab({ datasets }) {
           </div>
 
           <div className="robustness-section">
-            <h3>Decomposition — present vs. absent among otherwise-comparable 75+ signals</h3>
+            <h3>Decomposition — present vs. absent among research-eligible 75+ signals</h3>
             <div className="robustness-table-wrap">
               <table className="robustness-table">
-                <thead><tr><th>Component</th><th>Present: trades</th><th>Present: avg R</th><th>Absent: trades</th><th>Absent: avg R</th><th>Contribution (R)</th><th>Classification</th></tr></thead>
-                <tbody>{research.decomposition.map((entry) => { const hasPresent = hasPerformanceObservations(entry.present.overall); const hasAbsent = hasPerformanceObservations(entry.absent.overall); const hasBoth = hasPresent && hasAbsent; return <tr key={entry.key}><td>{entry.label}</td><td>{entry.present.overall.tradeCount}</td><td>{hasPresent ? formatR(entry.present.overall.averageR) : '—'}</td><td>{entry.absent.overall.tradeCount}</td><td>{hasAbsent ? formatR(entry.absent.overall.averageR) : '—'}</td><td>{hasBoth ? formatR(entry.contributionR) : '—'}</td><td>{entry.classification}</td></tr>})}</tbody>
+                <thead><tr><th>Component</th><th>Baseline</th><th>Present: total / resolved</th><th>Present: avg R</th><th>Absent: total / resolved</th><th>Absent: avg R</th><th>Unavailable</th><th>Outcome excluded</th><th>Contribution (R)</th><th>Evidence label</th><th>Accounting</th></tr></thead>
+                <tbody>{research.decomposition.map((entry) => { const hasPresent = hasPerformanceObservations(entry.present.overall); const hasAbsent = hasPerformanceObservations(entry.absent.overall); const hasBoth = hasPresent && hasAbsent; const label = entry.classification === 'insufficient-evidence' ? 'Insufficient evidence' : `${entry.classification}${entry.exploratory ? ' · exploratory' : ''}`; return <tr key={entry.key}><td>{entry.label}</td><td>{entry.accounting.baselineCount}</td><td>{entry.accounting.presentCount} / {entry.accounting.presentResolvedCount}</td><td>{hasPresent ? formatR(entry.present.overall.averageR) : '—'}</td><td>{entry.accounting.absentCount} / {entry.accounting.absentResolvedCount}</td><td>{hasAbsent ? formatR(entry.absent.overall.averageR) : '—'}</td><td>{entry.accounting.unavailableCount}</td><td>{entry.accounting.outcomeExcludedCount}</td><td>{hasBoth ? formatR(entry.contributionR) : '—'}</td><td>{label}</td><td>{entry.accounting.reconciliationStatus}</td></tr>})}</tbody>
               </table>
             </div>
             <p className="research-note">
-              Descriptive comparison only. "Contribution" is present-group average R minus absent-group average R among trades that
-              already qualify as 75+ bullish signals; it is not a causal estimate and no component is optimized or removed from
-              production scoring based on this table.
+              Descriptive comparison only. "Contribution" is present-group average R minus absent-group average R among research-eligible
+              75+ signals, which include Potential and Qualified Setups. Unavailable inputs are kept separate from observed absences.
+              A positive or negative label requires at least 30 resolved observations on each side; a side below 100 remains exploratory.
+              This is not a causal estimate and no component is optimized or removed from production scoring based on this table.
             </p>
           </div>
           <p className="robustness-muted">Period rows group trades by the signal candle’s period. Their simulated outcomes may finish after that period ends.</p>

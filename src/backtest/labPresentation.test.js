@@ -164,6 +164,18 @@ test('signal-period cohort labels disclose that outcomes may extend past the nam
   assert.match(source('StrategyDiscoveryLab.jsx'), /signal date\. An outcome can complete after its signal period/)
 })
 
+test('population membership and unavailable component evidence are explained plainly', () => {
+  const signalQuality = source('SignalQualityResearchLab.jsx')
+  assert.match(signalQuality, /research-eligible 75\+ signals/)
+  assert.match(signalQuality, /Unavailable inputs are kept separate from observed absences/)
+  assert.match(signalQuality, /at least 30 resolved observations on each side/)
+  assert.match(signalQuality, /a side below 100 remains exploratory/)
+
+  const relativeValue = source('RelativeValueResearchLab.jsx')
+  assert.match(relativeValue, /Qualified-only SetupScan signal/)
+  assert.match(relativeValue, /Qualified signals currently score 100/)
+})
+
 test('Strategy Discovery marks empty resolved metrics unavailable in Batch C and each cost-tier comparison side', () => {
   const contents = source('StrategyDiscoveryLab.jsx')
   assert.match(contents, /batchCHasResolvedObservations = batchC\.summary\?\.overall\?\.occurrenceCount > 0/)

@@ -111,8 +111,17 @@ const STRATEGY_IDS = {
   volAwareHigh95: 'vol-aware-high-95',
 }
 
-function withStrategy(metrics, strategyId, ruleSetVariant) {
-  return { ...metrics, strategyId, ...(ruleSetVariant ? { ruleSetVariant } : {}) }
+export const RESEARCH_MEMBERSHIP_RULES = Object.freeze({
+  qualifiedOnly: 'qualified-only',
+  researchEligible75Plus: 'research-eligible-75-plus',
+  researchEligibleThreshold: 'research-eligible-score-threshold',
+  researchEligibleVolatilityFiltered: 'research-eligible-volatility-filtered',
+  experimentSpecific: 'experiment-specific',
+  legacyUnknown: 'legacy-unknown',
+})
+
+function withStrategy(metrics, strategyId, ruleSetVariant, membershipRule) {
+  return { ...metrics, strategyId, ...(ruleSetVariant ? { ruleSetVariant } : {}), ...(membershipRule ? { membershipRule } : {}) }
 }
 
 function normalizeInput(context = {}, derived = {}) {
@@ -232,7 +241,7 @@ export function adaptRobustnessOutput(definition, payload, context = {}) {
       withStrategy({
         ...normalizeMetrics(result.metrics),
         ...(symbol ? { symbol } : {}),
-      }, STRATEGY_IDS.baseline, `threshold-${result.minimumScore}`),
+      }, STRATEGY_IDS.baseline, `threshold-${result.minimumScore}`, RESEARCH_MEMBERSHIP_RULES.researchEligibleThreshold),
     ]
   }))
 
@@ -283,6 +292,9 @@ export function adaptRelativeValueOutput(definition, payload, context = {}) {
     key,
     {
       strategyId: RELATIVE_VALUE_STRATEGY_IDS[key] ?? null,
+      membershipRule: key === 'A' || key === 'D'
+        ? RESEARCH_MEMBERSHIP_RULES.qualifiedOnly
+        : RESEARCH_MEMBERSHIP_RULES.experimentSpecific,
       beforeCosts: normalizeMetrics(summary.overallBeforeCosts),
       afterCosts: normalizeMetrics(summary.overallAfterCosts),
     },
@@ -295,7 +307,7 @@ export function adaptSignalQualityOutput(definition, payload, context = {}) {
   const scoreBuckets = Array.isArray(payload?.scoreBuckets) ? payload.scoreBuckets : []
   const metrics = Object.fromEntries(scoreBuckets.map((bucket) => [
     bucket.label,
-    withStrategy(normalizeMetrics(bucket.overall), STRATEGY_IDS.baseline),
+    withStrategy(normalizeMetrics(bucket.overall), STRATEGY_IDS.baseline, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
   ]))
   // Score buckets are evaluation cohorts of the baseline strategy, not rule-set variants.
   // Components (aboveVwap, rvConfirmation, ...) are never assigned a strategyId.
@@ -307,10 +319,10 @@ export function adaptFrozenScoreHoldoutOutput(definition, payload, context = {})
   // development/holdout are evaluation partitions of the same two strategies, not rule variants —
   // that distinction is already preserved by the metrics key itself, so no ruleSetVariant here.
   const metrics = {
-    developmentBaseline: withStrategy(normalizeMetrics(payload?.developmentBaseline?.overall), STRATEGY_IDS.baseline),
-    developmentRvConfirmed: withStrategy(normalizeMetrics(payload?.developmentRvConfirmed?.overall), STRATEGY_IDS.rvCombined),
-    holdoutBaseline: withStrategy(normalizeMetrics(payload?.holdoutBaseline?.overall), STRATEGY_IDS.baseline),
-    holdoutRvConfirmed: withStrategy(normalizeMetrics(payload?.holdoutRvConfirmed?.overall), STRATEGY_IDS.rvCombined),
+    developmentBaseline: withStrategy(normalizeMetrics(payload?.developmentBaseline?.overall), STRATEGY_IDS.baseline, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
+    developmentRvConfirmed: withStrategy(normalizeMetrics(payload?.developmentRvConfirmed?.overall), STRATEGY_IDS.rvCombined, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
+    holdoutBaseline: withStrategy(normalizeMetrics(payload?.holdoutBaseline?.overall), STRATEGY_IDS.baseline, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
+    holdoutRvConfirmed: withStrategy(normalizeMetrics(payload?.holdoutRvConfirmed?.overall), STRATEGY_IDS.rvCombined, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
   }
   const sampleCounts = {
     developmentCandleCount: payload?.developmentRange?.candleCount ?? null,
@@ -326,11 +338,11 @@ export function adaptYearlyRegimeOutput(definition, payload, context = {}) {
   // Calendar year is an evaluation partition of the baseline strategy, not a rule variant — the
   // `year-YYYY` metrics key already preserves that partition, so no ruleSetVariant here.
   const metrics = {
-    combinedBaseline: withStrategy(normalizeMetrics(payload?.combinedBaseline?.overall), STRATEGY_IDS.baseline),
-    combinedRvConfirmed: withStrategy(normalizeMetrics(payload?.combinedRvConfirmed?.overall), STRATEGY_IDS.rvCombined),
+    combinedBaseline: withStrategy(normalizeMetrics(payload?.combinedBaseline?.overall), STRATEGY_IDS.baseline, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
+    combinedRvConfirmed: withStrategy(normalizeMetrics(payload?.combinedRvConfirmed?.overall), STRATEGY_IDS.rvCombined, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
     ...Object.fromEntries(years.map((year) => [
       `year-${year.year}`,
-      withStrategy(normalizeMetrics(year.baseline?.overall), STRATEGY_IDS.baseline),
+      withStrategy(normalizeMetrics(year.baseline?.overall), STRATEGY_IDS.baseline, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
     ])),
   }
   const costModel = context.costModel ?? withCostStatus('modeled', payload)
@@ -345,19 +357,19 @@ export function adaptCausalRegimeOutput(definition, payload, context = {}) {
   // Trend/volatility/breadth regimes are evaluation partitions of the baseline strategy, not rule
   // variants — the `trend-`/`volatility-`/`breadth-` metrics key already preserves the partition.
   const metrics = {
-    combinedBaseline: withStrategy(normalizeMetrics(payload?.combinedBaseline?.overall), STRATEGY_IDS.baseline),
-    combinedRvConfirmed: withStrategy(normalizeMetrics(payload?.combinedRvConfirmed?.overall), STRATEGY_IDS.rvCombined),
+    combinedBaseline: withStrategy(normalizeMetrics(payload?.combinedBaseline?.overall), STRATEGY_IDS.baseline, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
+    combinedRvConfirmed: withStrategy(normalizeMetrics(payload?.combinedRvConfirmed?.overall), STRATEGY_IDS.rvCombined, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
     ...Object.fromEntries(trendGroups.map((group) => [
       `trend-${group.label}`,
-      withStrategy(normalizeMetrics(group.baseline?.overall), STRATEGY_IDS.baseline),
+      withStrategy(normalizeMetrics(group.baseline?.overall), STRATEGY_IDS.baseline, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
     ])),
     ...Object.fromEntries(volatilityGroups.map((group) => [
       `volatility-${group.label}`,
-      withStrategy(normalizeMetrics(group.baseline?.overall), STRATEGY_IDS.baseline),
+      withStrategy(normalizeMetrics(group.baseline?.overall), STRATEGY_IDS.baseline, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
     ])),
     ...Object.fromEntries(breadthGroups.map((group) => [
       `breadth-${group.label}`,
-      withStrategy(normalizeMetrics(group.baseline?.overall), STRATEGY_IDS.baseline),
+      withStrategy(normalizeMetrics(group.baseline?.overall), STRATEGY_IDS.baseline, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
     ])),
   }
   const costModel = context.costModel ?? withCostStatus('modeled', payload)
@@ -371,11 +383,11 @@ export function adaptWalkForwardRegimeOutput(definition, payload, context = {}) 
   // training/test period, not a rule variant — the window's own metrics key (its display label)
   // already preserves that partition, so no ruleSetVariant here.
   const metrics = {
-    combinedBaseline: withStrategy(normalizeMetrics(payload?.combinedBaseline?.overall), STRATEGY_IDS.baseline),
-    combinedRvConfirmed: withStrategy(normalizeMetrics(payload?.combinedRvConfirmed?.overall), STRATEGY_IDS.rvCombined),
+    combinedBaseline: withStrategy(normalizeMetrics(payload?.combinedBaseline?.overall), STRATEGY_IDS.baseline, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
+    combinedRvConfirmed: withStrategy(normalizeMetrics(payload?.combinedRvConfirmed?.overall), STRATEGY_IDS.rvCombined, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
     ...Object.fromEntries(windows.map((window) => [
       window.label,
-      withStrategy(normalizeMetrics(window.baseline?.overall), STRATEGY_IDS.baseline),
+      withStrategy(normalizeMetrics(window.baseline?.overall), STRATEGY_IDS.baseline, null, RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus),
     ])),
   }
   const costModel = context.costModel ?? withCostStatus('modeled', payload)
@@ -396,7 +408,14 @@ export function adaptVolatilityAwareVariantsOutput(definition, payload, context 
   const pooled = Array.isArray(payload?.pooled) ? payload.pooled : []
   const metrics = Object.fromEntries(pooled.map((variant) => [
     variant.key,
-    withStrategy(normalizeMetrics(variant.summary?.overall), VOLATILITY_AWARE_STRATEGY_IDS[variant.key] ?? null),
+    withStrategy(
+      normalizeMetrics(variant.summary?.overall),
+      VOLATILITY_AWARE_STRATEGY_IDS[variant.key] ?? null,
+      null,
+      variant.key === 'control'
+        ? RESEARCH_MEMBERSHIP_RULES.researchEligible75Plus
+        : RESEARCH_MEMBERSHIP_RULES.researchEligibleVolatilityFiltered,
+    ),
   ]))
   const costModel = context.costModel ?? withCostStatus('modeled', payload)
   return createAdaptedRecord(definition, payload, { ...context, costModel }, metrics)
@@ -411,17 +430,21 @@ export function adaptStrategyComparisonOutput(definition, payload, context = {})
       [`${symbol}::control`, withStrategy(
         normalizeMetrics(firstObject(branches?.control?.metrics, branches?.control?.overall)),
         STRATEGY_IDS.baseline,
+        null,
+        RESEARCH_MEMBERSHIP_RULES.qualifiedOnly,
       )],
       [`${symbol}::trendMomentum`, withStrategy(
         normalizeMetrics(firstObject(branches?.trendMomentum?.metrics, branches?.trendMomentum?.overall)),
         STRATEGY_IDS.trendMomentum,
+        null,
+        RESEARCH_MEMBERSHIP_RULES.experimentSpecific,
       )],
     ]))
     : {
       // trend-momentum-v1 here is strategyComparison.js's own construction — distinct from
       // strategy-discovery's independently-implemented momentum-breakout-v1.
-      control: withStrategy(normalizeMetrics(firstObject(payload?.control?.metrics, payload?.control?.overall)), STRATEGY_IDS.baseline),
-      trendMomentum: withStrategy(normalizeMetrics(firstObject(payload?.trendMomentum?.metrics, payload?.trendMomentum?.overall)), STRATEGY_IDS.trendMomentum),
+      control: withStrategy(normalizeMetrics(firstObject(payload?.control?.metrics, payload?.control?.overall)), STRATEGY_IDS.baseline, null, RESEARCH_MEMBERSHIP_RULES.qualifiedOnly),
+      trendMomentum: withStrategy(normalizeMetrics(firstObject(payload?.trendMomentum?.metrics, payload?.trendMomentum?.overall)), STRATEGY_IDS.trendMomentum, null, RESEARCH_MEMBERSHIP_RULES.experimentSpecific),
     }
   // The composite form has per-symbol/per-strategy partitions, so no single record-level split is truthful.
   const outOfSample = context.outOfSample ?? (!bySymbol && payload?.control
@@ -448,7 +471,7 @@ export function adaptStrategyDiscoveryOutput(definition, payload, context = {}) 
         outsideResearchWindowCount: excluded.outsideResearchWindowCount ?? null,
         periodBoundaryCount: excluded.periodBoundaryCount ?? null,
         excursionPeriodBoundaryCount: excluded.excursionPeriodBoundaryCount ?? null,
-      }, experiment.experimentId),
+      }, experiment.experimentId, null, RESEARCH_MEMBERSHIP_RULES.experimentSpecific),
     ]
   }))
   const costModel = context.costModel ?? withCostStatus('modeled', payload)

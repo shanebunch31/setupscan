@@ -330,6 +330,8 @@ test('relative-value normalizes all four variants before/after costs', () => {
   // Variant A is the unmodified baseline; B is a genuinely different rule (RV-confirmation filter).
   assert.equal(record.metrics.A.strategyId, 'setup-scan-baseline')
   assert.equal(record.metrics.B.strategyId, 'rv-confirmation-filter')
+  assert.equal(record.metrics.A.membershipRule, 'qualified-only')
+  assert.equal(record.metrics.B.membershipRule, 'experiment-specific')
   assert.equal(record.costModel.status, 'modeled')
   assert.equal(record.costModel.executionCostR, 0.05)
   assert.deepEqual(record.input.symbols, ['SPY', 'QQQ'])
@@ -358,6 +360,7 @@ test('signal-quality normalizes metrics per score bucket', () => {
   assert.equal(record.metrics['95-100'].tradeCount, 1)
   // Score buckets are evaluation cohorts of the same baseline strategy, not rule variants.
   assert.equal(record.metrics['75-79'].strategyId, 'setup-scan-baseline')
+  assert.equal(record.metrics['75-79'].membershipRule, 'research-eligible-75-plus')
   assert.equal(record.metrics['75-79'].ruleSetVariant, undefined)
   assert.equal(record.costModel.status, 'modeled')
   assert.deepEqual(record.input.symbols, ['SPY'])
