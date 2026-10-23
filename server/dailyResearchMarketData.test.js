@@ -67,6 +67,6 @@ test('throws when the historical route reports an error', async () => {
       start: '2026-01-01T00:00:00.000Z',
       end: '2026-01-05T00:00:00.000Z',
     }),
-    /Test market data failure/,
+    /Historical provider request failed \(stage: provider\)/,
   )
 })

@@ -1,3 +1,5 @@
+import { investigationFollowUps, researchFollowUpLink } from './researchFollowUps.js'
+
 function runMetadataFromResearchRun(run) {
   if (!run || typeof run !== 'object') return null
   const context = run.runContext ?? {}
@@ -13,6 +15,9 @@ function runMetadataFromResearchRun(run) {
       ? [...context.requestedExperiments]
       : Array.isArray(run.requestedExperiments) ? [...run.requestedExperiments] : null,
     evaluatedExperiments: Array.isArray(coverage.evaluated) ? [...coverage.evaluated] : null,
+    methodologies: (run.records ?? []).map((record) => `${record.id ?? 'Unknown experiment'}: ${record.methodologyVersion ?? 'Legacy / unknown'}`),
+    evidenceSummary: (run.records ?? []).flatMap((record) => (record.parameters?.candidateRobustness?.conclusions ?? []).map((c) => `${c.symbol}: ${c.status}. ${c.message}`)),
+    followUp: researchFollowUpLink(run),
   }
 }
 
@@ -28,12 +33,14 @@ export function projectResearchInvestigationDetail(investigation, runReferences 
     .filter((reference) => typeof reference?.runId === 'string')
     .map((reference) => [reference.runId, reference]))
   const runIds = Array.isArray(investigation?.runIds) ? investigation.runIds : []
+  const attachedReferences = runReferences.filter((ref) => runIds.includes(ref.runId))
 
   return {
     investigationId: typeof investigation?.investigationId === 'string' ? investigation.investigationId : null,
     question: typeof investigation?.question === 'string' ? investigation.question : null,
     status: typeof investigation?.status === 'string' ? investigation.status : null,
     createdAt: investigation?.createdAt ?? null,
+    followUps: investigationFollowUps(attachedReferences),
     requestedExperiments: Array.isArray(investigation?.requestedExperiments)
       ? [...investigation.requestedExperiments]
       : [],

@@ -37,6 +37,7 @@ test('projects investigation metadata and run metadata without changing ownershi
     question: investigation.question,
     status: 'active',
     createdAt: investigation.createdAt,
+    followUps: [],
     requestedExperiments: ['relative-value', 'robustness'],
     associatedRuns: [
       {
@@ -51,6 +52,7 @@ test('projects investigation metadata and run metadata without changing ownershi
           datasetId: 'dataset-b',
           requestedExperiments: ['relative-value'],
           evaluatedExperiments: ['relative-value'],
+          methodologies: ['Unknown experiment: Legacy / unknown'], evidenceSummary: [], followUp: null,
         },
       },
       { runId: 'run-a', metadataStatus: 'loading', error: null, metadata: null },
@@ -79,6 +81,7 @@ test('represents sparse run metadata as null rather than inventing values', () =
     datasetId: null,
     requestedExperiments: null,
     evaluatedExperiments: null,
+    methodologies: [], evidenceSummary: [], followUp: null,
   })
 })
 

@@ -1,4 +1,5 @@
 import { candleCompletesBy, historicalCandleEndTime } from '../src/data/historicalDataContract.js'
+import { researchErrorCode } from './researchErrorCode.js'
 
 function isWeekendOnlyGap(fromTimestamp, toTimestamp) {
   const fromMs = Date.parse(fromTimestamp)
@@ -71,6 +72,7 @@ export async function handleHistoricalRoute({
   }
 
 
+  let stage = 'request'
   try {
       const cacheKey = createHistoricalCacheKey({
       symbol,
@@ -83,6 +85,7 @@ export async function handleHistoricalRoute({
       typeof researchRunStore
         .findResearchHistoricalCacheCoverage === 'function'
     ) {
+      stage = 'cache-read'
       const covered =
         await researchRunStore.findResearchHistoricalCacheCoverage({
           symbol,
@@ -135,6 +138,7 @@ if (
           return
         }
 
+        stage = 'provider'
         const tailData =
           await fetchHistoricalMarketBars({
             symbol,
@@ -191,6 +195,7 @@ if (
         }
 
         if (mergedData.complete) {
+          stage = 'cache-write'
           await researchRunStore.saveResearchHistoricalCache({
             cacheKey,
             provider: mergedData.provider,
@@ -221,6 +226,7 @@ if (
     }
   }
 
+  stage = 'provider'
   const fetchedData =
     await fetchHistoricalMarketBars({
       symbol,
@@ -239,6 +245,7 @@ if (
   }
 
   if (researchRunStore && data.complete) {
+    stage = 'cache-write'
     await researchRunStore.saveResearchHistoricalCache({
       cacheKey,
       provider: data.provider,
@@ -261,8 +268,16 @@ if (
         ? 503
         : error.status || 502
 
+    const code = researchErrorCode(error)
+    const description = error.code === 'MISSING_ALPACA_ENV'
+      ? 'Historical provider is not configured: set ALPACA_API_KEY and ALPACA_API_SECRET on the server'
+      : stage.startsWith('cache-')
+        ? 'Historical research cache failed'
+        : 'Historical provider request failed'
     sendJson(response, status, {
-      error: error.message,
+      error: `${description} (stage: ${stage}${code ? `; code: ${code}` : ''})`,
+      code,
+      stage,
     })
   }
 }

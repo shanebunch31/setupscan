@@ -7,6 +7,14 @@ import {
 } from './researchInvestigation.js'
 import { listResearchExperiments } from './registry.js'
 
+test('Investigation validation accepts joined-context and all canonical IDs while rejecting unknown IDs', () => {
+  const ids = listResearchExperiments().map(({ id }) => id)
+  assert.ok(ids.includes('joined-context'))
+  assert.ok(ids.includes('candidate-context-robustness'))
+  assert.deepEqual(normalizeResearchInvestigationInput({ question: 'Context study', requestedExperiments: ids }).requestedExperiments, ids)
+  assert.throws(() => normalizeResearchInvestigationInput({ question: 'Context study', requestedExperiments: ['joined-context-fake'] }), /unknown experiment id/)
+})
+
 test('normalizes valid investigation creation data and trims the authored question', () => {
   assert.deepEqual(normalizeResearchInvestigationInput({
     question: '  Does the baseline persist across regimes?  ',
@@ -31,10 +39,10 @@ test('rejects unknown experiment IDs and deduplicates while preserving order', (
   }).requestedExperiments, ['robustness', 'relative-value'])
 })
 
-test('defaults omitted plan to registered experiments and accepts an explicit empty plan', () => {
+test('omitted plan is empty rather than silently selecting every experiment', () => {
   assert.deepEqual(
     normalizeResearchInvestigationInput({ question: 'Question' }).requestedExperiments,
-    listResearchExperiments().map(({ id }) => id),
+    [],
   )
   assert.deepEqual(normalizeResearchInvestigationInput({ question: 'Question', requestedExperiments: [] }).requestedExperiments, [])
 })

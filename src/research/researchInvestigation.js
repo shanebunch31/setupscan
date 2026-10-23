@@ -1,4 +1,4 @@
-import { getResearchExperiment, listResearchExperiments } from './registry.js'
+import { getResearchExperiment } from './registry.js'
 
 export const RESEARCH_INVESTIGATION_STATUSES = Object.freeze(['active'])
 export const RESEARCH_INVESTIGATION_MAX_QUESTION_LENGTH = 1000
@@ -21,7 +21,7 @@ export function normalizeResearchQuestion(question) {
 }
 
 export function normalizeInvestigationExperiments(requestedExperiments) {
-  if (requestedExperiments === undefined) return listResearchExperiments().map(({ id }) => id)
+  if (requestedExperiments === undefined) return []
   if (!Array.isArray(requestedExperiments)) throw invalid('requestedExperiments must be an array of registry experiment ids')
 
   const normalized = []

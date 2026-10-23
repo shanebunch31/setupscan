@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { CandidateRobustnessResult } from './CandidateRobustnessResult.js'
 import { Link2, LoaderCircle, Play, Plus, Save } from 'lucide-react'
 import { listResearchExperiments } from './registry.js'
 import { getResearchRun, saveResearchRun } from './researchRunHistory.js'
@@ -17,6 +18,9 @@ import {
   createWorkbenchRunRequest,
   executeWorkbenchRun,
   setWorkbenchRunFailure,
+  investigationPlanForRun,
+  prepareFollowUpForm,
+  linkFollowUpResult,
 } from './researchWorkbenchModel.js'
 
 const h = React.createElement
@@ -103,7 +107,7 @@ export function createWorkbenchActions({
       event.preventDefault()
       const request = createWorkbenchRunRequest(form)
       onStart()
-      return executeRun(request)
+      return Promise.resolve(executeRun(request)).then((result) => linkFollowUpResult(result, form.followUp))
     },
     save(result) {
       if (!result) return undefined
@@ -225,6 +229,7 @@ export function RunResultSummary({ result }) {
       h('div', null, h('dt', null, 'Fetch issues'), h('dd', null, String(fetchIssues.length))),
     ),
     h('p', { className: 'workbench-result-caveat' }, 'Historical results describe past data and do not establish future performance.'),
+    (result.records ?? []).filter((record) => record.id === 'candidate-context-robustness').map((record) => h(CandidateRobustnessResult, { key: record.id, record })),
     h('p', { className: 'workbench-result-caveat' }, 'Research uses underlying-stock prices, not option-contract quotes or fills. Cost tiers are modeled assumptions, not historical bid/ask or actual execution replay. A large search across variants is more likely to produce a chance result than a small search; this review does not provide a complete cross-run variant count.'),
     h('section', { className: 'workbench-result-ambiguity', 'aria-label': 'Same-candle outcome policies' },
       h('h3', null, 'How same-candle stop and target outcomes are handled'),
@@ -248,7 +253,7 @@ export function RunResultSummary({ result }) {
       `Research completed with ${completedCount} of ${experimentCount} experiments completed and ${evidenceCount} evidence entries.`,
     ),
     h('p', { className: 'workbench-muted' },
-      `Review next: ${conflicts.length} conflicts · ${unresolvedQuestions.length} unresolved questions.`,
+      `Review next: ${conflicts.length} ${synthesis.contrastSummary ? 'comparable metric contradictions' : 'legacy conflicts'} · ${unresolvedQuestions.length} unresolved questions.`,
     ),
 
   ),
@@ -433,10 +438,14 @@ h('details', { className: 'workbench-result-disclosure' },
         : h('p', { className: 'workbench-muted' }, 'None reported.'),
     ),
     h('section', { className: 'workbench-summary-section' },
-      h('h3', null, 'Conflicts', h(TermHelp, { term: 'Conflicts', explanation: 'Some evidence produced different metric results under different research conditions. Conflicts are shown as recorded, without ranking or resolution.' })),
+      h('h3', null, synthesis.contrastSummary ? 'Comparable contradictions and research contrasts' : 'Conflicts'),
+      synthesis.contrastSummary ? h(React.Fragment, null,
+        h('p', null, `Comparable metric contradictions: ${conflicts.length}. Different symbols, periods and contexts are research contrasts, not failures to reproduce the same result. Counts below describe pairs, not independent evidence.`),
+        h('ul', null, Object.entries(synthesis.contrastSummary).sort(([a], [b]) => a.localeCompare(b)).map(([category, summary]) => h('li', { key: category }, `${category}: ${summary.pairCount} pairs; ${summary.opposingSignPairCount} with opposing metric signs.`))),
+      ) : null,
       conflicts.length
         ? h(React.Fragment, null,
-          h('p', { className: 'workbench-muted' }, 'Conflicts mean some evidence produced different metric results under different research conditions.'),
+          h('p', { className: 'workbench-muted' }, synthesis.contrastSummary ? 'These results describe equivalent recorded conditions but disagree in metric sign. Inspect sample size and shared observations before interpreting them.' : 'Legacy conflicts are shown as originally saved; their comparability has not been reclassified.'),
           h('details', { className: 'workbench-result-disclosure research-detail-conflicts' },
             h('summary', null, `View conflicts (${conflicts.length})`),
             h('ul', { className: 'workbench-issue-list' }, conflicts.map((conflict, index) => h('li', { className: 'research-detail-conflict-row', key: conflict.id ?? index },
@@ -627,7 +636,7 @@ export function ResearchInvestigationPanel({
           onClick: onRunPlan,
         },
         runLoading ? h(LoaderCircle, { size: 14, className: 'workbench-spinner', 'aria-hidden': true }) : h(Play, { size: 14, 'aria-hidden': true }),
-        runLoading ? 'Running plan' : 'Run investigation plan',
+        runLoading ? 'Research running' : 'Prepare investigation plan',
         ),
       ),
       runIds.length
@@ -754,7 +763,7 @@ export function ResearchWorkbench({
   const [investigationListLoading, setInvestigationListLoading] = useState(true)
   const [investigationListError, setInvestigationListError] = useState(null)
   const [investigationQuestion, setInvestigationQuestion] = useState('')
-  const [investigationPlan, setInvestigationPlan] = useState(defaultExperimentIds)
+  const [investigationPlan, setInvestigationPlan] = useState([])
   const [creatingInvestigation, setCreatingInvestigation] = useState(false)
   const [investigationCreateError, setInvestigationCreateError] = useState(null)
   const [investigationCreateMessage, setInvestigationCreateMessage] = useState(null)
@@ -791,12 +800,13 @@ export function ResearchWorkbench({
   }, [listInvestigations])
 
   function updateField(field, value) {
-    setForm((current) => ({ ...current, [field]: value }))
+    setForm((current) => ({ ...current, [field]: value, followUp: null }))
   }
 
   function toggleExperiment(experimentId) {
     setForm((current) => ({
       ...current,
+      followUp: null,
       requestedExperiments: current.requestedExperiments.includes(experimentId)
         ? current.requestedExperiments.filter((id) => id !== experimentId)
         : [...current.requestedExperiments, experimentId],
@@ -824,7 +834,6 @@ export function ResearchWorkbench({
       const investigation = await actions.getInvestigation(investigationId)
       if (loadSequence !== investigationLoadSequence.current) return
       setSelectedInvestigation(investigation)
-      setForm((current) => ({ ...current, requestedExperiments: investigation.requestedExperiments ?? [] }))
     } catch (error) {
       if (loadSequence === investigationLoadSequence.current) setInvestigationError(error.message)
     } finally {
@@ -847,7 +856,6 @@ export function ResearchWorkbench({
       setInvestigationDetailOpen(true)
       setInvestigationError(null)
       setInvestigationLoading(false)
-      setForm((current) => ({ ...current, requestedExperiments: investigation.requestedExperiments ?? [] }))
       setInvestigationCreateMessage('Investigation created. Research has not been run.')
     } catch (error) {
       setInvestigationCreateError(error.message)
@@ -856,23 +864,19 @@ export function ResearchWorkbench({
     }
   }
 
-  async function runInvestigationPlan() {
+  function runInvestigationPlan() {
     if (!selectedInvestigation) return
     setFormError(null)
-    setSaveMessage(null)
+    setForm((current) => ({ ...current, requestedExperiments: [...selectedInvestigation.requestedExperiments], followUp: null }))
+    setInvestigationCreateMessage('Plan prepared in Workbench. Review settings, then click Run research. Nothing has run.')
+  }
+
+  function prepareFollowUp(question) {
+    if (runState === 'running') return
     try {
-      const result = await actions.runInvestigationPlan(form, selectedInvestigation, () => {
-        setRunState('running')
-        setRunResult(null)
-        setSavedRunId(null)
-        setAttachError(null)
-        setAttachMessage(null)
-      })
-      setRunResult(result)
-      setRunState(result.status)
-    } catch (error) {
-      setWorkbenchRunFailure(error, setFormError, setRunState)
-    }
+      setForm(prepareFollowUpForm(form, question))
+      setFormError(null)
+    } catch (error) { setFormError(error.message) }
   }
 
   async function handleAttachRun() {
@@ -905,6 +909,7 @@ export function ResearchWorkbench({
       })
       setRunResult(result)
       setRunState(result.status)
+      setInvestigationPlan(investigationPlanForRun(result))
     } catch (error) {
       setWorkbenchRunFailure(error, setFormError, setRunState)
     }
@@ -942,6 +947,7 @@ export function ResearchWorkbench({
       h(RunStateStatus, { status: runState, message: runState === 'running' ? 'Fetching shared market data and running experiments.' : null }),
     ),
     h('form', { className: 'workbench-form', onSubmit: submit, noValidate: true },
+      form.followUp ? h('p', { role: 'status' }, `Queued for manual research: ${form.followUp.question}. Focus: ${form.followUp.focus?.symbols?.join(', ')} / ${form.followUp.focus?.view}. Original data universe retained. Review settings, then click Run research; nothing has run. Editing settings clears this follow-up link.`) : null,
       h('div', { className: 'workbench-form-grid' },
         h(Field, { label: 'Symbols', className: 'workbench-field-wide' }, h('input', {
           name: 'symbols', value: form.symbols, onChange: (event) => updateField('symbols', event.target.value),
@@ -1029,6 +1035,7 @@ export function ResearchWorkbench({
       investigation: selectedInvestigation,
       getRun,
       onClose: () => setInvestigationDetailOpen(false),
+      onPrepareFollowUp: prepareFollowUp,
     }) : null,
   )
 }

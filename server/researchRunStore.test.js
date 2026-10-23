@@ -1,10 +1,88 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { Readable } from 'node:stream'
+import { createResearchRunApi } from './researchRunApi.js'
+import { createResearchInvestigationApi } from './researchInvestigationApi.js'
 import { runSignalQualityResearch } from '../src/backtest/signalQualityBacktest.js'
 import { createResearchRecordForExperiment } from '../src/research/registry.js'
 import { synthesizeResearch } from '../src/research/synthesis.js'
+import { executeResearchExperiment } from '../src/research/experimentExecutors.js'
 import { stringifyResearchJson } from '../src/research/researchRunSerialization.js'
+import { projectResearchRunForPersistence } from '../src/research/researchRunHistory.js'
+import { linkFollowUpResult } from '../src/research/researchWorkbenchModel.js'
 import { createResearchRunStore, RESEARCH_PERSISTENCE_SCHEMA_VERSION } from './researchRunStore.js'
+
+test('four-experiment run including joined-context round-trips through the real store interface with a mock pool', async () => {
+  const pool = new MemoryResearchPool()
+  const store = createResearchRunStore({ pool })
+  const symbols = ['SPY', 'QQQ', 'IWM']
+  const requestedExperiments = ['signal-quality', 'yearly-regime', 'walk-forward-regime', 'joined-context']
+  const dataset = Object.fromEntries(symbols.map((symbol) => [symbol, makeCandles(symbol)]))
+  const context = { symbols, timeframe: '1Hour', requestedEnd: '2026-09-26T00:00:00Z' }
+  const executions = requestedExperiments.map((id) => executeResearchExperiment(id, dataset, context))
+  assert.ok(executions.every((entry) => entry.status === 'succeeded'))
+  const records = executions.map((entry) => createResearchRecordForExperiment(entry.experimentId, entry.nativeOutput, context))
+  const run = makeRunResult({ symbols, requestedExperiments, experimentResults: executions, records, synthesis: synthesizeResearch(records) })
+  await store.saveResearchRun(run)
+  const loaded = await store.getResearchRun(run.runContext.runId)
+  assert.equal(stringifyResearchJson(loaded.records), stringifyResearchJson(records))
+  assert.deepEqual(loaded.synthesis, run.synthesis)
+  assert.deepEqual(loaded.runContext.requestedExperiments, requestedExperiments)
+  const investigation = await store.createResearchInvestigation({ question: 'Do contexts repeat?', requestedExperiments })
+  assert.deepEqual((await store.getResearchInvestigation(investigation.investigationId)).requestedExperiments, requestedExperiments)
+})
+
+test('new run writes reject unknown canonical experiment IDs before initializing storage', async () => {
+  const pool = new MemoryResearchPool()
+  const store = createResearchRunStore({ pool })
+  await assert.rejects(store.saveResearchRun(makeRunResult({ requestedExperiments: ['fake-id'] })), { code: 'RESEARCH_RUN_INVALID' })
+  assert.equal(pool.schemaQueries, 0)
+})
+
+test('candidate v2 saves with HTTP 201 through canonical validation and explicit Investigation links retain both runs', async () => {
+  const store = createResearchRunStore({ pool: new MemoryResearchPool() })
+  const id = 'candidate-context-robustness'
+  const context = { symbols: ['AAPL'], timeframe: '1Hour', requestedEnd: '2026-10-21T16:00:00Z' }
+  const execution = executeResearchExperiment(id, { AAPL: makeCandles('AAPL') }, context)
+  assert.equal(execution.status, 'succeeded')
+  const record = createResearchRecordForExperiment(id, execution.nativeOutput, context)
+  const run = projectResearchRunForPersistence(makeRunResult({ runId: 'candidate-source', symbols: ['AAPL'], requestedExperiments: [id], experimentResults: [execution], records: [record], synthesis: synthesizeResearch([record]) }))
+  async function post(api, path, body) {
+    let status, payload
+    const request = Readable.from([Buffer.from(stringifyResearchJson(body))])
+    request.method = 'POST'
+    await api(request, { writeHead(code) { status = code }, end(value) { payload = JSON.parse(value) } }, new URL(path, 'http://fixture.invalid'))
+    return { status, payload }
+  }
+  assert.equal((await post(createResearchRunApi({ store }), '/api/research-runs', run)).status, 201)
+  const created = await post(createResearchInvestigationApi({ store }), '/api/research-investigations', { question: 'Is the candidate resilient?', requestedExperiments: [id] })
+  assert.equal(created.status, 201)
+  assert.deepEqual(created.payload.runIds, [])
+  await store.attachResearchRunToInvestigation(created.payload.investigationId, run.runContext.runId)
+  const before = await store.getResearchRun(run.runContext.runId)
+  const follow = linkFollowUpResult({ ...run, runContext: { ...run.runContext, runId: 'candidate-follow' } }, { id: 'traceable-question', sourceRunId: run.runContext.runId })
+  await store.saveResearchRun(follow)
+  await store.attachResearchRunToInvestigation(created.payload.investigationId, follow.runContext.runId)
+  assert.deepEqual((await store.getResearchInvestigation(created.payload.investigationId)).runIds, ['candidate-source', 'candidate-follow'])
+  assert.deepEqual(await store.getResearchRun(run.runContext.runId), before)
+  assert.deepEqual((await store.getResearchRun(follow.runContext.runId)).records[0].provenance.followUp, follow.records[0].provenance.followUp)
+  assert.equal((await post(createResearchInvestigationApi({ store }), '/api/research-investigations', { question: 'Bad plan', requestedExperiments: ['fake-id'] })).status, 400)
+  assert.equal((await post(createResearchRunApi({ store }), '/api/research-runs', { ...run, runContext: { ...run.runContext, requestedExperiments: ['fake-id'] } })).status, 400)
+})
+
+test('normalized client persistence projection round-trips without redundant native payloads', async () => {
+  const pool = new MemoryResearchPool()
+  const store = createResearchRunStore({ pool })
+  const original = makeRunResult({ runId: 'run-normalized-projection' })
+  const projected = projectResearchRunForPersistence(original)
+  await store.saveResearchRun(projected)
+  const loaded = await store.getResearchRun(original.runContext.runId)
+  assert.equal(loaded.records.length, original.records.length)
+  assert.equal('nativePayload' in loaded.records[0], false)
+  assert.equal(loaded.experimentResults[0].nativeOutput, null)
+  assert.deepEqual(loaded.records[0].metrics, original.records[0].metrics)
+  assert.deepEqual(loaded.synthesis, original.synthesis)
+})
 
 function cloneState(state) {
   return {
@@ -903,4 +981,26 @@ test('historical rows without adjustment provenance hydrate as legacy-unknown wi
   assert.equal(retrieved.runContext.adjustmentMode, 'legacy-unknown')
   assert.equal(retrieved.dataset.adjustmentMode, 'legacy-unknown')
   assert.equal(retrieved.synthesis.provenance.adjustmentMode, undefined)
+})
+
+
+test('failed shared initialization rejects callers and retries only on the next request', async () => {
+  let schemaCalls = 0
+  let queries = 0
+  const failure = Object.assign(new Error('synthetic connection failure'), { code: 'ECONNRESET' })
+  const store = createResearchRunStore({ pool: { query: async (sql) => {
+    if (sql.includes('CREATE TABLE')) {
+      schemaCalls++
+      if (schemaCalls === 1) throw failure
+    } else queries++
+    return { rows: [] }
+  } } })
+  const results = await Promise.allSettled([store.listResearchInvestigations(), store.listResearchInvestigations()])
+  assert.ok(results.every(result => result.status === 'rejected' && result.reason === failure))
+  assert.equal(schemaCalls, 1)
+  assert.equal(queries, 0)
+  assert.deepEqual(await store.listResearchInvestigations(), [])
+  assert.deepEqual(await store.listResearchInvestigations(), [])
+  assert.equal(schemaCalls, 2)
+  assert.equal(queries, 2)
 })

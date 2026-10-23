@@ -20,12 +20,25 @@ async function requestJson(path, options) {
   }
   if (!response.ok) {
     const status = Number.isInteger(response.status) ? ` (HTTP ${response.status})` : ''
-    throw new Error(payload?.error ?? `Research Run History request failed${status}`)
+    const code = typeof payload?.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(payload.code) ? payload.code : null
+    const error = new Error(`${payload?.error ?? `Research Run History request failed${status}`}${code ? ` (code: ${code})` : ''}`)
+    error.code = code
+    error.status = response.status
+    throw error
   }
   return payload
 }
 
 export function saveResearchRun(runResult) {
+  const persistenceInput = projectResearchRunForPersistence(runResult)
+  return requestJson('/api/research-runs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: stringifyResearchJson(persistenceInput),
+  })
+}
+
+export function projectResearchRunForPersistence(runResult) {
   const dataset = runResult.dataset
   const { calculationSeries: _calculationSeries, ...datasetForMetadata } = dataset ?? {}
   const datasetMetadata = dataset
@@ -46,17 +59,15 @@ export function saveResearchRun(runResult) {
     effectiveMetadata: dataset.effectiveMetadata,
     calculationSeries: dataset.calculationSeries,
   } : null
-  const persistenceInput = {
+  return {
     ...runResult,
     dataset: datasetMetadata,
     canonicalDataset,
     experimentResults: runResult.experimentResults.map(({ nativeOutput: _nativeOutput, ...execution }) => execution),
+    // Native outputs contain repeated candle/indicator arrays and trade-level working data.
+    // The stable saved contract is the normalized record plus canonical calculation input.
+    records: (runResult.records ?? []).map(({ nativePayload: _nativePayload, ...record }) => record),
   }
-  return requestJson('/api/research-runs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: stringifyResearchJson(persistenceInput),
-  })
 }
 
 export function getResearchRun(runId) {

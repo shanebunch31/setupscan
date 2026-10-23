@@ -1,4 +1,5 @@
 import { parseResearchJson, stringifyResearchJson } from '../src/research/researchRunSerialization.js'
+import { researchErrorCode } from './researchErrorCode.js'
 
 function sendJson(response, status, body) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
@@ -98,7 +99,7 @@ export function createResearchInvestigationApi({ store = null } = {}) {
       const status = statusFor(error)
       sendJson(response, status, {
         error: status === 500 ? 'Research Investigation storage failed' : error.message,
-        code: error.code ?? null,
+        code: status === 500 ? researchErrorCode(error) : error.code ?? null,
       })
     }
   }

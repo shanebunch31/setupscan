@@ -1,4 +1,5 @@
 import {
+  adaptCandidateContextRobustnessOutput,
   adaptJoinedContextOutput,
   adaptCausalRegimeOutput,
   adaptFrozenScoreHoldoutOutput,
@@ -27,6 +28,17 @@ const EXCLUDE_AMBIGUITY_POLICY = Object.freeze({
 })
 
 const definitions = [
+  {
+    id: 'candidate-context-robustness',
+    methodologyVersion: 'candidate-context-robustness-2',
+    requiredSymbols: [],
+    title: 'Trend Up + Medium Volatility — focused resilience study',
+    category: 'context-regime',
+    ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
+    description: 'One frozen Joined Context candidate, separately for every requested symbol. Day-removal and session sensitivity; no optimization or trading promotion.',
+    methodology: 'Research-eligible 75+; existing causal Uptrend AND Medium volatility. The shared causal helper uses SPY when supplied, otherwise the first alphabetically sorted supplied symbol; the reference is recorded. UTC decision years 2022–2026 capped by run end; development 2022–2024 versus recent 2025–2026. Preserve Joined Context outcome exclusions and exclude outcomes crossing summary boundaries. Eastern decision-time buckets: 09:30–11:00, 11:00–14:00, 14:00–16:00 and outside regular session (clock classification, not an exchange calendar). Day aggregation uses resolved trades per Eastern decision date. Remove up to five highest/bottom days ranked by before-cost total R, date breaks ties; remove the union once and retain the same days at every existing 0/0.02/0.05/0.10R cost tier. Under 30 resolved is insufficient, 30–99 exploratory, 100+ descriptive only. Retrospective repeated exploration, not untouched validation; shadow suitability requires human review.',
+    adapter: adaptCandidateContextRobustnessOutput,
+  },
   {
     id: 'robustness',
     methodologyVersion: 'robustness-1',

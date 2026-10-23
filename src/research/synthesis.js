@@ -13,7 +13,7 @@ import { normalizeMetrics } from './researchRecord.js'
 export const EVIDENCE_FAMILIES = {
   'signal-quality-catalogue': {
     id: 'signal-quality-catalogue',
-    experimentIds: ['signal-quality', 'frozen-score-holdout', 'yearly-regime', 'causal-regime', 'walk-forward-regime', 'joined-context'],
+    experimentIds: ['signal-quality', 'frozen-score-holdout', 'yearly-regime', 'causal-regime', 'walk-forward-regime', 'joined-context', 'candidate-context-robustness'],
     note: 'These experiments reuse the same underlying trade construction/catalogue (signalQualityBacktest.js).',
   },
   'walk-forward-windows': {
@@ -86,6 +86,7 @@ function makeEvidence(record, metricsKey, strategyId, ruleSetVariant, membership
     sampleCounts: record.input?.sampleCounts ?? {},
     outOfSampleRole,
     costModelStatus: record.costModel?.status ?? null,
+    costModel: record.costModel ?? null,
     actualDateRange: { start: record.input?.actualStart ?? null, end: record.input?.actualEnd ?? null },
     provenance: record.provenance ?? {},
     // Captured directly from the source record at flatten time (rather than looked up later by
@@ -108,6 +109,7 @@ function makeEvidence(record, metricsKey, strategyId, ruleSetVariant, membership
 function flattenRecord(record) {
   const entries = []
   const metrics = record?.metrics ?? {}
+  const hasContextScope = record.id === 'joined-context' || record.id === 'candidate-context-robustness'
   Object.entries(metrics).forEach(([metricsKey, value]) => {
     if (!value || typeof value !== 'object') return
     const { strategyId, ruleSetVariant, membershipRule, ...rest } = value
@@ -118,10 +120,10 @@ function flattenRecord(record) {
       ruleSetVariant,
       membershipRule,
       rest,
-      record.id === 'joined-context' ? { type: value.periodRole, label: metricsKey } : inferPartition(metricsKey),
-      record.id === 'joined-context' ? value.periodRole : inferOutOfSampleRole(metricsKey, record.outOfSample),
+      hasContextScope ? { type: value.periodRole, label: metricsKey } : inferPartition(metricsKey),
+      hasContextScope ? value.periodRole : inferOutOfSampleRole(metricsKey, record.outOfSample),
       'explicit',
-      record.id === 'joined-context' && value.symbol !== 'pooled' ? [value.symbol] : null,
+      hasContextScope && value.symbol !== 'pooled' ? [value.symbol] : null,
     ))
   })
 
@@ -349,16 +351,61 @@ function detectSignConflict(dimension, metricKey, evidenceA, evidenceB) {
   }
 }
 
-function detectConflicts(evidenceList) {
+function stableValue(value) {
+  if (Array.isArray(value)) return JSON.stringify(value.map((item) => stableValue(item)).sort())
+  if (value && typeof value === 'object') return JSON.stringify(Object.keys(value).sort().map((key) => [key, stableValue(value[key])]))
+  return JSON.stringify(value ?? null)
+}
+
+/** Contradictions require equivalent scope. Different scopes remain useful research contrasts. */
+export function classifyEvidenceRelationship(a, b) {
+  const differences = []
+  const dimensions = [
+    ['strategy', a.strategyId, b.strategyId],
+    ['symbol', a.symbols, b.symbols],
+    ['period', a.outOfSampleRole, b.outOfSampleRole],
+    ['period', a.partition?.type, b.partition?.type],
+    ['period', ['year', 'walk-forward-window'].includes(a.partition?.type) ? a.partition?.label : null, ['year', 'walk-forward-window'].includes(b.partition?.type) ? b.partition?.label : null],
+    ['period', a.actualDateRange, b.actualDateRange],
+    ['period', a.requestedDateRange, b.requestedDateRange],
+    ['context', a.ruleSetVariant, b.ruleSetVariant],
+    ['context', a.metricsKey, b.metricsKey],
+    ['membership', a.membershipRule, b.membershipRule],
+    ['cost', a.costModel ?? a.costModelStatus, b.costModel ?? b.costModelStatus],
+    ['methodology', a.methodologyVersion, b.methodologyVersion],
+    ['data', a.timeframe, b.timeframe], ['data', a.provider, b.provider],
+    ['data', a.provenance?.datasetId, b.provenance?.datasetId],
+    ['data', a.emaContractVersion, b.emaContractVersion],
+    ['data', a.adjustmentMode, b.adjustmentMode],
+  ]
+  dimensions.forEach(([dimension, left, right]) => {
+    if (stableValue(left) !== stableValue(right) && !differences.includes(dimension)) differences.push(dimension)
+  })
+  if (differences.length) return { type: 'research-contrast', differences }
+  const required = ['strategyId', 'membershipRule', 'methodologyVersion', 'timeframe', 'provider', 'costModelStatus', 'outOfSampleRole', 'emaContractVersion', 'adjustmentMode']
+  if (required.some((key) => !a[key] || a[key] === 'legacy-unknown') || !a.symbols?.length || !a.provenance?.datasetId || !a.actualDateRange?.start || !a.actualDateRange?.end) {
+    return { type: 'unverified-comparability', differences: [] }
+  }
+  return { type: 'equivalent-scope', differences: [] }
+}
+
+function detectConflicts(evidenceList, contrastSummary) {
   const conflicts = []
-  for (let i = 0; i < evidenceList.length; i += 1) {
-    for (let j = i + 1; j < evidenceList.length; j += 1) {
-      const a = evidenceList[i]
-      const b = evidenceList[j]
+  const ordered = [...evidenceList].sort((a, b) => stableValue(a).localeCompare(stableValue(b)))
+  for (let i = 0; i < ordered.length; i += 1) {
+    for (let j = i + 1; j < ordered.length; j += 1) {
+      const a = ordered[i]
+      const b = ordered[j]
       if (a.strategyId !== b.strategyId) continue
-      if (a.sourceRecordId === b.sourceRecordId && a.metricsKey === b.metricsKey) continue
-      const compatibility = compareEvidence(a, b)
-      if (compatibility.compatible === false) continue // unsafe to compare — never manufacture a conflict
+      const relationship = classifyEvidenceRelationship(a, b)
+      if (relationship.type !== 'equivalent-scope') {
+        const category = relationship.differences[0] ?? 'unverified'
+        const summary = contrastSummary[category] ??= { pairCount: 0, opposingSignPairCount: 0, examples: [] }
+        summary.pairCount += 1
+        if (detectSignConflict('expectancy', 'expectancy', a, b) || detectSignConflict('totalR', 'totalR', a, b)) summary.opposingSignPairCount += 1
+        if (summary.examples.length < 3) summary.examples.push({ evidenceA: a.id, evidenceB: b.id, differences: relationship.differences })
+        continue
+      }
       const expectancyConflict = detectSignConflict('expectancy-sign-disagreement', 'expectancy', a, b)
       if (expectancyConflict) conflicts.push(expectancyConflict)
       const totalRConflict = detectSignConflict('totalR-sign-disagreement', 'totalR', a, b)
@@ -440,14 +487,15 @@ export function synthesizeResearch(records = [], context = {}) {
     evidenceByStrategyId.get(key).push(entry)
   })
 
-  const strategyGroups = [...evidenceByStrategyId.entries()].map(([strategyId, evidence]) => ({
+  const strategyGroups = [...evidenceByStrategyId.entries()].sort(([a], [b]) => String(a).localeCompare(String(b))).map(([strategyId, evidence]) => ({
     strategyId,
     evidence,
     evidenceFamilies: buildEvidenceFamiliesForGroup(evidence),
   }))
 
   const costSensitivity = strategyGroups.flatMap((group) => buildCostSensitivity(group.strategyId, group.evidence))
-  const conflicts = strategyGroups.flatMap((group) => detectConflicts(group.evidence))
+  const contrastSummary = {}
+  const conflicts = strategyGroups.flatMap((group) => detectConflicts(group.evidence, contrastSummary))
 
   const unresolvedQuestions = []
   if (!context.runId && !context.datasetId) {
@@ -474,6 +522,7 @@ export function synthesizeResearch(records = [], context = {}) {
     strategyGroups,
     costSensitivity,
     conflicts,
+    contrastSummary,
     unresolvedQuestions,
     compatibilityNotes: [],
     provenance: {

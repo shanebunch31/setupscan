@@ -12,7 +12,13 @@ async function requestJson(path, options) {
       throw new Error('Research Investigation History returned invalid JSON')
     }
   }
-  if (!response.ok) throw new Error(payload?.error ?? 'Research Investigation History request failed')
+  if (!response.ok) {
+    const code = typeof payload?.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(payload.code) ? payload.code : null
+    const error = new Error(`${payload?.error ?? 'Research Investigation History request failed'} (HTTP ${response.status}${code ? `; code: ${code}` : ''})`)
+    error.code = code
+    error.status = response.status
+    throw error
+  }
   return payload
 }
 

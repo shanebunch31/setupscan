@@ -68,3 +68,12 @@ test('attachResearchRunToInvestigation posts only the run reference and surfaces
     globalThis.fetch = originalFetch
   }
 })
+
+
+test('investigation client preserves HTTP status and safe storage error code', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => ({ ok: false, status: 500, text: async () => JSON.stringify({ error: 'Research Investigation storage failed', code: 'ECONNRESET' }) })
+  try {
+    await assert.rejects(listResearchInvestigations(), error => error.status === 500 && error.code === 'ECONNRESET' && error.message.includes('ECONNRESET'))
+  } finally { globalThis.fetch = originalFetch }
+})

@@ -1,6 +1,6 @@
 // Research only: contexts are attached before outcomes, never selected from outcome summaries.
 import { buildAlignedSeries, buildCatalogueBySymbol, buildTradeFromIndex, computeMetrics, costTierDefinitions, signalQualityDefaults } from './signalQualityBacktest.js'
-import { computeCausalRegimeSeries, causalRegimeDefaults } from './causalRegimeBacktest.js'
+import { computeCausalRegimeSeries, causalRegimeDefaults, causalRegimeReferenceSymbol } from './causalRegimeBacktest.js'
 import { computeFirstObservedDailyRangeLabels } from './strategyDiscovery/breakoutContextResearch.js'
 import { computeSessionVwapSeries, strategyDiscoveryResearchWindows } from './strategyDiscovery/discoveryMetrics.js'
 import { historicalCandleEndTime, candleCompletesBy } from '../data/historicalDataContract.js'
@@ -116,6 +116,13 @@ export function summarizeContextStudy(records, symbols = ['SPY', 'QQQ', 'IWM']) 
 
 export function runJoinedContextStudy(rawSeriesBySymbol, { requestedEnd = new Date().toISOString(), requestedStart = null } = {}) {
   const required = ['SPY', 'QQQ', 'IWM']
+  const input = buildJoinedContextStudyInput(rawSeriesBySymbol, { requestedEnd, requestedStart }, required)
+  return input.available ? { ...input, rows: summarizeContextStudy(input.records, required) } : input
+}
+
+// Shared construction only. Joined Context keeps its original universe and summaries.
+export function buildJoinedContextStudyInput(rawSeriesBySymbol, { requestedEnd = new Date().toISOString(), requestedStart = null } = {}, required = Object.keys(rawSeriesBySymbol).sort()) {
+  if (!required.length) return { available: false, reason: 'At least one requested symbol is required.' }
   const missingSymbols = required.filter((symbol) => !rawSeriesBySymbol[symbol]?.length)
   if (missingSymbols.length) return { available: false, missingSymbols }
   if (required.some((symbol) => rawSeriesBySymbol[symbol].some((bar) => !['1Hour', '1h'].includes(bar.timeframe)))) {
@@ -132,7 +139,7 @@ export function runJoinedContextStudy(rawSeriesBySymbol, { requestedEnd = new Da
   return {
     available: true, methodologyVersion: joinedContextMethodology, membershipRule: 'research-eligible-75-plus', options,
     costTiers: costTierDefinitions.map(([label, costR]) => ({ label, costR })),
-    records, rows: summarizeContextStudy(records, required), periods: joinedContextPeriods,
+    records, symbols: [...required], regimeSourceSymbol: causalRegimeReferenceSymbol(aligned.raw), periods: joinedContextPeriods,
     alignmentDroppedCounts: aligned.droppedCounts, outsidePeriodCount: records.filter((record) => !record.periodRole).length,
     dataQuality: Object.fromEntries(required.map((symbol) => [symbol, validated[symbol].dataQuality])),
     actualDateRange: { start: aligned.timestamps[0] ?? null, end: aligned.timestamps.at(-1) ?? null },

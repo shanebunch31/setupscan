@@ -4,6 +4,7 @@ import { describeDatabaseUrl } from './postgresPaperStore.js'
 import { parseResearchJson, stringifyResearchJson } from '../src/research/researchRunSerialization.js'
 import { normalizeResearchInvestigationInput, normalizeResearchRunId } from '../src/research/researchInvestigation.js'
 import { LEGACY_ADJUSTMENT_MODE } from '../src/data/historicalDataContract.js'
+import { getResearchExperiment } from '../src/research/registry.js'
 
 export const RESEARCH_PERSISTENCE_SCHEMA_VERSION = 4
 export const RESEARCH_INVESTIGATION_PERSISTENCE_SCHEMA_VERSION = 1
@@ -304,8 +305,17 @@ function validateResearchRunResult(result) {
   }
 
   const recordsByExperiment = new Map()
+  const assertRegistered = (id) => {
+    if (typeof id !== 'string' || !getResearchExperiment(id)) {
+      const error = new Error(`Unknown research experiment id: ${String(id)}`)
+      error.code = 'RESEARCH_RUN_INVALID'
+      throw error
+    }
+  }
+  result.runContext.requestedExperiments.forEach(assertRegistered)
   result.records.forEach((record) => {
     required(record?.id, 'records[].id')
+    assertRegistered(record.id)
     if (recordsByExperiment.has(record.id)) {
       const error = new Error(`Research run contains duplicate record id: ${record.id}`)
       error.name = 'ResearchRunValidationError'
@@ -317,6 +327,7 @@ function validateResearchRunResult(result) {
   const experimentIds = new Set()
   result.experimentResults.forEach((execution) => {
     required(execution?.experimentId, 'experimentResults[].experimentId')
+    assertRegistered(execution.experimentId)
     if (experimentIds.has(execution.experimentId)) {
       const error = new Error(`Research run contains duplicate execution id: ${execution.experimentId}`)
       error.name = 'ResearchRunValidationError'
@@ -453,7 +464,12 @@ export function createResearchRunStore({ connectionString = process.env.DATABASE
   let ready
 
   async function init() {
-    if (!ready) ready = clientPool.query(schema)
+    // Share an in-flight attempt, but let a later request retry after failure.
+    // There is no automatic retry loop or background database activity.
+    if (!ready) ready = Promise.resolve().then(() => clientPool.query(schema)).catch((error) => {
+      ready = undefined
+      throw error
+    })
     await ready
   }
 

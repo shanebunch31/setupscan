@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createResearchRecordForExperiment } from './registry.js'
-import { compareEvidence, EVIDENCE_FAMILIES, synthesizeResearch } from './synthesis.js'
+import { classifyEvidenceRelationship, compareEvidence, EVIDENCE_FAMILIES, synthesizeResearch } from './synthesis.js'
 
 // --- Fixtures shaped like the real native research outputs (mirrors researchArchitecture.test.js). ---
 
@@ -460,20 +460,54 @@ test('shared evidence family retains every source record and every metric, only 
 })
 
 test('EVIDENCE_FAMILIES matches the approved Phase 3C design', () => {
-  assert.deepEqual(EVIDENCE_FAMILIES['signal-quality-catalogue'].experimentIds, ['signal-quality', 'frozen-score-holdout', 'yearly-regime', 'causal-regime', 'walk-forward-regime', 'joined-context'])
+  assert.deepEqual(EVIDENCE_FAMILIES['signal-quality-catalogue'].experimentIds, ['signal-quality', 'frozen-score-holdout', 'yearly-regime', 'causal-regime', 'walk-forward-regime', 'joined-context', 'candidate-context-robustness'])
   assert.deepEqual(EVIDENCE_FAMILIES['walk-forward-windows'].experimentIds, ['walk-forward-regime', 'volatility-aware-variants'])
 })
 
 // --- 24. conflict detection for clear sign disagreement ---
-test('sign disagreement in comparable expectancy across evidence for the same strategy is detected as a conflict', () => {
+test('development versus holdout sign disagreement is a temporal contrast, not a contradiction', () => {
   const result = synthesizeResearch([frozenScoreHoldoutRecord()])
   const group = findGroup(result, 'setup-scan-baseline')
   const conflict = result.conflicts.find((entry) => entry.strategyId === 'setup-scan-baseline' && entry.dimension === 'expectancy-sign-disagreement'
     && entry.sides.some((side) => side.metricsKey === 'developmentBaseline') && entry.sides.some((side) => side.metricsKey === 'holdoutBaseline'))
-  assert.ok(conflict, 'expected a conflict between development (positive expectancy) and holdout (negative expectancy)')
-  assert.ok(!('winner' in conflict))
-  assert.ok(!('resolution' in conflict))
+  assert.equal(conflict, undefined)
+  assert.ok(result.contrastSummary.period.opposingSignPairCount > 0)
   assert.ok(group.evidence.length > 0)
+})
+
+test('equivalent evidence contradicts while context, symbol, period and dataset differences remain deterministic contrasts', () => {
+  const base = {
+    id: 'a', status: 'evaluated', methodologyVersion: 'test-1',
+    input: { symbols: ['SPY'], timeframe: '1Hour', provider: 'fixture', emaContractVersion: 'ema-1', adjustmentMode: 'split', actualStart: '2022-01-01', actualEnd: '2024-12-31' },
+    provenance: { datasetId: 'same-data' }, costModel: { status: 'modeled', costR: 0 },
+    metrics: { same: { strategyId: 'baseline', ruleSetVariant: 'context-trend-up', membershipRule: 'research-eligible-75-plus', tradeCount: 100, expectancy: 0.2, totalR: 20 } },
+  }
+  const opposite = structuredClone(base)
+  opposite.id = 'b'
+  opposite.metrics.same.expectancy = -0.2
+  opposite.metrics.same.totalR = -20
+  const equivalent = synthesizeResearch([base, opposite])
+  assert.equal(equivalent.conflicts.length, 2)
+  const evidence = equivalent.strategyGroups[0].evidence[0]
+  for (const [override, category] of [
+    [{ symbols: ['QQQ'] }, 'symbol'],
+    [{ outOfSampleRole: 'holdout' }, 'period'],
+    [{ ruleSetVariant: 'context-medium-volatility' }, 'context'],
+    [{ provenance: { datasetId: 'different' } }, 'data'],
+    [{ costModel: { status: 'modeled', costR: 0.1 } }, 'cost'],
+  ]) {
+    const relation = classifyEvidenceRelationship(evidence, { ...evidence, ...override })
+    assert.equal(relation.type, 'research-contrast')
+    assert.ok(relation.differences.includes(category))
+  }
+  const variants = structuredClone(opposite)
+  variants.id = 'c'
+  variants.metrics.same.ruleSetVariant = 'context-medium-volatility'
+  const first = synthesizeResearch([base, opposite, variants])
+  const reversed = synthesizeResearch([variants, opposite, base])
+  assert.deepEqual(first.conflicts, reversed.conflicts)
+  assert.deepEqual(first.contrastSummary, reversed.contrastSummary)
+  assert.equal(first.contrastSummary.context.pairCount, 2)
 })
 
 // --- 25. no conflict when comparison is unsafe ---

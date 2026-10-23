@@ -490,3 +490,48 @@ test('cached and provider historical responses exclude bars that finish after a 
   })
   assert.deepEqual(providerResponses[0].body.candles.map((candle) => candle.timestamp), ['2026-03-08T14:00:00Z'])
 })
+
+
+test('historical failures distinguish cache read, provider and cache write without leaking details', async () => {
+  for (const stage of ['cache-read', 'provider', 'cache-write']) {
+    const failure = Object.assign(new Error('private connection details'), { code: 'ECONNRESET' })
+    let providerCalls = 0
+    let result
+    await handleHistoricalRoute({
+      response: {}, url: new URL('http://localhost/api/historical?symbol=SPY&timeframe=1Hour'), createHistoricalCacheKey,
+      sendJson: (_res, status, body) => { result = { status, body } },
+      researchRunStore: {
+        findResearchHistoricalCacheCoverage: async () => { if (stage === 'cache-read') throw failure; return null },
+        saveResearchHistoricalCache: async () => { throw failure },
+      },
+      fetchHistoricalMarketBars: async () => {
+        providerCalls++
+        if (stage === 'provider') throw failure
+        return { complete: true, candles: [] }
+      },
+    })
+    assert.equal(result.status, 502)
+    assert.equal(result.body.stage, stage)
+    assert.equal(result.body.code, 'ECONNRESET')
+    assert.ok(!JSON.stringify(result).includes('private connection details'))
+    assert.equal(providerCalls, stage === 'cache-read' ? 0 : 1)
+  }
+})
+
+test('historical missing configuration and nested network errors have safe diagnostics', async () => {
+  for (const [failure, status, code] of [
+    [Object.assign(new Error('private'), { code: 'MISSING_ALPACA_ENV' }), 503, 'MISSING_ALPACA_ENV'],
+    [new Error('private', { cause: { code: 'ENOTFOUND' } }), 502, 'ENOTFOUND'],
+    [Object.assign(new Error('private'), { code: 'secret-value' }), 502, null],
+  ]) {
+    let result
+    await handleHistoricalRoute({ response: {}, url: new URL('http://localhost/api/historical'), createHistoricalCacheKey,
+      fetchHistoricalMarketBars: async () => { throw failure },
+      sendJson: (_res, status, body) => { result = { status, body } },
+    })
+    assert.equal(result.status, status)
+    assert.equal(result.body.code, code)
+    assert.ok(!JSON.stringify(result).includes('private'))
+    assert.ok(!JSON.stringify(result).includes('secret-value'))
+  }
+})

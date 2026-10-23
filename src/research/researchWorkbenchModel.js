@@ -63,3 +63,23 @@ export function createInvestigationRunRequest(form, investigation) {
   })
   return createWorkbenchRunRequest({ ...form, requestedExperiments: plan.requestedExperiments })
 }
+
+export function investigationPlanForRun(run) {
+  return [...new Set(run?.runContext?.requestedExperiments ?? [])].filter((id) => experimentIds.has(id))
+}
+
+// Pure preparation: neither helper has a network/store/worker dependency.
+export function prepareFollowUpForm(form, question) {
+  const settings = question.suggestedSettings
+  const prepared = { ...form, symbols: settings.symbols.join(', '), timeframe: settings.timeframe,
+    requestedStart: settings.requestedStart ?? '', requestedEnd: settings.requestedEnd ?? '',
+    requestedExperiments: [...question.suggestedExperimentIds],
+    followUp: { id: question.id, sourceRunId: question.sourceRunId, rulesVersion: question.rulesVersion, question: question.question, focus: settings.focus },
+  }
+  createWorkbenchRunRequest(prepared)
+  return prepared
+}
+
+export function linkFollowUpResult(result, followUp) {
+  return followUp ? { ...result, records: (result.records ?? []).map((record) => ({ ...record, provenance: { ...record.provenance, followUp: { ...followUp } } })) } : result
+}

@@ -121,3 +121,14 @@ test('investigation API rejects malformed and invalid requests and hides storage
   const unsupported = await invoke(api, { method: 'DELETE' })
   assert.equal(unsupported.status, 405)
 })
+
+test('investigation storage failures expose only safe operational codes', async () => {
+  for (const [code, expected] of [['ECONNRESET', 'ECONNRESET'], ['42P01', '42P01'], ['credential-bearing-value', null]]) {
+    const api = createResearchInvestigationApi({ store: { listResearchInvestigations: async () => {
+      throw Object.assign(new Error('private connection details'), { code })
+    } } })
+    const response = await invoke(api)
+    assert.equal(response.status, 500)
+    assert.deepEqual(response.body, { error: 'Research Investigation storage failed', code: expected })
+  }
+})

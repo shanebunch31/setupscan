@@ -9,6 +9,7 @@ import {
 } from './researchHistoryModel.js'
 import { TermHelp } from '../TermHelp.js'
 import { getResearchExperiment } from './registry.js'
+import { CandidateRobustnessResult } from './CandidateRobustnessResult.js'
 
 const h = React.createElement
 
@@ -1217,6 +1218,8 @@ export function ResearchRunDetail({
                 PersistedRunSummary,
                 { run: displayRun },
               ),
+              (displayRun.records ?? []).filter((record) => record.id === 'candidate-context-robustness')
+                .map((record) => h(CandidateRobustnessResult, { key: record.id, record })),
 
               h(
                 CanonicalDatasetSection,

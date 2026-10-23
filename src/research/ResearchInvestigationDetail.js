@@ -7,6 +7,7 @@ import { compareResearchRuns } from './researchRunHistory.js'
 import { TermHelp } from '../TermHelp.js'
 import { ResearchComparison } from './ResearchComparison.js'
 import { ResearchRunDetail } from './ResearchRunDetail.js'
+import { ResearchFollowUpQuestions } from './ResearchFollowUpQuestions.js'
 import {
   loadInvestigationRunMetadata,
   projectResearchInvestigationDetail,
@@ -35,6 +36,8 @@ function runMetadata(run) {
       ['Dataset ID', fieldValue(metadata.datasetId)],
       ['Requested experiments', Array.isArray(metadata.requestedExperiments) ? fieldValue(metadata.requestedExperiments.map((id) => experimentTitles.get(id) ?? id)) : 'Unavailable'],
       ['Evaluated experiments', Array.isArray(metadata.evaluatedExperiments) ? fieldValue(metadata.evaluatedExperiments.map((id) => experimentTitles.get(id) ?? id)) : 'Unavailable'],
+      ['Methodology versions', fieldValue(metadata.methodologies)],
+      ['Follow-up question', metadata.followUp?.question ?? 'Not linked to a follow-up'],
     ].map(([label, value]) => h('div', { key: label }, h('dt', null, label), h('dd', null, value))),
   )
 }
@@ -55,6 +58,7 @@ export function ResearchInvestigationRunRow({ run, onOpenRun = () => {} }) {
     run.metadataStatus === 'available'
       ? h(React.Fragment, null,
         h('p', { className: 'workbench-muted' }, `${run.metadata?.status ?? 'Status unavailable'} · ${displayDate(run.metadata?.requestedAt)}`),
+        (run.metadata?.evidenceSummary ?? []).map((message, i) => h('p', { key: i }, message)),
         h('details', { className: 'research-investigation-run-details' },
           h('summary', null, 'Run details'),
           runMetadata(run),
@@ -65,6 +69,7 @@ export function ResearchInvestigationRunRow({ run, onOpenRun = () => {} }) {
 }
 
 export function ResearchInvestigationDetailView({
+  onPrepareFollowUp = null,
   investigationId = null,
   investigationLoading = false,
   investigationError = null,
@@ -79,7 +84,10 @@ export function ResearchInvestigationDetailView({
 }) {
   const availableRuns = (projection?.associatedRuns ?? [])
     .filter((run) => run.metadataStatus === 'available')
-    .map((run) => ({ runId: run.runId, ...run.metadata }))
+    .map((run) => {
+      const { evidenceSummary, followUp, methodologies, ...metadata } = run.metadata
+      return { runId: run.runId, ...metadata }
+    })
 
   return h('section', { className: 'research-investigation-detail', 'aria-labelledby': 'research-investigation-detail-title' },
     h('header', { className: 'research-investigation-detail-heading' },
@@ -119,6 +127,7 @@ export function ResearchInvestigationDetailView({
                 onOpenRun,
               }))),
             ),
+            h(ResearchFollowUpQuestions, { questions: projection.followUps ?? [], onPrepare: onPrepareFollowUp }),
             openRunId ? h('section', { className: 'research-investigation-open-run', 'aria-label': `Run detail ${openRunId}` },
               h(ResearchRunDetail, { runId: openRunId, getRun }),
             ) : null,
@@ -136,6 +145,7 @@ export function ResearchInvestigationDetailView({
 }
 
 export function ResearchInvestigationDetail({
+  onPrepareFollowUp = null,
   investigationId = null,
   investigation: providedInvestigation = null,
   getInvestigation = getResearchInvestigation,
@@ -210,6 +220,7 @@ export function ResearchInvestigationDetail({
 
   const projection = projectResearchInvestigationDetail(investigation, runReferences)
   return h(ResearchInvestigationDetailView, {
+    onPrepareFollowUp,
     investigationId,
     investigationLoading,
     investigationError,

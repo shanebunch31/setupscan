@@ -93,9 +93,14 @@ function trailingRealizedVolatility(closes, index, period) {
  * realizedVol20[i] is computed only against realizedVol20[0..i] (values observed at or before the
  * current bar) — never against later observations. Terciles: rank<=1/3 Low, <=2/3 Medium, else High.
  */
+export function causalRegimeReferenceSymbol(alignedRaw) {
+  const symbols = Object.keys(alignedRaw)
+  return symbols.includes('SPY') ? 'SPY' : symbols[0]
+}
+
 export function computeCausalRegimeSeries(alignedRaw, options = causalRegimeDefaults) {
   const symbols = Object.keys(alignedRaw)
-  const primary = symbols.includes('SPY') ? 'SPY' : symbols[0]
+  const primary = causalRegimeReferenceSymbol(alignedRaw)
   const closesBySymbol = {}
   const sma50BySymbol = {}
   const return20BySymbol = {}
