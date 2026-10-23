@@ -2,6 +2,26 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fetchAlpacaHistoricalBars } from './alpacaProxy.js'
 
+test('optional cancellation is passed through without changing default requests or contacting a provider', async () => {
+  const originalFetch = globalThis.fetch
+  const controller = new AbortController()
+  const received = []
+  globalThis.fetch = async (_url, options) => {
+    received.push(options.signal)
+    if (options.signal?.aborted) throw new Error('synthetic aborted request')
+    return { ok: true, json: async () => ({ bars: [] }) }
+  }
+  const environment = { ALPACA_API_KEY: 'fixture', ALPACA_API_SECRET: 'fixture' }
+  try {
+    await fetchAlpacaHistoricalBars({ environment, signal: controller.signal })
+    await fetchAlpacaHistoricalBars({ environment })
+    assert.strictEqual(received[0], controller.signal)
+    assert.equal(received[1], undefined)
+    controller.abort()
+    await assert.rejects(fetchAlpacaHistoricalBars({ environment, signal: controller.signal }), /synthetic aborted/)
+  } finally { globalThis.fetch = originalFetch }
+})
+
 test('historical Alpaca requests use split adjustment and expose the mode in fetch metadata', async () => {
   const originalFetch = globalThis.fetch
   const originalKey = process.env.ALPACA_API_KEY

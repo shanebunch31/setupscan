@@ -90,6 +90,7 @@ const APP_ROUTES = {
 const RESEARCH_ROUTES = {
   workbench: '/research/workbench',
   history: '/research/history',
+  shadow: '/research/shadow',
   comparison: '/research/comparison',
   labs: '/research/labs',
 }

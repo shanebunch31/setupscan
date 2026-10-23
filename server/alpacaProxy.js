@@ -27,7 +27,7 @@ function normalizeBar(bar, symbol, timeframe) {
   }
 }
 
-export async function fetchAlpacaHistoricalBars({ symbol = 'SPY', timeframe = '1Hour', start, end, environment = process.env, now = () => new Date() } = {}) {
+export async function fetchAlpacaHistoricalBars({ symbol = 'SPY', timeframe = '1Hour', start, end, environment = process.env, now = () => new Date(), signal } = {}) {
   const missing = getMissingEnvironmentVariables(environment)
   if (missing.length) {
     const error = new Error(`Missing required environment variables: ${missing.join(', ')}`)
@@ -45,6 +45,7 @@ export async function fetchAlpacaHistoricalBars({ symbol = 'SPY', timeframe = '1
     if (end) params.set('end', end)
     if (pageToken) params.set('page_token', pageToken)
     const response = await fetch(`${alpacaBarsUrl}/${encodeURIComponent(symbol)}/bars?${params}`, {
+      ...(signal ? { signal } : {}),
       headers: {
         'APCA-API-KEY-ID': process.env.ALPACA_API_KEY,
         'APCA-API-SECRET-KEY': process.env.ALPACA_API_SECRET,

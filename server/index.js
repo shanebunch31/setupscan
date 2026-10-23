@@ -14,10 +14,18 @@ import { dispatchResearchRunRoute } from './researchRunRoute.js'
 import { createResearchRunStore } from './researchRunStore.js'
 import { handleHistoricalRoute } from './historicalRoute.js'
 import { createHistoricalCacheKey } from '../src/research/historicalCacheKey.js'
+import { createShadowStore } from './shadowForwardStore.js'
+import { createShadowForwardRoute } from './shadowForwardRoute.js'
 
 dotenv.config()
 
 const port = Number(process.env.PORT || 3001)
+// Explicit reporting opt-in only. Reads never initialize storage or start a worker.
+const shadowRoute = createShadowForwardRoute({
+  store: process.env.SHADOW_READ_API_ENABLED === 'true' && process.env.SHADOW_DATABASE_URL
+    ? createShadowStore({ connectionString: process.env.SHADOW_DATABASE_URL }) : null,
+  trackingId: process.env.SHADOW_TRACKING_ID,
+})
 const paperService = createPaperService()
 const handlePaperDashboardRequest = createPaperDashboardRoute({
   paperService,
@@ -61,24 +69,6 @@ function setCorsHeaders(response, requestOrigin) {
   )
 }
 
-function logCredentialStatus() {
-  console.log(
-    JSON.stringify({
-      alpacaApiKeyPresent:
-        Boolean(process.env.ALPACA_API_KEY),
-
-      alpacaApiKeyLength:
-        process.env.ALPACA_API_KEY?.length ?? 0,
-
-      alpacaApiSecretPresent:
-        Boolean(process.env.ALPACA_API_SECRET),
-
-      alpacaApiSecretLength:
-        process.env.ALPACA_API_SECRET?.length ?? 0,
-    }),
-  )
-}
-
 function sendJson(response, status, body) {
   response.writeHead(status, {
     'Content-Type':
@@ -102,6 +92,11 @@ const server = http.createServer(
       request.url,
       `http://${request.headers.host}`,
     )
+
+    if (url.pathname === '/api/research-shadow') {
+      await shadowRoute(request, response)
+      return
+    }
 
     if (url.pathname === '/api/paper-trading') {
       await handlePaperDashboardRequest({
@@ -188,8 +183,6 @@ const server = http.createServer(
   },
   )
 server.listen(port, () => {
-  logCredentialStatus()
-
   console.log(
     `SetupScan server listening on http://localhost:${port}`,
   )

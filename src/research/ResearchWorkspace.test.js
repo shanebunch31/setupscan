@@ -29,7 +29,7 @@ const runs = [
   { runId: 'saved-run-b', requestedAt: '2026-09-21T00:00:00Z', status: 'partial', symbols: ['QQQ'], timeframe: '1Hour', datasetId: 'dataset-b' },
 ]
 
-test('research workspace offers the four nested destinations and routes nav clicks without run/save calls', () => {
+test('research workspace offers five nested destinations and routes nav clicks without run/save calls', () => {
   const destinations = []
   let runCalls = 0
   let saveCalls = 0
@@ -42,7 +42,7 @@ test('research workspace offers the four nested destinations and routes nav clic
     },
   })
   const html = renderToStaticMarkup(tree)
-  for (const label of ['Research Workbench', 'Run History', 'Compare Runs', 'Labs']) assert.ok(html.includes(label))
+  for (const label of ['Research Workbench', 'Run History', 'Compare Runs', 'Shadow Forward', 'Labs']) assert.ok(html.includes(label))
   assert.match(html, /Research Workbench/)
 
   const historyButton = findElement(tree, (element) => element.type === 'button' && elementText(element).trim() === 'Run History')
@@ -53,7 +53,8 @@ test('research workspace offers the four nested destinations and routes nav clic
   assert.equal(labsButton.props['aria-current'], undefined)
   historyButton.props.onClick()
   labsButton.props.onClick()
-  assert.deepEqual(destinations, ['history', 'labs'])
+  findElement(tree, (element) => element.type === 'button' && elementText(element).trim() === 'Shadow Forward').props.onClick()
+  assert.deepEqual(destinations, ['history', 'labs', 'shadow'])
   assert.equal(runCalls, 0)
   assert.equal(saveCalls, 0)
 })

@@ -2,6 +2,7 @@ import React from 'react'
 import { ResearchComparison } from './ResearchComparison.js'
 import { ResearchHistory } from './ResearchHistory.js'
 import { ResearchWorkbench } from './ResearchWorkbench.js'
+import { ShadowForward } from './ShadowForwardPanel.js'
 
 const h = React.createElement
 
@@ -9,6 +10,7 @@ const researchViews = [
   { id: 'workbench', label: 'Research Workbench' },
   { id: 'history', label: 'Run History' },
   { id: 'comparison', label: 'Compare Runs' },
+  { id: 'shadow', label: 'Shadow Forward' },
   { id: 'labs', label: 'Labs' },
 ]
 
@@ -41,6 +43,7 @@ export function ResearchWorkspace({
 }) {
   let content = existingLabs
   if (activeView === 'workbench') content = h(ResearchWorkbench, workbenchProps)
+  if (activeView === 'shadow') content = h(ShadowForward)
 
   if (activeView === 'history') content = h(ResearchHistory, {
     ...historyProps,
