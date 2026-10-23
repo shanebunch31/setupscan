@@ -29,26 +29,47 @@ export function createShadowStore({ connectionString, pool } = {}) {
   db.on?.('error', () => { /* Active operations fail normally; never log credential-bearing driver errors. */ })
   async function transaction(action) {
     const client = await db.connect()
+    let connectionError, rejectConnection
+    const disconnected = new Promise((_, reject) => { rejectConnection = reject })
+    // Handle an error even between queries, when no query promise can reject it.
+    disconnected.catch(() => {})
+    const onError = (error) => { connectionError ??= error; rejectConnection(connectionError) }
+    client.on('error', onError)
+    const query = async (...args) => {
+      if (connectionError) throw connectionError
+      return Promise.race([client.query(...args), disconnected])
+    }
     try {
-      await client.query('BEGIN')
-      const value = await action(client)
-      await client.query('COMMIT')
+      await query('BEGIN')
+      const value = await action({ query })
+      await query('COMMIT')
       return value
     } catch (error) {
-      try { await client.query('ROLLBACK') } catch {}
+      if (!connectionError) {
+        try { await query('ROLLBACK') } catch (rollbackError) { connectionError = rollbackError }
+      }
       throw error
-    } finally { client.release() }
+    } finally {
+      // pg-pool reinstalls its idle error listener on release. Discard broken clients.
+      try { client.release(connectionError) } finally { client.removeListener('error', onError) }
+    }
   }
   async function readFrom(client, id, withCandles = false) {
     const result = await client.query('SELECT definition, checkpoint FROM research_shadow_tracking WHERE id=$1', [id])
     if (!result.rows.length) throw new Error('Shadow tracking is not initialized')
     const { definition, checkpoint } = result.rows[0]
+    const tracking = decode(definition)
     const rows = await client.query('SELECT snapshot, state, theoretical, outcome FROM research_shadow_occurrences WHERE tracking_id=$1 ORDER BY occurrence_id', [id])
     const occurrences = rows.rows.map((row) => ({ ...decode(row.snapshot), state: row.state, theoretical: decode(row.theoretical), outcome: decode(row.outcome) }))
     const candles = withCandles ? (await client.query('SELECT symbol, candle FROM research_shadow_candles WHERE tracking_id=$1 ORDER BY timestamp, symbol', [id])).rows : []
-    const raw = Object.fromEntries(decode(definition).symbols.map((symbol) => [symbol, []]))
-    for (const row of candles) raw[row.symbol].push(decode(row.candle))
-    return { tracking: decode(definition), checkpoint: decode(checkpoint), occurrences, raw }
+    // Normalize from the frozen universe, not from the rows that happen to exist.
+    // A brand-new tracker therefore has one empty array per configured symbol.
+    const raw = Object.fromEntries(tracking.symbols.map((symbol) => [symbol, []]))
+    for (const row of candles) {
+      if (!Object.hasOwn(raw, row.symbol)) throw new Error('Stored candle symbol is outside the frozen shadow universe')
+      raw[row.symbol].push(decode(row.candle))
+    }
+    return { tracking, checkpoint: decode(checkpoint), occurrences, raw }
   }
   return {
     // Operator-only explicit initialization; never called by the API or polling cycle.
@@ -64,17 +85,24 @@ export function createShadowStore({ connectionString, pool } = {}) {
     async read(id) {
       return transaction(async (client) => {
         await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
-        const { tracking, checkpoint, occurrences } = await readFrom(client, id)
-        return { tracking, checkpoint, occurrences }
+        return readFrom(client, id, true)
       })
     },
-    cycle(id, action) {
+    async cycle(id, action) {
+      const before = await transaction(async (client) => {
+        await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
+        return readFrom(client, id, true)
+      })
+      // Keep an independent snapshot: callers may mutate the input while preparing work.
+      const expected = structuredClone(before)
+      const update = await action(before)
+      // Provider fetching and calculation hold neither a connection nor a transaction.
       return transaction(async (client) => {
         const lock = await client.query('SELECT pg_try_advisory_xact_lock(hashtext($1)) AS locked', [`setupscan-shadow:${id}`])
         if (!lock.rows[0]?.locked) return { status: 'BUSY' }
-        const before = await readFrom(client, id, true)
-        const old = new Map(structuredClone(before.occurrences).map((row) => [row.id, row]))
-        const update = await action(before)
+        const current = await readFrom(client, id, true)
+        if (!isDeepStrictEqual(current, expected)) return { status: 'BUSY' }
+        const old = new Map(expected.occurrences.map((row) => [row.id, row]))
         for (const { symbol, candle } of update.newCandles) {
           await client.query('INSERT INTO research_shadow_candles(tracking_id,symbol,timestamp,candle) VALUES($1,$2,$3,$4::jsonb)', [id, symbol, candle.timestamp, encode(candle)])
         }

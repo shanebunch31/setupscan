@@ -220,10 +220,20 @@ test('read API never initializes or mutates; unsupported methods and missing sto
   assert.equal(rejected.code, 405); assert.equal(reads, 0)
   const success = response(); await route({ method: 'GET' }, success)
   assert.equal(success.code, 200); assert.equal(reads, 1)
+  assert.equal(Object.hasOwn(success.body, 'raw'), false)
   const missing = response(); await createShadowForwardRoute()({ method: 'GET' }, missing)
   assert.equal(missing.code, 503)
   const failed = response(); await createShadowForwardRoute({ trackingId: 'test', store: { read: async () => { throw new Error('credentials') } } })({ method: 'GET' }, failed)
   assert.equal(failed.code, 503); assert.doesNotMatch(JSON.stringify(failed.body), /credentials/)
+})
+
+test('read API never exposes stored candle history from the store snapshot', async () => {
+  const route = createShadowForwardRoute({ trackingId: 'test', store: { read: async () => ({ tracking, checkpoint: {}, occurrences: [], raw: { AAPL: [{ timestamp: at(0) }] } }) } })
+  const response = { setHeader() {}, writeHead(code) { this.code = code }, end(body) { this.body = JSON.parse(body) } }
+  await route({ method: 'GET' }, response)
+  assert.equal(response.code, 200)
+  assert.equal(Object.hasOwn(response.body, 'raw'), false)
+  assert.equal(JSON.stringify(response.body).includes(at(0)), false)
 })
 
 test('operator configuration is explicit, generic, bounded, future-only and source-locked', async () => {

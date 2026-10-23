@@ -7,7 +7,7 @@ export function createShadowForwardRoute({ store, trackingId, now = () => new Da
     if (request.method !== 'GET') { response.setHeader('Allow', 'GET'); send(405, { error: 'Read-only endpoint' }); return }
     if (!store || !trackingId) { send(503, { error: 'Shadow reporting is not enabled. No tracker was started.' }); return }
     try {
-      const snapshot = await store.read(trackingId)
+      const { raw: _raw, ...snapshot } = await store.read(trackingId)
       const last = snapshot.checkpoint.lastSuccessfulCycle
       send(200, { ...snapshot, summaries: summarizeShadow(snapshot.tracking, snapshot.occurrences),
         freshness: !last ? 'No successful cycle' : now().getTime() - Date.parse(last) > 180_000 ? 'Stale snapshot — worker activity unverified' : 'Recent successful snapshot — not a live worker health check' })
