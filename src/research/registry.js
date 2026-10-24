@@ -1,4 +1,5 @@
 import {
+  adaptCandidateExitManagementOutput,
   adaptCandidateContextRobustnessOutput,
   adaptJoinedContextOutput,
   adaptCausalRegimeOutput,
@@ -28,6 +29,14 @@ const EXCLUDE_AMBIGUITY_POLICY = Object.freeze({
 })
 
 const definitions = [
+  {
+    id: 'candidate-exit-management', methodologyVersion: 'candidate-exit-management-1', requiredSymbols: [],
+    title: 'Trend Up + Medium Volatility — fixed versus trailing exits', category: 'context-regime',
+    ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
+    description: 'Paired historical exit comparison for each requested symbol; no automatic winner or trading promotion.',
+    methodology: 'Frozen trend-up-medium-volatility-v1 / candidate-context-robustness-2: research-eligible 75+ with causal Uptrend AND Medium volatility. Same signals and next observed hourly opens; 0.5% initial risk, 2R target, 12 observed bars. Challenger activates at +1R and trails 0.3% below the highest price, effective next candle. Paired resolved samples only: both outcomes must finish inside the original Joined Context period and displayed UTC period. Full observed, development 2022–2024, recent 2025–2026 YTD and yearly 2022–2026. Costs 0/0.02/0.05/0.10R. Eastern decision-day concentration ranked separately per exit before costs. Under 30 insufficient, 30–99 exploratory, 100+ descriptive only. Repeated retrospective research, not untouched validation or account equity.',
+    adapter: adaptCandidateExitManagementOutput,
+  },
   {
     id: 'candidate-context-robustness',
     methodologyVersion: 'candidate-context-robustness-2',

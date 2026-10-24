@@ -4,6 +4,22 @@
 // read from it to populate summary fields; they never recompute or alter a research conclusion.
 import { createFinding, createResearchRecord, deriveResearchStatus, normalizeMetrics } from './researchRecord.js'
 
+export function adaptCandidateExitManagementOutput(definition, payload, context = {}) {
+  const metrics = Object.fromEntries((payload?.rows ?? []).map((row) => [row.key, {
+    ...normalizeMetrics(row.metrics ?? { tradeCount: 0 }),
+    strategyId: 'setup-scan-baseline', membershipRule: 'research-eligible-75-plus',
+    ruleSetVariant: `context-trend-up+medium-volatility::exit-${row.exitMethod}`,
+    symbol: row.symbol, periodRole: row.period.type, evidenceStrength: row.evidenceStrength,
+    exitComparison: row,
+  }]))
+  const parameters = { ...context.parameters, candidateExitManagement: {
+    candidate: payload?.candidate, options: payload?.options, coverage: payload?.coverage,
+    symbols: payload?.symbols, regimeSourceSymbol: payload?.regimeSourceSymbol,
+    periods: payload?.periods, limitations: payload?.limitations,
+  } }
+  return createAdaptedRecord(definition, payload, { ...context, parameters, costModel: context.costModel ?? withCostStatus('modeled', payload) }, metrics)
+}
+
 export function adaptCandidateContextRobustnessOutput(definition, payload, context = {}) {
   const metrics = Object.fromEntries([...(payload?.rows ?? []), ...(payload?.timeOfDay ?? []), ...(payload?.sessions ?? [])].map((row) => [row.key, {
     ...normalizeMetrics(row.matched.metrics ?? { tradeCount: 0 }),

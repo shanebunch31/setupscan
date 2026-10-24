@@ -39,6 +39,76 @@ test('new run writes reject unknown canonical experiment IDs before initializing
   assert.equal(pool.schemaQueries, 0)
 })
 
+test('candidate exit management passes canonical save validation and compact normalized evidence round-trips', async () => {
+  const pool = new MemoryResearchPool()
+  const store = createResearchRunStore({ pool })
+  const id = 'candidate-exit-management'
+  const datasetId = 'dataset-candidate-exit-management'
+  const context = {
+    symbols: ['SPY'], timeframe: '1Hour',
+    requestedStart: '2022-01-01T00:00:00Z', requestedEnd: '2026-10-23T16:00:00Z',
+    provenance: { runId: 'candidate-exit-save', datasetId, codeRevision: 'fixture-revision' },
+  }
+  const nativeOutput = {
+    available: true,
+    methodologyVersion: 'candidate-exit-management-1',
+    membershipRule: 'research-eligible-75-plus',
+    candidate: { id: 'trend-up-medium-volatility-v1', methodologyVersion: 'candidate-context-robustness-2' },
+    symbols: ['SPY'], regimeSourceSymbol: 'SPY',
+    options: { targetR: 2, maxHoldingBars: 12, activationR: 1, trailDistancePercent: 0.003 },
+    costTiers: [{ label: 'Before execution costs', costR: 0 }],
+    periods: [{ key: 'full', label: 'Full observed period', type: 'full' }],
+    coverage: { candidateCount: 3 },
+    limitations: ['Historical descriptive comparison only.'],
+    rows: [{
+      key: 'full::SPY::trailing', symbol: 'SPY', exitMethod: 'trailing',
+      period: { key: 'full', label: 'Full observed period', type: 'full' },
+      resolvedCount: 3, evidenceStrength: 'insufficient-evidence',
+      metrics: { tradeCount: 3, winRate: 2 / 3, averageR: 0.4, totalR: 1.2, profitFactor: 2, maximumDrawdown: 0.5 },
+      costTiers: [{ label: 'Before execution costs', costR: 0, metrics: { tradeCount: 3, averageR: 0.4, totalR: 1.2 } }],
+      accounting: { candidateCount: 3, pairedResolvedCount: 3, pairedExcludedCount: 0, reconciliationStatus: 'reconciled' },
+      exitReasonCounts: { Target: 2, 'Trailing Stop': 1 },
+    }],
+    // The client projection must remove this trade-level working data before persistence.
+    pairs: [{ id: 'raw-pair-that-must-not-be-saved' }],
+  }
+  const execution = { experimentId: id, status: 'succeeded', nativeOutput, error: null }
+  const record = createResearchRecordForExperiment(id, nativeOutput, context)
+  const synthesis = synthesizeResearch([record], { runId: context.provenance.runId, datasetId })
+  const run = projectResearchRunForPersistence(makeRunResult({
+    runId: context.provenance.runId,
+    symbols: context.symbols,
+    requestedExperiments: [id],
+    datasetId,
+    experimentResults: [execution],
+    records: [record],
+    synthesis,
+    codeRevision: context.provenance.codeRevision,
+    effectiveExperimentConfiguration: {
+      [id]: { status: 'succeeded', configuration: nativeOutput.options },
+    },
+  }))
+
+  assert.equal(run.experimentResults[0].nativeOutput, undefined)
+  assert.equal(run.records[0].nativePayload, undefined)
+  assert.deepEqual(await store.saveResearchRun(run), { runId: context.provenance.runId })
+
+  const loaded = await store.getResearchRun(context.provenance.runId)
+  const loadedRecord = loaded.records[0]
+  assert.equal(loaded.runContext.requestedExperiments[0], id)
+  assert.equal(loadedRecord.id, id)
+  assert.equal(loadedRecord.methodologyVersion, 'candidate-exit-management-1')
+  assert.equal(loadedRecord.parameters.candidateExitManagement.candidate.id, 'trend-up-medium-volatility-v1')
+  assert.equal(loadedRecord.metrics['full::SPY::trailing'].exitComparison.accounting.reconciliationStatus, 'reconciled')
+  assert.equal(loadedRecord.provenance.datasetId, datasetId)
+  assert.equal(loadedRecord.provenance.codeRevision, 'fixture-revision')
+  assert.equal(loaded.dataset.datasetId, datasetId)
+  assert.deepEqual(loaded.synthesis, synthesis)
+  assert.equal(loaded.synthesis.strategyGroups[0].evidence[0].methodologyVersion, 'candidate-exit-management-1')
+  assert.equal(loaded.experimentResults[0].nativeOutput, null)
+  assert.equal(stringifyResearchJson(loaded).includes('raw-pair-that-must-not-be-saved'), false)
+})
+
 test('candidate v2 saves with HTTP 201 through canonical validation and explicit Investigation links retain both runs', async () => {
   const store = createResearchRunStore({ pool: new MemoryResearchPool() })
   const id = 'candidate-context-robustness'

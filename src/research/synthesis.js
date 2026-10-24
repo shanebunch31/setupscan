@@ -13,7 +13,7 @@ import { normalizeMetrics } from './researchRecord.js'
 export const EVIDENCE_FAMILIES = {
   'signal-quality-catalogue': {
     id: 'signal-quality-catalogue',
-    experimentIds: ['signal-quality', 'frozen-score-holdout', 'yearly-regime', 'causal-regime', 'walk-forward-regime', 'joined-context', 'candidate-context-robustness'],
+    experimentIds: ['signal-quality', 'frozen-score-holdout', 'yearly-regime', 'causal-regime', 'walk-forward-regime', 'joined-context', 'candidate-context-robustness', 'candidate-exit-management'],
     note: 'These experiments reuse the same underlying trade construction/catalogue (signalQualityBacktest.js).',
   },
   'walk-forward-windows': {
@@ -109,7 +109,7 @@ function makeEvidence(record, metricsKey, strategyId, ruleSetVariant, membership
 function flattenRecord(record) {
   const entries = []
   const metrics = record?.metrics ?? {}
-  const hasContextScope = record.id === 'joined-context' || record.id === 'candidate-context-robustness'
+  const hasContextScope = ['joined-context', 'candidate-context-robustness', 'candidate-exit-management'].includes(record.id)
   Object.entries(metrics).forEach(([metricsKey, value]) => {
     if (!value || typeof value !== 'object') return
     const { strategyId, ruleSetVariant, membershipRule, ...rest } = value

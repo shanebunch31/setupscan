@@ -1,6 +1,7 @@
 import { enrichHistoricalCandles } from '../data/marketData.js'
 import { runJoinedContextStudy } from '../backtest/joinedContextStudy.js'
 import { runCandidateContextRobustness } from '../backtest/candidateContextRobustness.js'
+import { runCandidateExitManagement } from '../backtest/candidateExitManagement.js'
 import { runCausalRegimeResearch } from '../backtest/causalRegimeBacktest.js'
 import { runFrozenScoreHoldoutResearch } from '../backtest/frozenScoreHoldoutBacktest.js'
 import { runRelativeValueResearch } from '../backtest/relativeValueBacktest.js'
@@ -49,6 +50,7 @@ function discoveryDatasetsFor(symbols, availableBySymbol) {
  * No executor fetches, aligns, filters, or rewrites the shared raw candles.
  */
 export const researchExperimentExecutors = Object.freeze({
+  'candidate-exit-management': freezeExecutor('candidate-exit-management', ({ availableBySymbol, requestedSymbols, runContext }) => runCandidateExitManagement(rawSeriesFor([...requestedSymbols].sort(), availableBySymbol), { requestedStart: runContext?.requestedStart, requestedEnd: runContext?.requestedEnd ?? undefined })),
   'candidate-context-robustness': freezeExecutor('candidate-context-robustness', ({ availableBySymbol, requestedSymbols, runContext }) => runCandidateContextRobustness(rawSeriesFor([...requestedSymbols].sort(), availableBySymbol), { requestedStart: runContext?.requestedStart, requestedEnd: runContext?.requestedEnd ?? undefined })),
   'joined-context': freezeExecutor('joined-context', ({ availableBySymbol, runContext }) => runJoinedContextStudy(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol), { requestedStart: runContext?.requestedStart, requestedEnd: runContext?.requestedEnd ?? undefined })),
     robustness: freezeExecutor('robustness', ({ availableBySymbol }) => {
@@ -192,7 +194,7 @@ export function createResearchExperimentDispatcher(executorLookup = researchExpe
       availableBySymbol.set(symbol, entry)
       return true
     })
-    if (experimentId === 'candidate-context-robustness' && (!requestedSymbols.length || requestedAvailableSymbols.length !== requestedSymbols.length)) {
+    if (['candidate-context-robustness', 'candidate-exit-management'].includes(experimentId) && (!requestedSymbols.length || requestedAvailableSymbols.length !== requestedSymbols.length)) {
       return executionResult(experimentId, 'unavailable', { available: false, reason: 'Every requested symbol needs complete hourly inputs; no requested symbol is silently dropped.', missingSymbols: requestedSymbols.filter((symbol) => !availableBySymbol.has(symbol)) })
     }
     if (

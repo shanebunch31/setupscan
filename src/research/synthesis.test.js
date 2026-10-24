@@ -460,7 +460,7 @@ test('shared evidence family retains every source record and every metric, only 
 })
 
 test('EVIDENCE_FAMILIES matches the approved Phase 3C design', () => {
-  assert.deepEqual(EVIDENCE_FAMILIES['signal-quality-catalogue'].experimentIds, ['signal-quality', 'frozen-score-holdout', 'yearly-regime', 'causal-regime', 'walk-forward-regime', 'joined-context', 'candidate-context-robustness'])
+  assert.deepEqual(EVIDENCE_FAMILIES['signal-quality-catalogue'].experimentIds, ['signal-quality', 'frozen-score-holdout', 'yearly-regime', 'causal-regime', 'walk-forward-regime', 'joined-context', 'candidate-context-robustness', 'candidate-exit-management'])
   assert.deepEqual(EVIDENCE_FAMILIES['walk-forward-windows'].experimentIds, ['walk-forward-regime', 'volatility-aware-variants'])
 })
 

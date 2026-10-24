@@ -64,8 +64,9 @@ function makeTrendMomentumMetrics(overrides = {}) {
 }
 
 test('registry identifies all existing research areas and adapter boundaries', () => {
-  assert.equal(researchRegistry.length, 12)
+  assert.equal(researchRegistry.length, 13)
   assert.deepEqual(listResearchExperiments().map((entry) => entry.id), [
+    'candidate-exit-management',
     'candidate-context-robustness',
     'robustness',
     'relative-value',
