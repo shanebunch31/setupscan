@@ -2,6 +2,7 @@ import { enrichHistoricalCandles } from '../data/marketData.js'
 import { runJoinedContextStudy } from '../backtest/joinedContextStudy.js'
 import { runCandidateContextRobustness } from '../backtest/candidateContextRobustness.js'
 import { runCandidateExitManagement } from '../backtest/candidateExitManagement.js'
+import { runCandidateExecutionResolution } from '../backtest/candidateExecutionResolution.js'
 import { runCausalRegimeResearch } from '../backtest/causalRegimeBacktest.js'
 import { runFrozenScoreHoldoutResearch } from '../backtest/frozenScoreHoldoutBacktest.js'
 import { runRelativeValueResearch } from '../backtest/relativeValueBacktest.js'
@@ -50,6 +51,17 @@ function discoveryDatasetsFor(symbols, availableBySymbol) {
  * No executor fetches, aligns, filters, or rewrites the shared raw candles.
  */
 export const researchExperimentExecutors = Object.freeze({
+  'candidate-execution-resolution': freezeExecutor('candidate-execution-resolution', ({ dataset, availableBySymbol, requestedSymbols, runContext }) => {
+    if (runContext.timeframe !== '1Hour') return { available: false, reason: 'Execution comparison requires 1Hour decision inputs.' }
+    if (dataset.adjustmentMode === 'mixed') return { available: false, reason: 'Hourly and 5Min inputs must use compatible price-adjustment modes.' }
+    const execution = dataset.executionInputs
+    const missing = requestedSymbols.filter((symbol) => !isAvailableEntry(execution?.fetchResultsBySymbol?.[symbol]))
+    if (missing.length) return { available: false, reason: 'Complete 5Min inputs are required for every requested symbol.', missingSymbols: missing }
+    const output = runCandidateExecutionResolution(rawSeriesFor([...requestedSymbols].sort(), availableBySymbol),
+      Object.fromEntries(requestedSymbols.map((symbol) => [symbol, execution.fetchResultsBySymbol[symbol].candles])),
+      { requestedStart: runContext.requestedStart, requestedEnd: runContext.requestedEnd ?? undefined })
+    return { ...output, inputIdentity: dataset.effectiveMetadata?.executionResolution ?? null }
+  }),
   'candidate-exit-management': freezeExecutor('candidate-exit-management', ({ availableBySymbol, requestedSymbols, runContext }) => runCandidateExitManagement(rawSeriesFor([...requestedSymbols].sort(), availableBySymbol), { requestedStart: runContext?.requestedStart, requestedEnd: runContext?.requestedEnd ?? undefined })),
   'candidate-context-robustness': freezeExecutor('candidate-context-robustness', ({ availableBySymbol, requestedSymbols, runContext }) => runCandidateContextRobustness(rawSeriesFor([...requestedSymbols].sort(), availableBySymbol), { requestedStart: runContext?.requestedStart, requestedEnd: runContext?.requestedEnd ?? undefined })),
   'joined-context': freezeExecutor('joined-context', ({ availableBySymbol, runContext }) => runJoinedContextStudy(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol), { requestedStart: runContext?.requestedStart, requestedEnd: runContext?.requestedEnd ?? undefined })),
@@ -194,7 +206,7 @@ export function createResearchExperimentDispatcher(executorLookup = researchExpe
       availableBySymbol.set(symbol, entry)
       return true
     })
-    if (['candidate-context-robustness', 'candidate-exit-management'].includes(experimentId) && (!requestedSymbols.length || requestedAvailableSymbols.length !== requestedSymbols.length)) {
+    if (['candidate-context-robustness', 'candidate-exit-management', 'candidate-execution-resolution'].includes(experimentId) && (!requestedSymbols.length || requestedAvailableSymbols.length !== requestedSymbols.length)) {
       return executionResult(experimentId, 'unavailable', { available: false, reason: 'Every requested symbol needs complete hourly inputs; no requested symbol is silently dropped.', missingSymbols: requestedSymbols.filter((symbol) => !availableBySymbol.has(symbol)) })
     }
     if (

@@ -9,7 +9,8 @@ import { listResearchExperiments } from './registry.js'
 const revision = 'abc123'
 const emaVersion = 'setupscan-ema-sma-seeded-recursive-v1'
 const baseSymbols = ['SPY', 'QQQ', 'IWM']
-const allExperimentIds = listResearchExperiments().map(({ id }) => id)
+// These fixtures have one hourly series per symbol; mixed-timeframe replay has its own fail-closed test.
+const allExperimentIds = listResearchExperiments().filter(({ id }) => id !== 'candidate-execution-resolution').map(({ id }) => id)
 
 function makeCandles(symbol) {
   return Array.from({ length: 32 }, (_, index) => {

@@ -441,9 +441,10 @@ test('createResearchRunContext: requestedStart after requestedEnd is rejected', 
   assert.throws(() => createResearchRunContext(baseRequest({ requestedStart: '2025-01-01T00:00:00Z', requestedEnd: '2022-01-01T00:00:00Z' })))
 })
 
-test('createResearchRunContext: omitting requestedExperiments defaults to all registry experiment ids', () => {
+test('createResearchRunContext: omitting requestedExperiments defaults to default-selected registry experiment ids', () => {
   const context = createResearchRunContext(baseRequest())
-  assert.deepEqual(context.requestedExperiments, listResearchExperiments().map((definition) => definition.id))
+  assert.deepEqual(context.requestedExperiments, listResearchExperiments().filter((definition) => definition.defaultSelected !== false).map((definition) => definition.id))
+  assert.equal(context.requestedExperiments.includes('candidate-execution-resolution'), false)
 })
 
 test('createResearchRunContext: explicit requestedExperiments preserves caller order', () => {

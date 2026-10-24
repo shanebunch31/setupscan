@@ -1,4 +1,5 @@
 import {
+  adaptExecutionResolutionOutput,
   adaptCandidateExitManagementOutput,
   adaptCandidateContextRobustnessOutput,
   adaptJoinedContextOutput,
@@ -29,6 +30,14 @@ const EXCLUDE_AMBIGUITY_POLICY = Object.freeze({
 })
 
 const definitions = [
+  {
+    id: 'candidate-execution-resolution', methodologyVersion: 'candidate-execution-resolution-3', requiredSymbols: [], defaultSelected: false,
+    title: 'Trend Up + Medium Volatility — hourly versus five-minute execution', category: 'context-regime',
+    ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
+    description: 'Same frozen hourly decisions, paired execution comparison. Automatically requests additional 5Min history; large ranges can be expensive.',
+    methodology: 'Research-eligible 75+ causal Uptrend AND Medium volatility. Requires 1Hour decision inputs and 5Min execution history. First supplied 5Min open at or after hourly completion; shared deadline is the end of the baseline’s 12th observed hourly bar, not 12 five-minute bars. Fixed 0.5% risk, 2R target, stop-first and adverse gap fills. Paired resolved outcomes within period/cutoff only; gaps are excluded. All periods and costs are descriptive. Day removals rank the hourly baseline and use identical dates for both methods. Under 30 insufficient, 30–99 exploratory, 100+ descriptive only. No automatic winner; repeated historical exploration is not untouched evidence. Single-timeframe offline replay is unsupported for this mixed-timeframe experiment.',
+    adapter: adaptExecutionResolutionOutput,
+  },
   {
     id: 'candidate-exit-management', methodologyVersion: 'candidate-exit-management-1', requiredSymbols: [],
     title: 'Trend Up + Medium Volatility — fixed versus trailing exits', category: 'context-regime',

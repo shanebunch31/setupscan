@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { CandidateRobustnessResult } from './CandidateRobustnessResult.js'
+import { ExecutionResolutionResult } from './ExecutionResolutionResult.js'
 import { Link2, LoaderCircle, Play, Plus, Save } from 'lucide-react'
 import { listResearchExperiments } from './registry.js'
 import { getResearchRun, saveResearchRun } from './researchRunHistory.js'
@@ -25,7 +26,7 @@ import {
 
 const h = React.createElement
 const experiments = listResearchExperiments()
-const defaultExperimentIds = experiments.map((experiment) => experiment.id)
+const defaultExperimentIds = experiments.filter((experiment) => experiment.defaultSelected !== false).map((experiment) => experiment.id)
 
 function evidencePartitionLabel(partition) {
   if (typeof partition === 'string') return partition
@@ -156,7 +157,7 @@ export function RunStateStatus({ status, message }) {
 function FetchIssueList({ issues }) {
   if (!issues.length) return h('p', { className: 'workbench-muted' }, 'No fetch issues.')
   return h('ul', { className: 'workbench-issue-list' }, issues.map((issue, index) => h('li', { key: `${issue.symbol ?? 'run'}-${issue.type ?? 'issue'}-${index}` },
-    h('strong', null, [issue.symbol, issue.type].filter(Boolean).join(' · ') || 'Run issue'),
+    h('strong', null, [issue.symbol, issue.timeframe, issue.type].filter(Boolean).join(' · ') || 'Run issue'),
     issue.error?.message ? h('span', null, issue.error.message) : null,
     issue.type === 'incomplete' ? h('span', null, "Provider marked this symbol's data incomplete.") : null,
     issue.type === 'empty' ? h('span', null, 'No candles were returned for this symbol.') : null,
@@ -199,6 +200,7 @@ export function RunResultSummary({ result }) {
   const candleQualityBySymbol = Object.entries(result.dataset?.fetchResultsBySymbol ?? {})
     .filter(([, fetchResult]) => fetchResult?.dataQuality)
     .map(([symbol, fetchResult]) => ({ symbol, ...fetchResult.dataQuality }))
+  const executionInputMetadata = result.dataset?.effectiveMetadata?.executionResolution?.fiveMinuteMetadata?.symbols
   const evidenceCount = strategyGroups.reduce((total, group) => total + (group.evidence?.length ?? 0), 0)
   const completedCount = experimentResults.filter((item) => item.status === 'succeeded' || item.status === 'completed').length
   const experimentCount = requested.length || experimentResults.length
@@ -230,6 +232,7 @@ export function RunResultSummary({ result }) {
     ),
     h('p', { className: 'workbench-result-caveat' }, 'Historical results describe past data and do not establish future performance.'),
     (result.records ?? []).filter((record) => record.id === 'candidate-context-robustness').map((record) => h(CandidateRobustnessResult, { key: record.id, record })),
+    (result.records ?? []).filter((record) => record.id === 'candidate-execution-resolution').map((record) => h(ExecutionResolutionResult, { key: record.id, record })),
     h('p', { className: 'workbench-result-caveat' }, 'Research uses underlying-stock prices, not option-contract quotes or fills. Cost tiers are modeled assumptions, not historical bid/ask or actual execution replay. A large search across variants is more likely to produce a chance result than a small search; this review does not provide a complete cross-run variant count.'),
     h('section', { className: 'workbench-result-ambiguity', 'aria-label': 'Same-candle outcome policies' },
       h('h3', null, 'How same-candle stop and target outcomes are handled'),
@@ -246,6 +249,9 @@ export function RunResultSummary({ result }) {
     ),
     candleQualityBySymbol.length
       ? h('p', { className: 'workbench-result-caveat' }, 'Historical candle checks: ', candleQualityBySymbol.map((entry) => `${entry.symbol}: ${entry.acceptedCandleCount} accepted, ${entry.outOfOrderCandleCount} reordered, ${entry.duplicateCandleCount} duplicates skipped, ${entry.rejectedCandleCount} rejected, ${entry.requestedEndExcludedCandleCount ?? 'unavailable'} excluded because the bar interval ended after the requested end.`).join(' '))
+      : null,
+    executionInputMetadata
+      ? h('p', { className: 'workbench-result-caveat' }, '5Min execution inputs: ', Object.entries(executionInputMetadata).map(([symbol, input]) => `${symbol}: ${input?.requestedCandleCount ?? 'unavailable'} requested-range candles; ${input?.complete === true ? 'input completeness check passed' : input?.complete === false ? 'incomplete input' : 'availability unconfirmed'}.`).join(' '))
       : null,
     h('section', { className: 'workbench-summary-section' },
     h('h3', null, 'Research takeaway'),

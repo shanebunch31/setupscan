@@ -7,10 +7,65 @@ import { runSignalQualityResearch } from '../src/backtest/signalQualityBacktest.
 import { createResearchRecordForExperiment } from '../src/research/registry.js'
 import { synthesizeResearch } from '../src/research/synthesis.js'
 import { executeResearchExperiment } from '../src/research/experimentExecutors.js'
-import { stringifyResearchJson } from '../src/research/researchRunSerialization.js'
+import { parseResearchJson, stringifyResearchJson } from '../src/research/researchRunSerialization.js'
 import { projectResearchRunForPersistence } from '../src/research/researchRunHistory.js'
 import { linkFollowUpResult } from '../src/research/researchWorkbenchModel.js'
 import { createResearchRunStore, RESEARCH_PERSISTENCE_SCHEMA_VERSION } from './researchRunStore.js'
+import { runResearch } from '../src/research/runResearch.js'
+import React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { ResearchRunDetail } from '../src/research/ResearchRunDetail.js'
+import { checkResearchReplayCompatibility } from '../src/research/replayCompatibility.js'
+
+test('execution resolution saves both canonical timeframes and normalized paired evidence through the mock store', async () => {
+  const id = 'candidate-execution-resolution'
+  const request = { symbols: ['SPY'], timeframe: '1Hour', requestedStart: '2024-01-01T00:00:00Z', requestedEnd: '2024-06-01T00:00:00Z', requestedExperiments: [id] }
+  const run = await runResearch(request, { fetchHistoricalMarketData: async (symbol, timeframe) => {
+    const candles = Array.from({ length: timeframe === '1Hour' ? 1200 : 14400 }, (_, i) => {
+      const hour = timeframe === '1Hour' ? i : Math.floor(i / 12)
+      const close = 100 + hour * .03 + Math.sin(hour / 6)
+      return { symbol, timeframe, timestamp: new Date(Date.UTC(2024, 0, 1) + i * (timeframe === '1Hour' ? 3600000 : 300000)).toISOString(), open: close, close, high: close + .2, low: close - .2, volume: 1000 + hour }
+    })
+    return { provider: 'synthetic-test', symbol, timeframe, adjustmentMode: 'split', candles, start: candles[0].timestamp, end: candles.at(-1).timestamp,
+      requestedStart: request.requestedStart, requestedEnd: request.requestedEnd, candleCount: candles.length, complete: true }
+  } })
+  assert.equal(run.status, 'completed')
+  assert.ok(run.records[0].parameters.executionResolution.rows.some((r) => r.resolvedCount > 0))
+  const projected = projectResearchRunForPersistence(run)
+  const store = createResearchRunStore({ pool: new MemoryResearchPool() })
+  const api = createResearchRunApi({ store })
+  async function invoke(method, path, body) {
+    let status, payload
+    const request = Readable.from(body ? [Buffer.from(stringifyResearchJson(body))] : [])
+    request.method = method
+    await api(request, { writeHead(code) { status = code }, end(value) { payload = parseResearchJson(value) } }, new URL(path, 'http://fixture.invalid'))
+    return { status, payload }
+  }
+  assert.equal((await invoke('POST', '/api/research-runs', projected)).status, 201)
+  const response = await invoke('GET', `/api/research-runs/${run.runContext.runId}`)
+  assert.equal(response.status, 200)
+  const saved = response.payload
+  const dataset = await store.getResearchDataset(run.dataset.datasetId)
+  assert.equal(saved.records[0].methodologyVersion, 'candidate-execution-resolution-3')
+  assert.equal(stringifyResearchJson(saved.records), stringifyResearchJson(projected.records))
+  assert.deepEqual(saved.synthesis, run.synthesis)
+  assert.equal(saved.records[0].provenance.datasetId, dataset.datasetId)
+  assert.deepEqual(dataset.calculationSeries.map((s) => s.timeframe), ['1Hour', '5Min'])
+  assert.deepEqual(dataset.effectiveMetadata.executionResolution, run.dataset.effectiveMetadata.executionResolution)
+  assert.equal(saved.dataset.executionInputs, undefined)
+  assert.equal(saved.records[0].nativePayload, undefined)
+  assert.equal(saved.experimentResults[0].nativeOutput, null)
+  assert.equal(checkResearchReplayCompatibility({ run: saved, canonicalDataset: dataset }).blockers
+    .some((blocker) => blocker.code === 'multi-timeframe-replay-unsupported'), true)
+  const html = renderToStaticMarkup(React.createElement(ResearchRunDetail, { run: saved }))
+  assert.ok(html.includes('Paired population'))
+  assert.ok(html.includes('candidate-execution-resolution-3'))
+  const rejected = await invoke('POST', '/api/research-runs', {
+    ...projected, runContext: { ...projected.runContext, requestedExperiments: ['fake-id'] },
+  })
+  assert.equal(rejected.status, 400)
+  assert.equal(rejected.payload.code, 'RESEARCH_RUN_INVALID')
+})
 
 test('four-experiment run including joined-context round-trips through the real store interface with a mock pool', async () => {
   const pool = new MemoryResearchPool()

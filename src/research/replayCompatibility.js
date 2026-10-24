@@ -239,6 +239,12 @@ export function checkResearchReplayCompatibility({ run, canonicalDataset, runtim
   if (!canonicalDataset) blockers.push(blocker('canonical-dataset-missing', 'canonicalDataset', 'persisted canonical dataset', null, 'Canonical dataset retrieval failed or returned no dataset.'))
   if (!canonicalDataset) return { compatible: false, blockers }
 
+  if (context.requestedExperiments?.includes('candidate-execution-resolution') || canonicalDataset.effectiveMetadata?.executionResolution) {
+    blockers.push(blocker('multi-timeframe-replay-unsupported', 'calculationSeries', 'timeframe-aware replay', null,
+      'Hourly and 5Min inputs are preserved, but the existing single-timeframe replay cannot safely reconstruct this experiment.'))
+    return { compatible: false, blockers }
+  }
+
   const canonicalAdjustment = canonicalDataset.adjustmentMode ?? null
   const contextAdjustment = context.adjustmentMode ?? null
   const runDatasetAdjustment = run?.dataset?.adjustmentMode ?? null

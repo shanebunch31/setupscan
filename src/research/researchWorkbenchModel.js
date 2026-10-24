@@ -24,6 +24,9 @@ export function createWorkbenchRunRequest(form) {
   const requestedExperiments = [...new Set(experimentSelection)]
   const unknownExperiment = requestedExperiments.find((id) => !experimentIds.has(id))
   if (unknownExperiment) throw new Error(`Unknown research experiment: ${unknownExperiment}`)
+  if (requestedExperiments.includes('candidate-execution-resolution') && timeframe !== '1Hour') {
+    throw new Error('Execution comparison requires 1Hour decisions; the additional 5Min history is requested automatically.')
+  }
 
   const selectedSymbols = new Set(symbols)
   const incompatible = requestedExperiments

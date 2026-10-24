@@ -10,6 +10,7 @@ import {
 import { TermHelp } from '../TermHelp.js'
 import { getResearchExperiment } from './registry.js'
 import { CandidateRobustnessResult } from './CandidateRobustnessResult.js'
+import { ExecutionResolutionResult } from './ExecutionResolutionResult.js'
 
 const h = React.createElement
 
@@ -669,7 +670,7 @@ function PersistedRunSummary({ run }) {
                     h(
                       'strong',
                       null,
-                      [issue.symbol, issue.type]
+                      [issue.symbol, issue.timeframe, issue.type]
                         .filter(Boolean)
                         .join(String.fromCharCode(32, 183, 32)) ||
                         'Run issue',
@@ -1218,6 +1219,7 @@ export function ResearchRunDetail({
                 PersistedRunSummary,
                 { run: displayRun },
               ),
+              (displayRun.records ?? []).filter((record) => record.id === 'candidate-execution-resolution').map((record) => h(ExecutionResolutionResult, { key: record.id, record })),
               (displayRun.records ?? []).filter((record) => record.id === 'candidate-context-robustness')
                 .map((record) => h(CandidateRobustnessResult, { key: record.id, record })),
 

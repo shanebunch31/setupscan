@@ -4,6 +4,25 @@
 // read from it to populate summary fields; they never recompute or alter a research conclusion.
 import { createFinding, createResearchRecord, deriveResearchStatus, normalizeMetrics } from './researchRecord.js'
 
+export function adaptExecutionResolutionOutput(definition, payload, context = {}) {
+  const metrics = Object.fromEntries((payload?.rows ?? []).flatMap((row) => ['hourly', 'fiveMinute'].map((method) => [
+    `${row.key}::${method}`, {
+      ...normalizeMetrics(row.methods[method].costTiers[0].metrics ?? { tradeCount: 0 }),
+      strategyId: 'setup-scan-baseline', membershipRule: 'research-eligible-75-plus',
+      ruleSetVariant: `context-trend-up+medium-volatility::execution-${method}`,
+      symbol: row.symbol, periodRole: row.period.type, evidenceStrength: row.evidenceStrength,
+    },
+  ])))
+  // Keep paired normalized detail once, rather than duplicating it across method evidence.
+  const parameters = { ...context.parameters, executionResolution: {
+    rows: payload?.rows ?? [], options: payload?.options, symbols: payload?.symbols,
+    regimeSourceSymbol: payload?.regimeSourceSymbol, coverage: payload?.coverage,
+    inputIdentity: payload?.inputIdentity, limitations: payload?.limitations,
+  } }
+  return createAdaptedRecord(definition, payload, { ...context, parameters,
+    costModel: context.costModel ?? { status: 'modeled', costTiers: [0, 0.02, 0.05, 0.10].map((costR) => ({ costR })) } }, metrics)
+}
+
 export function adaptCandidateExitManagementOutput(definition, payload, context = {}) {
   const metrics = Object.fromEntries((payload?.rows ?? []).map((row) => [row.key, {
     ...normalizeMetrics(row.metrics ?? { tradeCount: 0 }),

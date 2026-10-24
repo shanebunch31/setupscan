@@ -1,5 +1,6 @@
 import { robustnessThresholds } from '../backtest/robustness.js'
 import { candidateExitConfiguration } from '../backtest/candidateExitManagement.js'
+import { executionResolutionConfiguration } from '../backtest/candidateExecutionResolution.js'
 import { canonicalPairs, relativeValueDefaults } from '../backtest/relativeValueBacktest.js'
 import {
   scoreBucketDefinitions,
@@ -57,6 +58,8 @@ function experimentConfiguration(experimentId, output) {
   if (!output || typeof output !== 'object') return null
   const options = output.options ?? null
   switch (experimentId) {
+    case 'candidate-execution-resolution':
+      return { ...executionResolutionConfiguration }
     case 'candidate-exit-management':
       return { ...candidateExitConfiguration }
     case 'robustness':
@@ -182,6 +185,7 @@ const strategyDiscoveryMetas = [momentumBreakoutMeta, meanReversionMeta, priorDa
 
 function currentConfigurationFor(experimentId, dataset, codeRevision) {
   let output
+  if (experimentId === 'candidate-execution-resolution') return structuredClone(executionResolutionConfiguration)
   if (experimentId === 'candidate-exit-management') return structuredClone(candidateExitConfiguration)
   if (experimentId === 'robustness') {
   const requestedSymbols = dataset?.requestedSymbols?.length

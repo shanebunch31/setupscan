@@ -79,7 +79,7 @@ test('minimal valid request returns the complete composed result without fetchin
   assert.deepEqual(result.synthesis.coverage.requested, [])
 })
 
-test('requestedExperiments defaults to every registered experiment', async () => {
+test('requestedExperiments defaults to default-selected registered experiments', async () => {
   const dispatcherCalls = []
   const result = await runResearch(request(), runOptions({
     fetcher: async (symbol) => makeFetchResult(symbol),
@@ -88,7 +88,7 @@ test('requestedExperiments defaults to every registered experiment', async () =>
       return { experimentId, status: 'unavailable', nativeOutput: null, error: null }
     },
   }))
-  const experimentIds = listResearchExperiments().map(({ id }) => id)
+  const experimentIds = listResearchExperiments().filter(({ defaultSelected }) => defaultSelected !== false).map(({ id }) => id)
   assert.deepEqual(result.runContext.requestedExperiments, experimentIds)
   assert.deepEqual(dispatcherCalls, experimentIds)
   assert.deepEqual(result.synthesis.coverage.requested, experimentIds)

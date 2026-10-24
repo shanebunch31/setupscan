@@ -400,7 +400,7 @@ function normalizeRequestedDateRange(requestedStart, requestedEnd) {
 }
 
 function normalizeRequestedExperiments(requestedExperiments) {
-  if (requestedExperiments === undefined) return listResearchExperiments().map((definition) => definition.id)
+  if (requestedExperiments === undefined) return listResearchExperiments().filter((definition) => definition.defaultSelected !== false).map((definition) => definition.id)
   if (!Array.isArray(requestedExperiments)) {
     throw new Error('createResearchRunContext: requestedExperiments must be an array of registry experiment ids')
   }
@@ -512,8 +512,42 @@ export async function executeResearchRun(runContext, options = {}) {
     if (fetchResult.complete === false) fetchIssues.push({ symbol, type: 'incomplete', fetchResult })
   })
 
+  // Only this opt-in research experiment requests a second timeframe. Keep the default
+  // single-timeframe path and its identities unchanged. No executor performs network IO.
+  let executionInputs = null
+  let executionIdentity = null
+  if (requestedExperiments.includes('candidate-execution-resolution') && runContext.timeframe === '1Hour') {
+    const hourlyResults = [...nonEmptyFetchResults]
+    executionInputs = { fetchResultsBySymbol: {} }
+    const fiveResults = []
+    // Sequential symbol requests bound the additional load for multi-year minute history.
+    for (const symbol of symbols) {
+      try {
+        const result = await fetcher(symbol, '5Min', { start: runContext.requestedStart, end: runContext.requestedEnd })
+        if (result?.symbol !== symbol || result?.timeframe !== '5Min') throw new Error('Execution fetch returned incompatible symbol/timeframe metadata')
+        executionInputs.fetchResultsBySymbol[symbol] = result
+        successfulFetchResults.push(result)
+        if (result?.candles?.length) {
+          fiveResults.push(result)
+          nonEmptyFetchResults.push(result)
+        }
+        if (!result?.candles?.length || result.complete === false) fetchIssues.push({ symbol, timeframe: '5Min', type: result?.candles?.length ? 'incomplete' : 'empty' })
+      } catch (error) {
+        fetchIssues.push({ symbol, timeframe: '5Min', type: 'fetch-error', error: structuredError(error) })
+      }
+    }
+    const identity = (results) => {
+      try { return results.length ? createDatasetId(results, runContext.adjustmentMode ?? LEGACY_ADJUSTMENT_MODE, runContext) : null }
+      catch { return null } // Dataset assembly below still rejects invalid supplied metadata.
+    }
+    executionIdentity = { decisionTimeframe: '1Hour', executionTimeframe: '5Min',
+      hourlyDatasetId: identity(hourlyResults), fiveMinuteDatasetId: identity(fiveResults),
+      fiveMinuteMetadata: effectiveDateProvenanceFor({ ...runContext, timeframe: '5Min' }, executionInputs.fetchResultsBySymbol),
+    }
+  }
   const fetchStatus = fetchStatusFor(runContext, rawSeriesBySymbol, fetchIssues)
   const effectiveDateProvenance = effectiveDateProvenanceFor(runContext, fetchResultsBySymbol)
+  if (executionIdentity) effectiveDateProvenance.executionResolution = executionIdentity
   const providers = new Set(successfulFetchResults.map((result) => result?.provider))
   if (successfulFetchResults.length && (providers.size !== 1 || typeof [...providers][0] !== 'string' || ![...providers][0])) {
     fetchIssues.push({
@@ -547,6 +581,7 @@ export async function executeResearchRun(runContext, options = {}) {
         requestedEnd: runContext.requestedEnd,
         fetchResultsBySymbol,
         rawSeriesBySymbol,
+        ...(executionInputs ? { executionInputs } : {}),
         calculationSeries: calculationSeriesFor(nonEmptyFetchResults),
         effectiveMetadata: effectiveDateProvenance,
       }

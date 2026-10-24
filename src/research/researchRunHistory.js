@@ -40,7 +40,7 @@ export function saveResearchRun(runResult) {
 
 export function projectResearchRunForPersistence(runResult) {
   const dataset = runResult.dataset
-  const { calculationSeries: _calculationSeries, ...datasetForMetadata } = dataset ?? {}
+  const { calculationSeries: _calculationSeries, executionInputs: _executionInputs, ...datasetForMetadata } = dataset ?? {}
   const datasetMetadata = dataset
     ? {
       ...datasetForMetadata,
