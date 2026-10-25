@@ -1394,8 +1394,7 @@ export function CanonicalDatasetSection({
                           'li',
                           {
                             key:
-                              item?.symbol ??
-                              index,
+                              `${item?.symbol ?? 'unknown'}:${item?.timeframe ?? 'unknown'}:${index}`,
                           },
                           `${item?.symbol ?? 'Unknown symbol'} ? ${candles.length} calculation candles${
                             candles.length

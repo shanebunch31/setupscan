@@ -35,6 +35,34 @@ function persistedRun() {
   }
 }
 
+test('canonical series rows have distinct keys for repeated symbols, timeframes, and legacy metadata', () => {
+  const dataset = { datasetId: 'dual-timeframe', calculationSeries: [
+    { symbol: 'SPY', timeframe: '1Hour', candles: [{ timestamp: '2026-01-02T15:00:00Z' }] },
+    { symbol: 'SPY', timeframe: '5Min', candles: [{ timestamp: '2026-01-02T15:05:00Z' }] },
+    { symbol: 'SPY', candles: [] },
+    { symbol: 'SPY', candles: [] },
+    { candles: [] },
+    { candles: [] },
+  ] }
+  const before = structuredClone(dataset)
+  const rows = []
+  function visit(node) {
+    if (Array.isArray(node)) return node.forEach(visit)
+    if (!React.isValidElement(node)) return
+    if (node.type === 'li') rows.push(node)
+    visit(node.props.children)
+  }
+  // Inspect the actual element keys: static HTML does not include React keys.
+  visit(CanonicalDatasetSection({ dataset }))
+  assert.equal(rows.length, dataset.calculationSeries.length)
+  assert.equal(new Set(rows.map((row) => row.key)).size, rows.length)
+  assert.ok(rows.every((row) => row.key !== null))
+  const html = renderToStaticMarkup(React.createElement(CanonicalDatasetSection, { dataset }))
+  assert.ok(html.includes('2026-01-02T15:00:00Z'))
+  assert.ok(html.includes('2026-01-02T15:05:00Z'))
+  assert.deepEqual(dataset, before)
+})
+
 test('Run Detail requests persisted data through getResearchRun with the selected run ID', async () => {
   const calls = []
   const result = await loadResearchRunDetail('run-detail-1', async (runId) => {
