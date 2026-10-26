@@ -266,6 +266,76 @@ test('observer continues evaluating a persisted open trade after downtime from i
   assert.equal(resumed.exitTimestamp, gapTimestamp)
 })
 
+function truncatedRecoveryState() {
+  return {
+    trades: [{
+      id: 'recovery-fixture', symbol: 'SPY', status: 'open',
+      signalTimestamp: '2026-07-01T14:00:00Z', entryTimestamp: '2026-07-01T16:00:00Z',
+      entryPrice: 100, stopPrice: 100.6 * 0.997, targetPrice: 101,
+      highestPrice: 100.6, trailingStopActive: true, holdingBars: 3, holdingTime: 180,
+      lastEvaluatedCandleTimestamp: '2026-09-22T14:00:00Z',
+    }],
+    observer: { activeSymbols: ['SPY'], processedCandles: { SPY: '2026-09-22T15:00:00Z' } },
+  }
+}
+
+test('observer recovers a truncated-history removed position behind its symbol checkpoint, filters incomplete bars, and resumes after restart', async () => {
+  let persisted = truncatedRecoveryState()
+  let current = new Date('2026-09-22T16:30:00Z')
+  let bars = [
+    { timestamp: '2026-09-22T14:00:00Z', open: 100, high: 110, low: 90, close: 100, volume: 100 },
+    { timestamp: '2026-09-22T15:00:00Z', open: 100.7, high: 100.9, low: 100.6, close: 100.8, volume: 100 },
+    { timestamp: '2026-09-22T16:00:00Z', open: 90, high: 91, low: 89, close: 90, volume: 100 },
+  ]
+  const options = {
+    store: { load: () => structuredClone(persisted), save: (state) => { persisted = structuredClone(state) } },
+    environment: {}, symbolUniverse: { getSymbols: async () => [] }, now: () => current,
+    fetchBars: async () => ({ candles: bars }), onError: () => {},
+  }
+  const observer = await createPaperObserver(options)
+  assert.equal((await observer.processOnce()).status, 'RUNNING')
+  assert.equal(persisted.trades.length, 1)
+  assert.equal(persisted.trades[0].status, 'open', 'the incomplete candle and already evaluated bar cannot close the position')
+  assert.equal(persisted.trades[0].holdingBars, 4)
+  assert.equal(persisted.trades[0].highestPrice, 100.9)
+  assert.equal(persisted.trades[0].stopPrice, 100.9 * 0.997)
+  assert.equal(persisted.trades[0].lastEvaluatedCandleTimestamp, bars[1].timestamp)
+  const recovered = structuredClone(persisted.trades)
+  assert.equal((await observer.processOnce()).processed, 0)
+  assert.deepEqual(persisted.trades, recovered)
+  current = new Date('2026-09-22T17:05:00Z')
+  bars = [{ timestamp: '2026-09-22T16:00:00Z', open: 100.4, high: 100.8, low: 100.3, close: 100.6, volume: 100 }]
+  const restarted = await createPaperObserver(options)
+  assert.equal((await restarted.processOnce()).status, 'RUNNING')
+  assert.equal(persisted.trades.length, 1, 'recovery does not create a replacement entry')
+  assert.equal(persisted.trades[0].exitReason, 'Trailing Stop')
+  assert.equal(persisted.trades[0].exitPrice, 100.4)
+  assert.equal(persisted.trades[0].holdingBars, 5)
+  assert.equal(persisted.trades[0].holdingTime, 300)
+})
+
+test('observer explicitly reports invalid truncated-history recovery without advancing its position or checkpoint', async () => {
+  for (const field of ['highestPrice', 'lastEvaluatedCandleTimestamp']) {
+    let persisted = truncatedRecoveryState()
+    delete persisted.trades[0][field]
+    const before = structuredClone(persisted)
+    const errors = []
+    const observer = await createPaperObserver({
+      store: { load: () => structuredClone(persisted), save: (state) => { persisted = structuredClone(state) } },
+      environment: {}, symbolUniverse: { getSymbols: async () => ['SPY'] },
+      now: () => new Date('2026-09-22T17:00:00Z'),
+      fetchBars: async () => ({ candles: [{ timestamp: '2026-09-22T16:00:00Z', open: 100.7, high: 100.9, low: 100.6, close: 100.8, volume: 100 }] }),
+      onError: (error) => errors.push(error),
+    })
+    const result = await observer.processOnce()
+    assert.equal(result.status, 'ERROR')
+    assert.match(result.currentError, /persisted recovery state is missing or inconsistent/)
+    assert.equal(errors[0].code, 'PAPER_TRADE_RECOVERY_INVALID')
+    assert.deepEqual(persisted.trades, before.trades)
+    assert.deepEqual(persisted.observer.processedCandles, before.observer.processedCandles)
+  }
+})
+
 test('records an error and recovers on the next successful cycle', async () => {
   const memory = store()
   let fail = true

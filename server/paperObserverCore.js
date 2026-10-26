@@ -107,7 +107,13 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
         state.dataQualityBySymbol[symbol] = prepared.dataQuality
         const latest = candles.at(-1)
         const needsBaseline = baselinePending.has(symbol)
-        if (!latest || (!needsBaseline && latest.timestamp === state.processedCandles[symbol])) continue
+        // A symbol checkpoint can be ahead of an open trade's own cursor (for
+        // example, after an older engine skipped a truncated-history position).
+        const positionNeedsEvaluation = latest && engine.getState().trades.some((trade) =>
+          trade.symbol === symbol && trade.status === 'open' &&
+          (!Number.isFinite(Date.parse(trade.lastEvaluatedCandleTimestamp)) ||
+            Date.parse(trade.lastEvaluatedCandleTimestamp) < Date.parse(latest.timestamp)))
+        if (!latest || (!needsBaseline && latest.timestamp === state.processedCandles[symbol] && !positionNeedsEvaluation)) continue
         // Cached candles alone cannot clear a baseline after a failed/empty provider response.
         if (needsBaseline && !preparePaperCandles(data.candles ?? [], config.timeframe, current).candles.length) continue
         const previousTimestamp = state.processedCandles[symbol]

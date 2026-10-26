@@ -116,6 +116,30 @@ function closeTrade(trade, candle, exitPrice, exitReason, holdingBars, timeframe
   return { ...trade, status: 'closed', exitTimestamp: candle.timestamp, lastEvaluatedCandleTimestamp: candle.timestamp, exitPrice, exitReason, rMultiple, pnl, holdingTime: Number.isFinite(holdingTime) ? holdingTime : priorMinutes + intervalMinutes, holdingBars }
 }
 
+function assertIndependentRecoveryState(trade, timeframe) {
+  const invalid = []
+  for (const field of ['entryPrice', 'stopPrice', 'targetPrice', 'highestPrice']) {
+    if (!Number.isFinite(trade[field]) || trade[field] <= 0) invalid.push(field)
+  }
+  const entry = Date.parse(trade.entryTimestamp)
+  const signal = Date.parse(trade.signalTimestamp)
+  const cursor = Date.parse(trade.lastEvaluatedCandleTimestamp)
+  const cursorEnd = historicalCandleEndTime(trade.lastEvaluatedCandleTimestamp, timeframe)
+  if (!Number.isFinite(entry) || !Number.isFinite(signal) || entry < signal) invalid.push('entryTimestamp/signalTimestamp')
+  if (!Number.isFinite(cursor) || cursorEnd === null || cursorEnd < entry || cursor < signal) invalid.push('lastEvaluatedCandleTimestamp')
+  if (!Number.isInteger(trade.holdingBars) || trade.holdingBars < 0 || trade.holdingBars >= MAX_HOLDING_BARS) invalid.push('holdingBars')
+  if (!Number.isFinite(trade.holdingTime) || trade.holdingTime < 0 ||
+    (trade.holdingBars === 0 ? trade.holdingTime !== 0 : trade.holdingTime <= 0)) invalid.push('holdingTime')
+  if (typeof trade.trailingStopActive !== 'boolean') invalid.push('trailingStopActive')
+  if (trade.targetPrice <= trade.entryPrice || trade.stopPrice >= trade.targetPrice ||
+    trade.highestPrice < trade.entryPrice || trade.stopPrice > trade.highestPrice ||
+    (!trade.trailingStopActive && trade.stopPrice > trade.entryPrice)) invalid.push('price relationships')
+  if (['exitTimestamp', 'exitPrice', 'exitReason', 'rMultiple', 'pnl'].some((field) => trade[field] != null)) invalid.push('open/exit state')
+  if (invalid.length) {
+    throw Object.assign(new Error(`Cannot resume open paper position for ${trade.symbol}: original signal candle is unavailable and persisted recovery state is missing or inconsistent (${invalid.join(', ')}).`), { code: 'PAPER_TRADE_RECOVERY_INVALID' })
+  }
+}
+
 function updateTrade(
   trade,
   candles,
@@ -280,6 +304,13 @@ export function createPaperTradingEngine({
 
   function processCandles(symbol, candles, { newEntrySignalTimestamp = null, signalDetectedAt = null, allowNewEntries = true } = {}) {
     const { candles: sortedCandles } = validateAndOrderHistoricalCandles(candles)
+    // Validate before any entry or trade changes. Without original history, do
+    // not infer a cursor, elapsed bars, or trailing state from missing evidence.
+    for (const trade of journal.trades) {
+      if (trade.symbol === symbol && trade.status === 'open' && !sortedCandles.some((candle) => candle.timestamp === trade.signalTimestamp)) {
+        assertIndependentRecoveryState(trade, timeframe)
+      }
+    }
     // Paper trading currently supports long, qualified setups only.
     const signals = scanSetups(sortedCandles).filter((signal) => signal.qualifiedSetup === true)
     // Callers may provide a clock so detection is timestamped after the scanner has
@@ -343,15 +374,13 @@ export function createPaperTradingEngine({
     journal.trades = journal.trades.map((trade) => {
       if (trade.symbol !== symbol || trade.status === 'closed') return trade
       const signalIndex = sortedCandles.findIndex((candle) => candle.timestamp === trade.signalTimestamp)
-      return signalIndex >= 0
-  ? updateTrade(
-      trade,
-      sortedCandles,
-      signalIndex,
-      trailingStop,
-      timeframe,
-    )
-  : trade
+      return updateTrade(
+        trade,
+        sortedCandles,
+        signalIndex,
+        trailingStop,
+        timeframe,
+      )
     })
     saveState(journal)
     return journal

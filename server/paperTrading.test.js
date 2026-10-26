@@ -416,3 +416,120 @@ test('removing a symbol cancels its pending entry even without new candles to pr
   engine.processCandles('SPY', rows)
   assert.equal(engine.getJournal().trades.length, 0, 're-enabling cannot revive a pending entry cancelled at removal')
 })
+
+function recoveryFixture() {
+  const history = candles().slice(0, 4)
+  for (let i = 1; i < history.length; i += 1) {
+    history[i] = { ...history[i], open: 100, high: 100.2, low: 99.9, close: 100 }
+  }
+  const engine = createPaperTradingEngine()
+  processWithInitialSignal(engine, history)
+  assert.equal(engine.getState().trades[0].holdingBars, 2)
+  return { history, state: engine.getState() }
+}
+
+function recoveryBar(hour, prices = {}) {
+  return { timestamp: new Date(Date.UTC(2026, 0, 1, hour)).toISOString(), open: 100, high: 100.2, low: 99.9, close: 100, volume: 1000, ...prices }
+}
+
+test('truncated history resumes from the trade cursor and matches the full-history result without duplicate evaluation', () => {
+  const { state, history } = recoveryFixture()
+  const full = createPaperTradingEngine({ state: structuredClone(state) })
+  const truncated = createPaperTradingEngine({ state: structuredClone(state) })
+  const next = recoveryBar(4)
+  // A previously evaluated bar now showing an extreme range must not be replayed.
+  const prior = recoveryBar(3, { high: 110, low: 90 })
+  full.processCandles('SPY', [...history.slice(0, 3), prior, next])
+  truncated.processCandles('SPY', [prior, next, next])
+  assert.deepEqual(truncated.getState(), full.getState())
+  const recovered = truncated.getState()
+  assert.equal(recovered.trades.length, 1)
+  assert.equal(recovered.trades[0].status, 'open')
+  assert.equal(recovered.trades[0].holdingBars, 3)
+  assert.equal(recovered.trades[0].holdingTime, 180)
+  assert.equal(recovered.trades[0].lastEvaluatedCandleTimestamp, next.timestamp)
+  truncated.processCandles('SPY', [prior, next])
+  assert.deepEqual(truncated.getState(), recovered)
+})
+
+test('recovery retains and ratchets trailing state across restarts before a later trailing-stop gap', () => {
+  const { state } = recoveryFixture()
+  const first = createPaperTradingEngine({ state })
+  first.processCandles('SPY', [recoveryBar(4, { high: 100.6, close: 100.5 })])
+  const activated = first.getState()
+  assert.equal(activated.trades[0].status, 'open', 'newly raised stop cannot act on the activation candle')
+  assert.equal(activated.trades[0].trailingStopActive, true)
+  assert.equal(activated.trades[0].highestPrice, 100.6)
+  assert.equal(activated.trades[0].stopPrice, 100.6 * 0.997)
+  const restarted = createPaperTradingEngine({ state: JSON.parse(JSON.stringify(activated)) })
+  restarted.processCandles('SPY', [recoveryBar(5, { open: 100.7, high: 100.9, low: 100.6, close: 100.8 })])
+  assert.equal(restarted.getState().trades[0].stopPrice, 100.9 * 0.997)
+  restarted.processCandles('SPY', [recoveryBar(6, { open: 100.4, high: 100.8, low: 100.3, close: 100.6 })])
+  const closed = restarted.getState().trades[0]
+  assert.equal(closed.exitReason, 'Trailing Stop')
+  assert.equal(closed.exitPrice, 100.4)
+  assert.equal(closed.highestPrice, 100.9)
+  assert.equal(closed.holdingBars, 5)
+})
+
+for (const [label, prices, reason, price] of [
+  ['fixed stop', { low: 99.4 }, 'Stop', 99.5],
+  ['adverse stop gap', { open: 99, high: 101.2, low: 98.8, close: 99 }, 'Stop', 99],
+  ['target', { high: 101.2 }, 'Target', 101],
+  ['target gap', { open: 102, high: 103, low: 99, close: 100 }, 'Target', 101],
+  ['both barriers', { high: 101.2, low: 99 }, 'Stop', 99.5],
+]) {
+  test(`recovery without the signal candle preserves ${label} execution`, () => {
+    const { state } = recoveryFixture()
+    const engine = createPaperTradingEngine({ state })
+    engine.processCandles('SPY', [recoveryBar(4, prices)])
+    const closed = engine.getState().trades[0]
+    assert.equal(closed.status, 'closed')
+    assert.equal(closed.exitReason, reason)
+    assert.equal(closed.exitPrice, price)
+    assert.equal(closed.holdingBars, 3)
+    engine.processCandles('SPY', [recoveryBar(5, { high: 110, low: 90 })])
+    assert.deepEqual(engine.getState().trades[0], closed)
+  })
+}
+
+test('recovery counts available new bars only and expires at the unchanged 12-bar cap with final trailing state', () => {
+  const { state } = recoveryFixture()
+  Object.assign(state.trades[0], { holdingBars: 10, holdingTime: 600, lastEvaluatedCandleTimestamp: recoveryBar(11).timestamp })
+  const engine = createPaperTradingEngine({ state })
+  // No bars are invented for the calendar gap in the supplied history.
+  engine.processCandles('SPY', [recoveryBar(50)])
+  assert.equal(engine.getState().trades[0].holdingBars, 11)
+  assert.equal(engine.getState().trades[0].status, 'open')
+  engine.processCandles('SPY', [recoveryBar(50), recoveryBar(51, { high: 100.6, close: 100.5 }), recoveryBar(52)])
+  const trade = engine.getState().trades[0]
+  assert.equal(trade.exitReason, 'Expired')
+  assert.equal(trade.exitTimestamp, recoveryBar(51).timestamp)
+  assert.equal(trade.holdingBars, 12)
+  assert.equal(trade.holdingTime, 720)
+  assert.equal(trade.trailingStopActive, true)
+  assert.equal(trade.highestPrice, 100.6)
+  assert.equal(trade.stopPrice, 100.6 * 0.997)
+})
+
+test('missing or inconsistent independent recovery state fails explicitly without altering trades or saving', () => {
+  for (const invalid of [
+    { entryPrice: NaN }, { stopPrice: 0 }, { targetPrice: undefined },
+    { highestPrice: undefined }, { highestPrice: 90 }, { trailingStopActive: undefined },
+    { holdingBars: undefined }, { holdingBars: 12 }, { holdingBars: -1 },
+    { holdingTime: undefined }, { holdingTime: -1 },
+    { lastEvaluatedCandleTimestamp: undefined }, { lastEvaluatedCandleTimestamp: 'bad date' },
+    { lastEvaluatedCandleTimestamp: '2025-01-01T00:00:00Z' },
+    { entryTimestamp: undefined }, { entryTimestamp: '2027-01-01T00:00:00Z' },
+    { stopPrice: 102 }, { targetPrice: 99 }, { exitReason: 'Stop' },
+  ]) {
+    const { state } = recoveryFixture()
+    Object.assign(state.trades[0], invalid)
+    const before = structuredClone(state)
+    let saves = 0
+    const engine = createPaperTradingEngine({ state, saveState: () => { saves += 1 } })
+    assert.throws(() => engine.processCandles('SPY', [recoveryBar(4)]), { code: 'PAPER_TRADE_RECOVERY_INVALID' })
+    assert.deepEqual(engine.getState(), before)
+    assert.equal(saves, 0)
+  }
+})
