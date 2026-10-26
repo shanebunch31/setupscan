@@ -70,6 +70,32 @@ test('dashboard does not silently fall back to JSON when the PostgreSQL observer
   assert.equal(jsonFactoryCalls, 0)
 })
 
+test('dashboard exposes persisted per-symbol freshness and failures instead of treating an old checkpoint as healthy', async () => {
+  for (const dataStatus of ['EMPTY', 'STALE', 'INCOMPLETE', 'FETCH_ERROR', 'TIMEOUT', 'PROCESSING_ERROR']) {
+    const observation = { dataStatus, checkedAt: '2026-01-02T17:00:00Z', lastFreshDataAt: '2026-01-02T16:00:00Z', error: 'fixture data unavailable' }
+    const state = { ...persistedState, observer: { ...persistedState.observer, status: 'ERROR', cycleOutcome: 'PARTIAL', symbolResults: { SPY: observation } } }
+    let writes = 0
+    const service = createPaperService({ store: { read: () => state, save: () => { writes += 1 } } })
+    const snapshot = await service.readSnapshot()
+    const row = snapshot.data.find((item) => item.symbol === 'SPY')
+    assert.equal(row.status, dataStatus)
+    assert.equal(row.error, observation.error)
+    assert.deepEqual(row.observation, observation)
+    assert.equal(snapshot.observer.cycleOutcome, 'PARTIAL')
+    assert.equal(writes, 0)
+  }
+})
+
+test('dashboard distinguishes unchanged polling and market closure from failed data checks', async () => {
+  for (const dataStatus of ['NO_NEW_DATA', 'MARKET_CLOSED']) {
+    const state = { ...persistedState, observer: { ...persistedState.observer, symbolResults: { SPY: { dataStatus } } } }
+    const snapshot = await createPaperService({ store: { read: () => state } }).readSnapshot()
+    const row = snapshot.data.find((item) => item.symbol === 'SPY')
+    assert.equal(row.status, 'AVAILABLE')
+    assert.equal(row.dataStatus, dataStatus)
+  }
+})
+
 test('dashboard snapshot reads do not fetch candles, create trades, or save state', async () => {
   let reads = 0
   let saves = 0

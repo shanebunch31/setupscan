@@ -22,15 +22,19 @@ function observerData(state, symbols, configuredSymbols) {
   return symbols.map((symbol) => {
     const dataQuality = observer?.dataQualityBySymbol?.[symbol]
     const processedCandle = observer?.processedCandles?.[symbol] ?? null
+    const observation = observer?.symbolResults?.[symbol]
+    const dataProblem = observation && !['FRESH', 'NO_NEW_DATA', 'WAITING_FOR_COMPLETION', 'MARKET_CLOSED'].includes(observation.dataStatus)
     return {
       symbol,
       status: configured.has(symbol)
-        ? (processedCandle && !observer?.baselinePendingSymbols?.includes(symbol) && observer?.activeSymbols?.includes(symbol) !== false ? 'AVAILABLE' : 'PENDING BASELINE')
+        ? (dataProblem ? observation.dataStatus : processedCandle && !observer?.baselinePendingSymbols?.includes(symbol) && observer?.activeSymbols?.includes(symbol) !== false ? 'AVAILABLE' : 'PENDING BASELINE')
         : (openSymbols.has(symbol) ? 'REMOVED — OPEN POSITION MANAGEMENT ONLY' : 'HISTORICAL — NOT ENABLED'),
       ...(processedCandle ? { lastProcessedCandle: processedCandle } : { error: configured.has(symbol)
         ? 'No completed candle checkpoint is available for this symbol.'
         : (openSymbols.has(symbol) ? 'This symbol is no longer enabled for new entries; an existing position is still managed.' : 'This symbol appears only in retained paper-trade history and is not enabled for new entries.') }),
       ...(dataQuality ? { dataQuality } : {}),
+      ...(observation ? { observation, dataStatus: observation.dataStatus } : {}),
+      ...(dataProblem ? { error: observation.error ?? `Latest observer check reported ${observation.dataStatus.toLowerCase().replaceAll('_', ' ')} data.` } : {}),
       entryPolicy: configured.has(symbol)
         ? 'Observer-only; this dashboard does not fetch candles, create paper entries, or update paper trades.'
         : (openSymbols.has(symbol) ? 'New entries are disabled. The observer continues managing an existing open paper position only.' : 'New entries are disabled. This symbol is retained only for historical paper-trade reporting.'),

@@ -4,6 +4,7 @@ import { configFromEnvironment, createPaperObserver } from './paperObserverCore.
 import { completedHourlyCandles, isRegularSession } from './marketSession.js'
 import { preparePaperCandles } from './paperCandlePipeline.js'
 import { scanSetups } from '../src/logic/scanner.js'
+import { createPaperService } from './paperService.js'
 
 function candles() {
   const closes = [
@@ -82,6 +83,282 @@ test('only processes completed candles during the regular session', () => {
   assert.equal(isRegularSession(new Date('2026-09-20T14:30:00Z')), false)
 })
 
+function freshnessBar(timestamp = '2026-09-22T15:00:00Z', prices = {}) {
+  return { timestamp, open: 100, high: 100.2, low: 99.9, close: 100, volume: 100, ...prices }
+}
+
+test('a stalled request times out, aborts, attempts later symbols, and ignores late completion', { timeout: 2000 }, async () => {
+  let finishLate
+  let abortSignal
+  const calls = []
+  const observer = await createPaperObserver({
+    store: store(), environment: { PAPER_FETCH_TIMEOUT_MS: '10' },
+    symbolUniverse: { getSymbols: async () => ['BAD', 'GOOD'] },
+    now: () => new Date('2026-09-22T16:15:00Z'), onError: () => {},
+    fetchBars: ({ symbol, signal }) => {
+      calls.push(symbol)
+      if (symbol === 'BAD') {
+        abortSignal = signal
+        return new Promise((resolve) => { finishLate = resolve })
+      }
+      return { candles: [freshnessBar()] }
+    },
+  })
+  const result = await observer.processOnce()
+  assert.deepEqual(calls, ['BAD', 'GOOD'])
+  assert.equal(abortSignal.aborted, true)
+  assert.equal(result.status, 'ERROR')
+  assert.equal(result.cycleOutcome, 'PARTIAL')
+  assert.equal(result.symbolResults.BAD.dataStatus, 'TIMEOUT')
+  assert.equal(result.symbolResults.GOOD.dataStatus, 'FRESH')
+  assert.equal(result.cycleSummary.fresh, 1)
+  assert.deepEqual(result.baselinePendingSymbols, ['BAD'])
+  const before = structuredClone(observer.status())
+  finishLate({ candles: [freshnessBar()] })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(observer.status(), before)
+})
+
+test('fresh, unchanged, and stale data have distinct metadata; polling alone cannot renew freshness', async () => {
+  let current = new Date('2026-09-22T16:15:00Z')
+  const observer = await createPaperObserver({
+    store: store(), environment: {}, symbolUniverse: { getSymbols: async () => ['SPY'] },
+    now: () => current, fetchBars: async () => ({ candles: [freshnessBar()] }), onError: () => {},
+  })
+  const fresh = await observer.processOnce()
+  assert.equal(fresh.cycleOutcome, 'FRESH')
+  assert.equal(fresh.lastSuccessfulUpdate, current.toISOString())
+  const freshAt = fresh.symbolResults.SPY.lastFreshDataAt
+  current = new Date('2026-09-22T16:30:00Z')
+  const unchanged = await observer.processOnce()
+  assert.equal(unchanged.status, 'RUNNING')
+  assert.equal(unchanged.cycleOutcome, 'NO_NEW_DATA')
+  assert.equal(unchanged.symbolResults.SPY.dataStatus, 'NO_NEW_DATA')
+  assert.equal(unchanged.lastSuccessfulUpdate, freshAt)
+  assert.equal(unchanged.symbolResults.SPY.lastSuccessfulPollAt, current.toISOString())
+  current = new Date('2026-09-22T17:10:00Z')
+  const stale = await observer.processOnce()
+  assert.equal(stale.status, 'ERROR')
+  assert.equal(stale.symbolResults.SPY.dataStatus, 'STALE')
+  assert.equal(stale.lastSuccessfulUpdate, freshAt)
+  assert.equal(stale.symbolResults.SPY.lastFreshDataAt, freshAt)
+})
+
+test('empty responses cannot reuse cached candles as fresh provider success', async () => {
+  let response = { candles: [freshnessBar()] }
+  const observer = await createPaperObserver({
+    store: store(), environment: {}, symbolUniverse: { getSymbols: async () => ['SPY'] },
+    now: () => new Date('2026-09-22T16:15:00Z'), fetchBars: async () => response, onError: () => {},
+  })
+  const initial = await observer.processOnce()
+  response = { candles: [] }
+  const empty = await observer.processOnce()
+  assert.equal(empty.status, 'ERROR')
+  assert.equal(empty.symbolResults.SPY.dataStatus, 'EMPTY')
+  assert.equal(empty.cycleSummary.fresh, 0)
+  assert.equal(empty.lastSuccessfulUpdate, initial.lastSuccessfulUpdate)
+})
+
+test('consecutive NO_NEW_DATA polls persist newer timestamps visible to a separate dashboard reader', async () => {
+  let current = new Date('2026-09-22T16:15:00Z')
+  let saved = { trades: [] }
+  let saves = 0
+  const observer = await createPaperObserver({
+    store: { load: () => structuredClone(saved), save: (next) => { saved = structuredClone(next); saves += 1 } },
+    environment: {}, symbolUniverse: { getSymbols: async () => ['SPY'] },
+    now: () => current, fetchBars: async () => ({ candles: [freshnessBar()] }), onError: () => {},
+  })
+  const dashboard = createPaperService({ store: { read: () => structuredClone(saved) }, environment: { PAPER_SYMBOLS: 'SPY' } })
+  const fresh = await observer.processOnce()
+  let previousPoll
+  for (const timestamp of ['2026-09-22T16:16:00Z', '2026-09-22T16:17:00Z']) {
+    current = new Date(timestamp)
+    const result = await observer.processOnce()
+    assert.equal(result.cycleOutcome, 'NO_NEW_DATA')
+    assert.equal(result.processed, 0)
+    const snapshot = await dashboard.readSnapshot()
+    const observation = snapshot.data.find((row) => row.symbol === 'SPY').observation
+    assert.equal(observation.checkedAt, current.toISOString())
+    assert.equal(observation.lastSuccessfulPollAt, current.toISOString())
+    assert.notEqual(observation.lastSuccessfulPollAt, previousPoll)
+    assert.equal(observation.lastFreshDataAt, fresh.lastSuccessfulUpdate)
+    assert.equal(snapshot.observer.lastSuccessfulUpdate, fresh.lastSuccessfulUpdate)
+    previousPoll = observation.lastSuccessfulPollAt
+  }
+  assert.equal(saves, 3)
+})
+
+test('freshness opening grace uses the configured market timezone without changing the default', async () => {
+  for (const [environment, expected] of [
+    [{}, 'STALE'],
+    [{ PAPER_MARKET_TIMEZONE: 'America/Chicago' }, 'WAITING_FOR_COMPLETION'],
+  ]) {
+    const observer = await createPaperObserver({
+      store: store(), environment, symbolUniverse: { getSymbols: async () => ['SPY'] },
+      // 10:45 Eastern, but 09:45 Central: only Central is in first-interval grace.
+      now: () => new Date('2026-09-22T14:45:00Z'),
+      fetchBars: async () => ({ candles: [freshnessBar('2026-09-21T19:00:00Z')] }), onError: () => {},
+    })
+    const result = await observer.processOnce()
+    assert.equal(result.symbolResults.SPY.dataStatus, expected)
+    assert.equal(result.processed, 0)
+    assert.equal(result.lastSuccessfulUpdate, null)
+    assert.deepEqual(result.baselinePendingSymbols, ['SPY'])
+  }
+})
+
+test('stale or insufficient responses cannot advance positions, checkpoints, baselines, or cached context; clean data recovers', async () => {
+  const closingBar = freshnessBar(undefined, { open: 100.2, low: 100.1, high: 100.4, close: 100.3 })
+  for (const [response, current, expected] of [
+    [{ candles: [closingBar] }, '2026-09-22T17:10:00Z', 'STALE'],
+    [{ candles: [closingBar], complete: false }, '2026-09-22T16:15:00Z', 'INCOMPLETE'],
+    [{ candles: [closingBar, freshnessBar('2026-09-22T13:00:00Z', { low: -1 })] }, '2026-09-22T16:15:00Z', 'INCOMPLETE'],
+    [{ candles: [freshnessBar('2026-09-22T16:00:00Z')] }, '2026-09-22T16:15:00Z', 'INCOMPLETE'],
+    [{ candles: [] }, '2026-09-22T16:15:00Z', 'EMPTY'],
+  ]) {
+    let saved = truncatedRecoveryState()
+    saved.observer.activeSymbols = []
+    saved.observer.processedCandles.SPY = '2026-09-22T14:00:00Z'
+    const before = structuredClone(saved)
+    let data = response
+    const starts = []
+    const observer = await createPaperObserver({
+      store: { load: () => structuredClone(saved), save: (next) => { saved = structuredClone(next) } },
+      environment: {}, symbolUniverse: { getSymbols: async () => ['SPY'] },
+      now: () => new Date(current),
+      fetchBars: async ({ start }) => { starts.push(start); return data }, onError: () => {},
+    })
+    const blocked = await observer.processOnce()
+    assert.equal(blocked.symbolResults.SPY.dataStatus, expected)
+    assert.equal(blocked.symbolResults.SPY.processed, false)
+    assert.equal(blocked.processed, 0)
+    assert.equal(blocked.lastSuccessfulUpdate, null)
+    assert.deepEqual(saved.trades, before.trades)
+    assert.deepEqual(saved.observer.processedCandles, before.observer.processedCandles)
+    assert.deepEqual(saved.observer.baselinePendingSymbols, ['SPY'])
+    // A later clean response supplies actual data; no rejected or stale cache is reused.
+    data = { candles: [closingBar, { ...closingBar, timestamp: '2026-09-22T16:00:00Z' }] }
+    const recovered = await observer.processOnce()
+    assert.equal(starts[1], starts[0])
+    assert.equal(recovered.status, 'RUNNING')
+    assert.equal(recovered.symbolResults.SPY.dataStatus, 'FRESH')
+    assert.equal(recovered.consecutiveFailures, 0)
+    assert.deepEqual(saved.observer.baselinePendingSymbols, [])
+    assert.equal(saved.trades.length, 1)
+    assert.equal(saved.trades[0].exitReason, 'Trailing Stop')
+    assert.equal(saved.trades[0].holdingBars, 4)
+  }
+})
+
+test('unfinished, invalid, or explicitly incomplete inputs never count as fresh usable data', async () => {
+  for (const response of [
+    { candles: [freshnessBar('2026-09-22T16:00:00Z')] },
+    { candles: [freshnessBar(undefined, { open: NaN })] },
+    { candles: [freshnessBar()], complete: false },
+    { candles: [freshnessBar(), freshnessBar('2026-09-22T14:00:00Z', { open: NaN })] },
+  ]) {
+    const observer = await createPaperObserver({
+      store: store(), environment: {}, symbolUniverse: { getSymbols: async () => ['SPY'] },
+      now: () => new Date('2026-09-22T16:15:00Z'), fetchBars: async () => response, onError: () => {},
+    })
+    const result = await observer.processOnce()
+    assert.equal(result.status, 'ERROR')
+    assert.equal(result.symbolResults.SPY.dataStatus, 'INCOMPLETE')
+    assert.equal(result.lastSuccessfulUpdate, null)
+    assert.equal(result.cycleSummary.fresh, 0)
+    assert.equal(result.symbolResults.SPY.lastFreshDataAt, null)
+    assert.equal(observer.getState().trades.length, 0)
+  }
+})
+
+test('the known short-tail minimum-count warning is assessed against retained context without hiding the provider flag', async () => {
+  let current = new Date('2026-09-22T16:15:00Z')
+  let response = { candles: Array.from({ length: 20 }, (_, i) => freshnessBar(new Date(Date.parse('2026-09-22T15:00:00Z') - i * 3600000).toISOString())), complete: true }
+  const observer = await createPaperObserver({
+    store: store(), environment: {}, symbolUniverse: { getSymbols: async () => ['SPY'] },
+    now: () => current, fetchBars: async () => response, onError: () => {},
+  })
+  await observer.processOnce()
+  current = new Date('2026-09-22T17:15:00Z')
+  response = { candles: [freshnessBar('2026-09-22T16:00:00Z')], complete: false, minimumExpectedCandles: 20 }
+  const result = await observer.processOnce()
+  assert.equal(result.symbolResults.SPY.providerComplete, false)
+  assert.equal(result.symbolResults.SPY.contextSatisfiesProviderMinimum, true)
+  assert.equal(result.symbolResults.SPY.dataStatus, 'FRESH')
+})
+
+test('closed sessions and the wait for the first session interval do not invent fresh data or data failures', async () => {
+  let current = new Date('2026-09-20T16:00:00Z')
+  let calls = 0
+  const observer = await createPaperObserver({
+    store: store(), environment: {}, symbolUniverse: { getSymbols: async () => ['SPY'] }, now: () => current,
+    fetchBars: async () => { calls += 1; return { candles: [freshnessBar('2026-09-18T19:00:00Z')] } }, onError: () => {},
+  })
+  const closed = await observer.processOnce()
+  assert.equal(closed.status, 'IDLE')
+  assert.equal(closed.cycleOutcome, 'MARKET_CLOSED')
+  assert.equal(closed.lastSuccessfulUpdate, null)
+  assert.equal(calls, 0)
+  current = new Date('2026-09-21T13:45:00Z')
+  const opening = await observer.processOnce()
+  assert.equal(opening.status, 'RUNNING')
+  assert.equal(opening.symbolResults.SPY.dataStatus, 'WAITING_FOR_COMPLETION')
+  assert.equal(opening.lastSuccessfulUpdate, null)
+})
+
+test('one symbol failure does not block open-position recovery and a later cycle clears partial failure', async () => {
+  const initial = truncatedRecoveryState()
+  initial.observer.processedCandles.SPY = '2026-09-22T14:00:00Z'
+  let persisted = initial
+  let fail = true
+  const calls = []
+  const observer = await createPaperObserver({
+    store: { load: () => structuredClone(persisted), save: (state) => { persisted = structuredClone(state) } },
+    environment: {}, symbolUniverse: { getSymbols: async () => ['BAD', 'SPY'] },
+    now: () => new Date('2026-09-22T16:15:00Z'), onError: () => {},
+    fetchBars: async ({ symbol }) => {
+      calls.push(symbol)
+      if (symbol === 'BAD' && fail) throw new Error('fixture provider failure')
+      return { candles: [freshnessBar(undefined, { open: 100.2, low: 100.1, high: 100.4, close: 100.3 })] }
+    },
+  })
+  const partial = await observer.processOnce()
+  assert.deepEqual(calls, ['BAD', 'SPY'])
+  assert.equal(partial.status, 'ERROR')
+  assert.equal(partial.cycleOutcome, 'PARTIAL')
+  assert.equal(partial.symbolResults.BAD.dataStatus, 'FETCH_ERROR')
+  assert.equal(persisted.trades[0].exitReason, 'Trailing Stop')
+  fail = false
+  const recovered = await observer.processOnce()
+  assert.equal(recovered.status, 'RUNNING')
+  assert.equal(recovered.currentError, null)
+  assert.equal(recovered.consecutiveFailures, 0)
+  assert.equal(recovered.symbolResults.BAD.dataStatus, 'FRESH')
+})
+
+test('a position processing failure does not prevent later symbols from being evaluated', async () => {
+  const initial = truncatedRecoveryState()
+  initial.trades[0].symbol = 'BAD'
+  delete initial.trades[0].highestPrice
+  const observer = await createPaperObserver({
+    store: { load: () => initial, save: () => {} }, environment: {},
+    symbolUniverse: { getSymbols: async () => ['BAD', 'GOOD'] },
+    now: () => new Date('2026-09-22T16:15:00Z'),
+    fetchBars: async () => ({ candles: [freshnessBar()] }), onError: () => {},
+  })
+  const result = await observer.processOnce()
+  assert.equal(result.cycleOutcome, 'PARTIAL')
+  assert.equal(result.symbolResults.BAD.dataStatus, 'PROCESSING_ERROR')
+  assert.equal(result.symbolResults.BAD.errorCode, 'PAPER_TRADE_RECOVERY_INVALID')
+  assert.equal(result.symbolResults.GOOD.dataStatus, 'FRESH')
+})
+
+test('fetch timeout configuration is finite and bounded', () => {
+  assert.equal(configFromEnvironment({}).fetchTimeoutMs, 30000)
+  for (const value of ['bad', '-1', 'Infinity', '0']) assert.equal(configFromEnvironment({ PAPER_FETCH_TIMEOUT_MS: value }).fetchTimeoutMs, 30000)
+  assert.equal(configFromEnvironment({ PAPER_FETCH_TIMEOUT_MS: '9999999' }).fetchTimeoutMs, 120000)
+})
+
 test('scheduled processing creates once, persists checkpoint, and skips unchanged candles', async () => {
   const memory = store()
   let calls = 0
@@ -116,7 +393,7 @@ test('retains warm-up context locally and fetches only an incremental tail after
   assert.equal(starts[3], firstProcessedCandle, 'the next cycle requests from the cached completed candle instead of redownloading the warm-up range')
 })
 
-test('does not rewrite durable observer state when no completed candle or status transition changed', async () => {
+test('does not rewrite identical observer state when even the successful-poll timestamp is unchanged', async () => {
   let saved = { trades: [] }
   let saves = 0
   const observer = await createPaperObserver({
@@ -131,8 +408,9 @@ test('does not rewrite durable observer state when no completed candle or status
 
   await observer.processOnce()
   await observer.processOnce()
+  await observer.processOnce()
 
-  assert.equal(saves, 1)
+  assert.equal(saves, 2, 'persist the fresh-to-unchanged transition once, then avoid redundant writes')
 })
 
 test('restart recovers persisted trades and checkpoints without duplicates', async () => {
@@ -486,7 +764,7 @@ test('overlapping calls share one cycle, repeated failures retry at a bounded ca
   pending.callback()
   await new Promise((resolve) => setImmediate(resolve))
   assert.equal(scheduled.length, 1, 'the fake queue retains the cancelled callback')
-  assert.equal(fetchCalls, 2, 'a cancelled callback does not begin another cycle')
+  assert.equal(fetchCalls, 6, 'two cycles attempt all three symbols; a cancelled callback does not begin another cycle')
 })
 
 test('observer establishes a fresh baseline for a newly enabled symbol and reads the universe every cycle', async () => {
