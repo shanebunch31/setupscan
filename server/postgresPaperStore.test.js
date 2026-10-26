@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
+import { isDeepStrictEqual } from 'node:util'
 import { test } from 'node:test'
 import { createPostgresPaperStore } from './postgresPaperStore.js'
+import { createPaperObserver } from './paperObserverCore.js'
 
 class RetryablePool extends EventEmitter {
   constructor() {
@@ -46,13 +48,17 @@ test('idle PostgreSQL pool errors are captured instead of becoming unhandled pro
 
 class TransactionClientPool extends EventEmitter {
   constructor() { super(); this.clients = []; this.onQuery = null }
+  async query(text) {
+    assert.match(text, /^SELECT state/)
+    return { rows: [] }
+  }
   async connect() {
     const client = new EventEmitter()
     client.queries = []
     client.releases = []
     client.query = async (text, values) => {
       client.queries.push(text)
-      return this.onQuery?.(client, text, values) ?? { rows: [] }
+      return this.onQuery?.(client, text, values) ?? { rows: text.startsWith('INSERT INTO paper_observer_state') ? [{ id: 1 }] : [] }
     }
     client.release = (error) => {
       assert.equal(client.listenerCount('error'), 1, 'client remains protected through release')
@@ -70,7 +76,7 @@ for (const phase of ['BEGIN', 'INSERT INTO paper_observer_state', 'COMMIT']) {
   test(`checked-out connection error at ${phase} rejects save and discards the client`, { timeout: 2000 }, async () => {
     const pool = new TransactionClientPool()
     const store = createPostgresPaperStore({ pool })
-    await store.init()
+    await store.load()
     const failure = new Error('Connection terminated unexpectedly')
     let finishQuery
     pool.onQuery = (client, text) => {
@@ -98,7 +104,7 @@ for (const phase of ['BEGIN', 'INSERT INTO paper_observer_state', 'COMMIT']) {
 test('connection error between transaction queries prevents the next write', async () => {
   const pool = new TransactionClientPool()
   const store = createPostgresPaperStore({ pool })
-  await store.init()
+  await store.load()
   const failure = new Error('connection lost between queries')
   pool.onQuery = (client, text) => {
     if (text.startsWith('INSERT INTO paper_observer_state')) {
@@ -116,7 +122,7 @@ for (const phase of ['BEGIN', 'INSERT INTO paper_trades', 'COMMIT']) {
   test(`query rejection at ${phase} preserves rollback and appropriate client disposal`, async () => {
     const pool = new TransactionClientPool()
     const store = createPostgresPaperStore({ pool })
-    await store.init()
+    await store.load()
     const failure = new Error('query failed')
     pool.onQuery = (_, text) => { if (text.startsWith(phase)) throw failure }
     await assert.rejects(store.save(transactionState, transactionMetadata), (error) => error === failure)
@@ -131,7 +137,7 @@ for (const phase of ['BEGIN', 'INSERT INTO paper_trades', 'COMMIT']) {
 test('rollback failure discards the connection and preserves the original query error', async () => {
   const pool = new TransactionClientPool()
   const store = createPostgresPaperStore({ pool })
-  await store.init()
+  await store.load()
   const failure = new Error('write failed')
   const rollbackFailure = new Error('rollback failed')
   pool.onQuery = (_, text) => {
@@ -145,7 +151,7 @@ test('rollback failure discards the connection and preserves the original query 
 test('connection error during rollback rejects promptly and discards the client', { timeout: 2000 }, async () => {
   const pool = new TransactionClientPool()
   const store = createPostgresPaperStore({ pool })
-  await store.init()
+  await store.load()
   const failure = new Error('connection lost during rollback')
   pool.onQuery = (client, text) => {
     if (text.startsWith('INSERT INTO paper_trades')) throw new Error('write failed')
@@ -166,7 +172,7 @@ test('initialization connection errors reject safely and allow a fresh-client re
   await assert.rejects(store.init(), (error) => error === failure)
   assert.deepEqual(pool.clients[0].releases, [failure])
   pool.onQuery = null
-  await store.init()
+  await store.load()
   assert.equal(pool.clients.length, 2)
   assert.deepEqual(pool.clients[1].releases, [undefined])
   assert.equal(pool.clients[1].listenerCount('error'), 0)
@@ -175,7 +181,7 @@ test('initialization connection errors reject safely and allow a fresh-client re
 test('successful snapshot save keeps all writes inside one transaction and releases normally', async () => {
   const pool = new TransactionClientPool()
   const store = createPostgresPaperStore({ pool })
-  await store.init()
+  await store.load()
   await store.save(transactionState, transactionMetadata)
   const client = pool.clients.at(-1)
   assert.equal(client.queries.length, 5)
@@ -186,6 +192,179 @@ test('successful snapshot save keeps all writes inside one transaction and relea
   assert.equal(client.queries[4], 'COMMIT')
   assert.deepEqual(client.releases, [undefined])
   assert.equal(client.listenerCount('error'), 0)
+})
+
+// Models PostgreSQL's conflicting-row wait followed by predicate recheck. All
+// state, trade and checkpoint writes are staged until COMMIT, never real SQL.
+class SnapshotPool extends EventEmitter {
+  constructor(state = null) {
+    super()
+    this.persisted = { state: structuredClone(state), trades: {}, checkpoints: [] }
+    this.tail = Promise.resolve()
+    this.failTrade = false
+    this.loseCommitReply = false
+  }
+  async query(text) {
+    assert.match(text, /^SELECT state/)
+    return { rows: this.persisted.state === null ? [] : [{ state: structuredClone(this.persisted.state) }] }
+  }
+  async connect() {
+    const client = new EventEmitter()
+    let staged
+    let unlock
+    const finish = () => { staged = undefined; unlock?.(); unlock = undefined }
+    client.query = async (text, values = []) => {
+      if (text === 'BEGIN' || text.includes('CREATE TABLE') || text.includes('pg_advisory_xact_lock')) return { rows: [] }
+      if (text === 'ROLLBACK') { finish(); return { rows: [] } }
+      if (text === 'COMMIT') {
+        if (staged) this.persisted = staged
+        finish()
+        if (this.loseCommitReply) { this.loseCommitReply = false; throw new Error('commit acknowledgement lost') }
+        return { rows: [] }
+      }
+      if (text.startsWith('INSERT INTO paper_observer_state') || text.startsWith('UPDATE paper_observer_state')) {
+        const previous = this.tail
+        this.tail = new Promise((resolve) => { unlock = resolve })
+        await previous
+        staged = structuredClone(this.persisted)
+        let matches
+        if (text.startsWith('INSERT')) {
+          assert.match(text, /ON CONFLICT \(id\) DO NOTHING RETURNING id/)
+          matches = staged.state === null
+        } else {
+          assert.match(text, /WHERE id = 1 AND state = \$6::jsonb RETURNING id/)
+          matches = staged.state !== null && isDeepStrictEqual(staged.state, JSON.parse(values[5]))
+        }
+        if (!matches) return { rows: [] }
+        staged.state = JSON.parse(values[0])
+        return { rows: [{ id: 1 }] }
+      }
+      if (text.startsWith('INSERT INTO paper_trades')) {
+        if (this.failTrade) throw new Error('trade write failed')
+        staged.trades[`${values[0]}:${values[1]}`] = structuredClone(values[2])
+        return { rows: [] }
+      }
+      if (text.startsWith('INSERT INTO paper_processed_candles')) {
+        staged.checkpoints.push(values)
+        return { rows: [] }
+      }
+      throw new Error(`Unexpected query: ${text}`)
+    }
+    client.release = () => finish()
+    return client
+  }
+}
+
+const openSnapshot = {
+  trades: [{ id: 'SPY:2026-01-02T15:00:00Z', symbol: 'SPY', signalTimestamp: '2026-01-02T15:00:00Z', status: 'open', entryPrice: 100, stopPrice: 99.5, highestPrice: 100, trailingStopActive: false, holdingBars: 0 }],
+  observer: { processedCandles: { SPY: '2026-01-02T16:00:00Z' } },
+}
+
+test('save requires an explicit load; read-only dashboard reads cannot authorize a writer', async () => {
+  const pool = new SnapshotPool(openSnapshot)
+  const store = createPostgresPaperStore({ pool })
+  await store.read()
+  await assert.rejects(store.save(openSnapshot), { code: 'PAPER_STATE_NOT_LOADED' })
+  assert.deepEqual(pool.persisted.state, openSnapshot)
+})
+
+test('two first writers contend atomically and the loser cannot replace the winning snapshot', async () => {
+  const pool = new SnapshotPool()
+  const first = createPostgresPaperStore({ pool })
+  const second = createPostgresPaperStore({ pool })
+  await Promise.all([first.load(), second.load()])
+  const results = await Promise.allSettled([first.save(openSnapshot), second.save({ trades: [] })])
+  assert.equal(results[0].status, 'fulfilled')
+  assert.equal(results[1].reason.code, 'PAPER_STATE_CONFLICT')
+  assert.deepEqual(pool.persisted.state, openSnapshot)
+})
+
+test('stale writer cannot undo newer trailing state or reopen a closed trade, even after dashboard reads', async () => {
+  const pool = new SnapshotPool(openSnapshot)
+  const current = createPostgresPaperStore({ pool })
+  const stale = createPostgresPaperStore({ pool })
+  const updated = await current.load()
+  const old = await stale.load()
+  Object.assign(updated.trades[0], { highestPrice: 102, stopPrice: 101.694, trailingStopActive: true, holdingBars: 5 })
+  updated.observer.processedCandles.SPY = '2026-01-02T21:00:00Z'
+  await current.save(updated, transactionMetadata)
+  const trailing = structuredClone(pool.persisted)
+  await assert.rejects(stale.save(old), { code: 'PAPER_STATE_CONFLICT' })
+  assert.deepEqual(pool.persisted, trailing)
+  Object.assign(updated.trades[0], { status: 'closed', exitReason: 'Trailing Stop', exitPrice: 101.694 })
+  await current.save(updated)
+  const closed = structuredClone(pool.persisted)
+  assert.equal((await stale.read()).trades[0].status, 'closed')
+  await assert.rejects(stale.save(old, transactionMetadata), { code: 'PAPER_STATE_CONFLICT' })
+  assert.deepEqual(pool.persisted, closed, 'neither snapshot, trade rows nor checkpoint rows change')
+  const restarted = createPostgresPaperStore({ pool })
+  const recovered = await restarted.load()
+  assert.deepEqual(recovered, updated)
+  recovered.observer.status = 'IDLE'
+  await restarted.save(recovered)
+  assert.equal(pool.persisted.state.trades[0].status, 'closed')
+})
+
+test('simultaneous updates from the same loaded state admit only one changed snapshot', async () => {
+  const pool = new SnapshotPool(openSnapshot)
+  const stores = [createPostgresPaperStore({ pool }), createPostgresPaperStore({ pool })]
+  const states = await Promise.all(stores.map((store) => store.load()))
+  states[0].trades[0].holdingBars = 1
+  states[1].trades[0].holdingBars = 2
+  const results = await Promise.allSettled(stores.map((store, i) => store.save(states[i])))
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1)
+  assert.equal(results.find((result) => result.status === 'rejected').reason.code, 'PAPER_STATE_CONFLICT')
+  assert.deepEqual(pool.persisted.state, states[0])
+})
+
+test('failed trade persistence rolls back the comparison write and permits a valid retry', async () => {
+  const pool = new SnapshotPool(openSnapshot)
+  const store = createPostgresPaperStore({ pool })
+  const state = await store.load()
+  state.trades[0].holdingBars = 1
+  pool.failTrade = true
+  await assert.rejects(store.save(state, transactionMetadata), /trade write failed/)
+  assert.deepEqual(pool.persisted, { state: openSnapshot, trades: {}, checkpoints: [] })
+  pool.failTrade = false
+  await store.save(state, transactionMetadata)
+  assert.deepEqual(pool.persisted.state, state)
+})
+
+test('an uncertain commit does not rebase the writer or let it overwrite persisted progress', async () => {
+  const pool = new SnapshotPool(openSnapshot)
+  const store = createPostgresPaperStore({ pool })
+  const state = await store.load()
+  state.trades[0].holdingBars = 1
+  pool.loseCommitReply = true
+  await assert.rejects(store.save(state), /commit acknowledgement lost/)
+  const committed = structuredClone(pool.persisted)
+  await assert.rejects(store.save(openSnapshot), { code: 'PAPER_STATE_CONFLICT' })
+  assert.deepEqual(pool.persisted, committed)
+})
+
+test('two observer instances surface contention as ERROR and restart from the winner safely', async () => {
+  const pool = new SnapshotPool()
+  const errors = []
+  const options = {
+    environment: {},
+    now: () => new Date('2026-09-20T14:30:00Z'),
+    symbolUniverse: { getSymbols: async () => ['SPY'] },
+    fetchBars: async () => { throw new Error('closed-session fixture must not fetch') },
+    onError: (error) => errors.push(error),
+  }
+  const first = await createPaperObserver({ ...options, store: createPostgresPaperStore({ pool }) })
+  const second = await createPaperObserver({ ...options, store: createPostgresPaperStore({ pool }) })
+  const [winner, loser] = await Promise.all([first.processOnce(), second.processOnce()])
+  assert.equal(winner.status, 'IDLE')
+  assert.equal(loser.status, 'ERROR')
+  assert.match(loser.currentError, /state changed in another writer/)
+  assert.equal(errors.length, 1)
+  const persisted = structuredClone(pool.persisted)
+  assert.equal((await second.processOnce()).status, 'ERROR', 'error recording/retries cannot overwrite the winner')
+  assert.deepEqual(pool.persisted, persisted)
+  const restarted = await createPaperObserver({ ...options, store: createPostgresPaperStore({ pool }) })
+  assert.equal((await restarted.processOnce()).status, 'IDLE')
+  assert.deepEqual(restarted.getState().trades, persisted.state.trades)
 })
 
 test('read-only observer snapshot access does not initialize or modify the schema', async () => {

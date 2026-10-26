@@ -37,6 +37,9 @@ export function createPostgresPaperStore({ connectionString = process.env.DATABA
   const clientPool = pool ?? new Pool({ connectionString, ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false }, max: 1, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 })
   let ready
   let lastConnectionError = null
+  // undefined = not loaded; null = no persisted row. Keep an immutable copy:
+  // the engine mutates its working state, and dashboard reads must not rebase it.
+  let expectedState
   if (typeof clientPool.on === 'function') {
     clientPool.on('error', (error) => {
       lastConnectionError = { message: error.message, at: new Date().toISOString() }
@@ -57,7 +60,9 @@ export function createPostgresPaperStore({ connectionString = process.env.DATABA
   }
   async function load() {
     await init()
-    return read()
+    const result = await clientPool.query('SELECT state FROM paper_observer_state WHERE id = 1')
+    expectedState = result.rows[0] ? JSON.stringify(result.rows[0].state) : null
+    return result.rows[0]?.state ?? { trades: [] }
   }
   async function read() {
     const result = await clientPool.query('SELECT state FROM paper_observer_state WHERE id = 1')
@@ -181,12 +186,30 @@ export function createPostgresPaperStore({ connectionString = process.env.DATABA
     })
   }
   async function save(state, metadata = {}) {
+    if (expectedState === undefined) {
+      throw Object.assign(new Error('Load the paper observer state before saving.'), { code: 'PAPER_STATE_NOT_LOADED' })
+    }
+    // Capture before yielding so overlapping callers cannot inherit a revision
+    // they did not use to produce their snapshot.
+    const before = expectedState
+    const nextState = JSON.stringify(state)
+    const snapshot = JSON.parse(nextState)
     await init()
     await withTransaction(async (client) => {
-      await client.query('INSERT INTO paper_observer_state (id, state, status, last_successful_update, last_processed_candle, current_error) VALUES (1, $1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, status = EXCLUDED.status, last_successful_update = EXCLUDED.last_successful_update, last_processed_candle = EXCLUDED.last_processed_candle, current_error = EXCLUDED.current_error', [state, metadata.status ?? 'IDLE', metadata.lastSuccessfulUpdate ?? null, metadata.lastProcessedCandle ?? null, metadata.currentError ?? null])
-      for (const trade of state.trades ?? []) await client.query('INSERT INTO paper_trades (symbol, signal_timestamp, trade) VALUES ($1, $2, $3) ON CONFLICT (symbol, signal_timestamp) DO UPDATE SET trade = EXCLUDED.trade', [trade.symbol, trade.signalTimestamp, trade])
+      const values = [nextState, metadata.status ?? 'IDLE', metadata.lastSuccessfulUpdate ?? null, metadata.lastProcessedCandle ?? null, metadata.currentError ?? null]
+      // PostgreSQL serializes conflicting row writes and rechecks this predicate
+      // after waiting. A stale writer never reaches the trade/checkpoint writes.
+      const result = before === null
+        ? await client.query('INSERT INTO paper_observer_state (id, state, status, last_successful_update, last_processed_candle, current_error) VALUES (1, $1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING RETURNING id', values)
+        : await client.query('UPDATE paper_observer_state SET state = $1, status = $2, last_successful_update = $3, last_processed_candle = $4, current_error = $5 WHERE id = 1 AND state = $6::jsonb RETURNING id', [...values, before])
+      if (!result.rows.length) {
+        throw Object.assign(new Error('Paper observer state changed in another writer. This snapshot was not saved; restart this observer to load current state.'), { code: 'PAPER_STATE_CONFLICT' })
+      }
+      for (const trade of snapshot.trades ?? []) await client.query('INSERT INTO paper_trades (symbol, signal_timestamp, trade) VALUES ($1, $2, $3) ON CONFLICT (symbol, signal_timestamp) DO UPDATE SET trade = EXCLUDED.trade', [trade.symbol, trade.signalTimestamp, trade])
       for (const candle of metadata.processedCandles ?? []) await client.query('INSERT INTO paper_processed_candles (symbol, candle_timestamp) VALUES ($1, $2) ON CONFLICT DO NOTHING', [candle.symbol, candle.timestamp])
     })
+    // Never advance the comparison state after rollback or an uncertain COMMIT.
+    expectedState = nextState
   }
   async function status() {
     await init()
