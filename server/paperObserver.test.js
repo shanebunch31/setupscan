@@ -359,6 +359,59 @@ test('fetch timeout configuration is finite and bounded', () => {
   assert.equal(configFromEnvironment({ PAPER_FETCH_TIMEOUT_MS: '9999999' }).fetchTimeoutMs, 120000)
 })
 
+test('cycle health exposes active work, distinguishes normal from overdue, and records actual completion', async () => {
+  let current = new Date('2026-09-22T16:15:00Z')
+  let finishFetch
+  let beganFetch
+  const began = new Promise(resolve => { beganFetch = resolve })
+  const memory = store()
+  const observer = await createPaperObserver({ store: memory, environment: {},
+    symbolUniverse: { getSymbols: async () => ['SPY'] }, now: () => current, onError: () => {},
+    fetchBars: () => { beganFetch(); return new Promise(resolve => { finishFetch = resolve }) },
+  })
+  const cycle = observer.processOnce()
+  await began
+  const started = observer.status()
+  assert.equal(started.cycleActive, true)
+  assert.equal(started.cycleHealth.active, true)
+  assert.equal(started.cycleStartedAt, current.toISOString())
+  assert.equal(started.cycleHealth.lastCompletedAt, null)
+  assert.equal(started.cycleHealth.overdue, false)
+  current = new Date(Date.parse(started.cycleDeadlineAt))
+  assert.equal(observer.status().cycleHealth.overdue, false, 'exactly at the bound is not overdue')
+  current = new Date(current.getTime() + 1)
+  assert.equal(observer.status().cycleHealth.overdue, true)
+  assert.equal(observer.status().status, 'ERROR')
+  assert.equal(observer.status().healthErrorCode, 'PAPER_CYCLE_OVERDUE')
+  finishFetch({ candles: [freshnessBar()] })
+  const finished = await cycle
+  assert.equal(finished.cycleActive, false)
+  assert.equal(finished.lastCycleCompletedAt, current.toISOString())
+  assert.equal(observer.status().cycleHealth.overdue, false)
+  assert.equal(observer.status().status, 'RUNNING')
+  assert.equal(memory.get().observer.cycleStartedAt, started.cycleStartedAt)
+  assert.ok(memory.get().observer.nextCycleOverdueAt)
+  assert.equal(memory.get().observer.lastCycleCompletedAt, undefined, 'do not claim this cycle finished before its save succeeded')
+})
+
+test('next snapshot carries the prior completed-cycle timestamp without additional health-only writes', async () => {
+  let current = new Date('2026-09-22T16:15:00Z')
+  let saved
+  let writes = 0
+  const observer = await createPaperObserver({
+    store: { load: () => ({ trades: [] }), save: (state) => { saved = structuredClone(state); writes += 1 } },
+    environment: { PAPER_SYMBOLS: 'SPY' }, now: () => current,
+    fetchBars: async () => ({ candles: [freshnessBar()] }), onError: () => {},
+  })
+  const first = await observer.processOnce()
+  current = new Date('2026-09-22T16:16:00Z')
+  await observer.processOnce()
+  assert.equal(writes, 2)
+  assert.equal(saved.observer.lastCycleCompletedAt, first.lastCycleCompletedAt)
+  assert.equal(observer.status().lastCycleCompletedAt, current.toISOString())
+  assert.equal(configFromEnvironment({ PAPER_DB_TIMEOUT_MS: '1234', PAPER_FETCH_TIMEOUT_MS: '4321' }).dbTimeoutMs, 1234)
+})
+
 test('scheduled processing creates once, persists checkpoint, and skips unchanged candles', async () => {
   const memory = store()
   let calls = 0

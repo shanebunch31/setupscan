@@ -3,7 +3,8 @@ import { fetchAlpacaHistoricalBars } from './alpacaProxy.js'
 import { createPaperTradingEngine } from './paperTrading.js'
 import { isRegularSession, nextPollTime } from './marketSession.js'
 import { createPaperStore } from './paperStore.js'
-import { createPostgresPaperStore } from './postgresPaperStore.js'
+import { createPostgresPaperStore, resolvePaperDbTimeout } from './postgresPaperStore.js'
+import { paperObserverCycleHealth } from './paperObserverHealth.js'
 import { preparePaperCandles } from './paperCandlePipeline.js'
 import { historicalCandleEndTime } from '../src/data/historicalDataContract.js'
 import { configuredSeedSymbols, resolvePaperSymbolCap } from './paperSymbols.js'
@@ -21,6 +22,7 @@ function configFromEnvironment(environment = process.env) {
     symbolCap: resolvePaperSymbolCap(environment.PAPER_SYMBOL_CAP),
     timeframe: environment.PAPER_TIMEFRAME || '1Hour',
     marketTimezone: environment.PAPER_MARKET_TIMEZONE || 'America/New_York',
+    dbTimeoutMs: resolvePaperDbTimeout(environment.PAPER_DB_TIMEOUT_MS),
     // A bad environment value must not turn a failed cycle into a tight retry loop.
     pollIntervalMs,
     fetchTimeoutMs: Number.isFinite(requestedFetchTimeout) && requestedFetchTimeout > 0 ? Math.min(120000, requestedFetchTimeout) : 30000,
@@ -76,7 +78,7 @@ const failedDataStatuses = new Set(['EMPTY', 'STALE', 'INCOMPLETE', 'FETCH_ERROR
 
 export async function createPaperObserver({ store, symbolUniverse, fetchBars = fetchAlpacaHistoricalBars, now = () => new Date(), environment = process.env, onError = (error) => console.error('Paper observer cycle failed:', error), schedule = setTimeout, cancelSchedule = clearTimeout } = {}) {
   const config = configFromEnvironment(environment)
-  const selectedStore = store ?? (environment.DATABASE_URL ? createPostgresPaperStore() : createPaperStore(path.resolve('server/data/paper-trades.json')))
+  const selectedStore = store ?? (environment.DATABASE_URL ? createPostgresPaperStore({ dbTimeoutMs: config.dbTimeoutMs }) : createPaperStore(path.resolve('server/data/paper-trades.json')))
   const initialState = await selectedStore.load()
   const engine = createPaperTradingEngine({ state: initialState, saveState: () => {}, timeframe: config.timeframe })
   const state = { status: 'IDLE', lastSuccessfulUpdate: null, lastProcessedCandle: null, processedCandles: {}, dataQualityBySymbol: {}, currentError: null, consecutiveFailures: 0, nextExpectedProcessing: null, independent: true, activeSymbols: [], baselinePendingSymbols: [], ...initialState.observer }
@@ -84,6 +86,12 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
   let running = false
   let timer
   let activeCycle = null
+
+  function cycleBudget(symbolCount) {
+    // Universe read, normal save, and error-recording save, each including the
+    // pool's 10-second acquisition bound; plus serial fetches and computation grace.
+    return 3 * (10000 + config.dbTimeoutMs) + symbolCount * config.fetchTimeoutMs + 10000
+  }
 
   async function configuredSymbols() {
     if (symbolUniverse) return symbolUniverse.getSymbols()
@@ -96,6 +104,10 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
   async function persist(metadata = {}) {
     state.status = metadata.status ?? state.status
     Object.assign(state, metadata)
+    // Allow the next scheduled cycle its full budget. Persisted health is a
+    // conservative missed-progress deadline, not a claim that this save completed.
+    state.nextCycleOverdueAt = new Date(Date.parse(state.cycleDeadlineAt) +
+      (state.status === 'ERROR' ? retryDelay(config, state.consecutiveFailures) : config.pollIntervalMs) + state.cycleBudgetMs).toISOString()
     const snapshot = { ...engine.getState(), observer: { ...state } }
     await selectedStore.save(snapshot, { ...state, processedCandles: Object.entries(state.processedCandles).map(([symbol, timestamp]) => ({ symbol, timestamp })) })
   }
@@ -117,6 +129,8 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
       const addedSymbols = new Set(activeSymbols.filter((symbol) => !previousActiveSymbols.includes(symbol)))
       const openSymbols = engine.getState().trades.filter((trade) => trade.status === 'open').map((trade) => trade.symbol)
       const symbolsToManage = [...new Set([...activeSymbols, ...openSymbols])].sort()
+      state.cycleBudgetMs = cycleBudget(symbolsToManage.length)
+      state.cycleDeadlineAt = new Date(Date.parse(state.cycleStartedAt) + state.cycleBudgetMs).toISOString()
       const activeSet = new Set(activeSymbols)
       const universeChanged = !sameSymbols(activeSymbols, previousActiveSymbols)
       const baselinePending = new Set((state.baselinePendingSymbols ?? []).filter((symbol) => activeSet.has(symbol)))
@@ -270,7 +284,22 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
 
   function processOnce() {
     if (activeCycle) return activeCycle
-    const wrappedCycle = runCycle().finally(() => {
+    state.cycleActive = true
+    state.cycleStartedAt = now().toISOString()
+    state.cycleBudgetMs = cycleBudget(Math.max(config.symbolCap, state.activeSymbols.length,
+      new Set(engine.getState().trades.filter((trade) => trade.status === 'open').map((trade) => trade.symbol)).size))
+    state.cycleDeadlineAt = new Date(Date.parse(state.cycleStartedAt) + state.cycleBudgetMs).toISOString()
+    const finish = () => {
+      state.cycleActive = false
+      state.lastCycleCompletedAt = now().toISOString()
+      const delay = state.status === 'ERROR' ? retryDelay(config, state.consecutiveFailures) : config.pollIntervalMs
+      state.nextExpectedProcessing = new Date(Date.parse(state.lastCycleCompletedAt) + delay).toISOString()
+      state.nextCycleOverdueAt = new Date(Date.parse(state.nextExpectedProcessing) + state.cycleBudgetMs).toISOString()
+    }
+    const wrappedCycle = runCycle().then((result) => {
+      finish()
+      return { ...result, cycleActive: false, lastCycleCompletedAt: state.lastCycleCompletedAt, nextExpectedProcessing: state.nextExpectedProcessing, cycleHealth: paperObserverCycleHealth(state, now(), true) }
+    }, (error) => { finish(); throw error }).finally(() => {
       if (activeCycle === wrappedCycle) activeCycle = null
     })
     activeCycle = wrappedCycle
@@ -290,7 +319,12 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
     tick()
   }
   function stop() { running = false; if (timer !== undefined) cancelSchedule(timer); timer = undefined }
-  function status() { return { ...state, config: { ...config, symbols: state.activeSymbols }, mode: 'AUTOMATED PAPER OBSERVER — NO REAL ORDERS', storage: environment.DATABASE_URL ? 'POSTGRES' : 'LOCAL JSON DEVELOPMENT FALLBACK' } }
+  function status() {
+    const cycleHealth = paperObserverCycleHealth({ ...state, cycleActive: activeCycle !== null }, now(), true)
+    return { ...state, cycleActive: activeCycle !== null, cycleHealth,
+      ...(cycleHealth.overdue ? { status: 'ERROR', currentError: 'Paper observer cycle/progress deadline exceeded.', healthErrorCode: 'PAPER_CYCLE_OVERDUE' } : {}),
+      config: { ...config, symbols: state.activeSymbols }, mode: 'AUTOMATED PAPER OBSERVER — NO REAL ORDERS', storage: environment.DATABASE_URL ? 'POSTGRES' : 'LOCAL JSON DEVELOPMENT FALLBACK' }
+  }
   return { config, processOnce, start, stop, status, getJournal: () => engine.getJournal({ symbols: state.activeSymbols }), getState: engine.getState }
 }
 

@@ -10,6 +10,11 @@ CREATE TABLE IF NOT EXISTS paper_observer_symbols (symbol text PRIMARY KEY, enab
 `
 const PAPER_SYMBOL_UNIVERSE_LOCK_KEY = 1_397_961_558
 
+export function resolvePaperDbTimeout(value = process.env.PAPER_DB_TIMEOUT_MS) {
+  const requested = Number(value)
+  return Number.isFinite(requested) && requested >= 1 ? Math.min(120000, Math.floor(requested)) : 30000
+}
+
 // Validates DATABASE_URL shape and surfaces a redacted summary; never returns or logs the password itself.
 export function describeDatabaseUrl(connectionString) {
   if (!connectionString) throw new Error('DATABASE_URL is not set')
@@ -32,7 +37,8 @@ export function describeDatabaseUrl(connectionString) {
   return { username: parsed.username, host: parsed.hostname, port: parsed.port || '5432', database }
 }
 
-export function createPostgresPaperStore({ connectionString = process.env.DATABASE_URL, pool, onPoolError = (error) => console.error('Paper observer PostgreSQL pool error:', error.message) } = {}) {
+export function createPostgresPaperStore({ connectionString = process.env.DATABASE_URL, pool, dbTimeoutMs = process.env.PAPER_DB_TIMEOUT_MS, onPoolError = (error) => console.error('Paper observer PostgreSQL pool error:', error.message) } = {}) {
+  const timeoutMs = resolvePaperDbTimeout(dbTimeoutMs)
   if (!pool) describeDatabaseUrl(connectionString)
   const clientPool = pool ?? new Pool({ connectionString, ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false }, max: 1, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 })
   let ready
@@ -60,20 +66,23 @@ export function createPostgresPaperStore({ connectionString = process.env.DATABA
   }
   async function load() {
     await init()
-    const result = await clientPool.query('SELECT state FROM paper_observer_state WHERE id = 1')
+    const result = await readQuery('SELECT state FROM paper_observer_state WHERE id = 1')
     expectedState = result.rows[0] ? JSON.stringify(result.rows[0].state) : null
     return result.rows[0]?.state ?? { trades: [] }
   }
   async function read() {
-    const result = await clientPool.query('SELECT state FROM paper_observer_state WHERE id = 1')
+    const result = await readQuery('SELECT state FROM paper_observer_state WHERE id = 1')
     return result.rows[0]?.state ?? { trades: [] }
   }
-  async function withTransaction(action) {
+  const withTransaction = (action) => withClient(action, true)
+  const readQuery = (...args) => withClient(({ query }) => query(...args), false)
+  async function withClient(action, transaction) {
     const client = await clientPool.connect()
     let begun = false
     let committing = false
     let connectionError
     let discardError
+    let timeoutError
     let rejectConnection
     const connectionFailed = new Promise((_, reject) => { rejectConnection = reject })
     // Errors can arrive between queries, when no query is awaiting this promise.
@@ -84,30 +93,52 @@ export function createPostgresPaperStore({ connectionString = process.env.DATABA
       rejectConnection(connectionError)
     }
     client.on?.('error', onClientError)
+    const expiresAt = Date.now() + timeoutMs
+    const expire = () => {
+      timeoutError ??= Object.assign(new Error(`Paper PostgreSQL operation exceeded ${timeoutMs}ms; connection discarded and commit outcome may require recovery.`), { code: 'PAPER_DB_TIMEOUT' })
+      rejectConnection(timeoutError)
+    }
+    const timer = setTimeout(expire, timeoutMs)
     const query = async (...args) => {
+      if (Date.now() >= expiresAt) expire()
+      if (timeoutError) throw timeoutError
       if (connectionError) throw connectionError
       const result = await Promise.race([client.query(...args), connectionFailed])
+      if (Date.now() >= expiresAt) expire()
+      if (timeoutError) throw timeoutError
       if (connectionError) throw connectionError
       return result
     }
     try {
-      await query('BEGIN')
-      begun = true
+      if (transaction) {
+        await query('BEGIN')
+        begun = true
+        // LOCAL settings are safe with transaction poolers and never alter schema.
+        // The client deadline also covers BEGIN, these settings, COMMIT, and a
+        // silent network stall; PostgreSQL independently bounds statements/locks.
+        await query("SELECT set_config('statement_timeout', $1, true), set_config('lock_timeout', $1, true), set_config('idle_in_transaction_session_timeout', $1, true)", [`${timeoutMs}ms`])
+      }
       const result = await action({ query })
-      committing = true
-      await query('COMMIT')
+      if (transaction) {
+        committing = true
+        await query('COMMIT')
+      }
       return result
     } catch (error) {
       // A failed BEGIN/COMMIT leaves the connection's transaction state uncertain.
       if (!begun || committing) discardError = error
-      if (begun && !connectionError) {
+      if (begun && !connectionError && !timeoutError) {
         try { await query('ROLLBACK') } catch (rollbackError) { discardError = rollbackError }
       }
-      throw connectionError ?? error
+      throw connectionError ?? timeoutError ?? error
     } finally {
+      clearTimeout(timer)
       // Keep our listener until pg has installed its idle listener or discarded
       // the client. Passing an error to release prevents reuse of a damaged client.
-      try { client.release(connectionError ?? discardError) }
+      // pg-pool removes an errored client; pg ends/destroys its active-query
+      // connection. Never return a timed-out query to the idle pool or queue a
+      // ROLLBACK behind it. A late result cannot resume this action or rebase CAS.
+      try { client.release(connectionError ?? timeoutError ?? discardError) }
       finally { client.removeListener?.('error', onClientError) }
     }
   }
@@ -140,14 +171,14 @@ export function createPostgresPaperStore({ connectionString = process.env.DATABA
   async function readObserverSymbols() {
     let marker
     try {
-      marker = await clientPool.query('SELECT initialized_at FROM paper_observer_symbol_universe WHERE id = 1')
+      marker = await readQuery('SELECT initialized_at FROM paper_observer_symbol_universe WHERE id = 1')
     } catch (error) {
       // Reads before rollout must not create the new tables or seed a universe.
       if (error?.code === '42P01') return { initialized: false, symbols: [] }
       throw error
     }
     if (!marker.rows[0]) return { initialized: false, symbols: [] }
-    return { initialized: true, symbols: await symbolsFrom(clientPool) }
+    return { initialized: true, symbols: await symbolsFrom({ query: readQuery }) }
   }
   async function ensureObserverSymbols(seedSymbols, cap) {
     return withSymbolUniverseTransaction(async (client) => {
@@ -213,7 +244,7 @@ export function createPostgresPaperStore({ connectionString = process.env.DATABA
   }
   async function status() {
     await init()
-    const result = await clientPool.query('SELECT status, last_successful_update, last_processed_candle, current_error FROM paper_observer_state WHERE id = 1')
+    const result = await readQuery('SELECT status, last_successful_update, last_processed_candle, current_error FROM paper_observer_state WHERE id = 1')
     return result.rows[0] ?? { status: 'IDLE', last_successful_update: null, last_processed_candle: null, current_error: null }
   }
   return { init, load, read, save, status, readObserverSymbols, ensureObserverSymbols, setObserverSymbols, addObserverSymbol, removeObserverSymbol, getLastConnectionError: () => lastConnectionError, close: () => clientPool.end?.(), pool: clientPool }

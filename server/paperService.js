@@ -3,6 +3,7 @@ import { createPaperTradingEngine } from './paperTrading.js'
 import { createPaperStore } from './paperStore.js'
 import { createPostgresPaperStore } from './postgresPaperStore.js'
 import { configuredSeedSymbols } from './paperSymbols.js'
+import { paperObserverCycleHealth } from './paperObserverHealth.js'
 
 function selectStore({ store, environment, createJsonStore, createPostgresStore }) {
   if (store) return { store, storage: 'INJECTED TEST STORE' }
@@ -66,7 +67,7 @@ export function createPaperService({
       ...engine.getJournal({ symbols }),
       refreshedAt: now().toISOString(),
       storage: selected.storage,
-      observer: state.observer ?? null,
+      observer: state.observer ? { ...state.observer, cycleActive: null, cycleHealth: paperObserverCycleHealth(state.observer, now()) } : null,
       symbolUniverse: { initialized: configuredUniverse.initialized, symbols: configuredSymbols },
       data: observerData(state, symbols, configuredSymbols),
     }

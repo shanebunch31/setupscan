@@ -113,6 +113,33 @@ test('dashboard snapshot reads do not fetch candles, create trades, or save stat
   assert.equal(snapshot.trades.length, 1)
 })
 
+test('dashboard assesses overdue persisted progress without claiming another process is active or changing stored health', async () => {
+  let current = new Date('2026-09-22T16:20:00Z')
+  const state = structuredClone(persistedState)
+  Object.assign(state.observer, { cycleActive: true, cycleStartedAt: '2026-09-22T16:15:00Z',
+    lastCycleCompletedAt: '2026-09-22T16:14:00Z', nextCycleOverdueAt: current.toISOString(), cycleOutcome: 'NO_NEW_DATA' })
+  const before = structuredClone(state)
+  const service = createPaperService({ store: { read: () => state }, now: () => current })
+  let snapshot = await service.readSnapshot()
+  assert.equal(snapshot.observer.cycleHealth.overdue, false)
+  assert.equal(snapshot.observer.cycleHealth.active, null)
+  assert.equal(snapshot.observer.cycleActive, null)
+  assert.equal(snapshot.observer.cycleHealth.source, 'PERSISTED_SNAPSHOT')
+  current = new Date(current.getTime() + 1)
+  snapshot = await service.readSnapshot()
+  assert.equal(snapshot.observer.cycleHealth.overdue, true)
+  assert.equal(snapshot.observer.cycleHealth.lastCompletedAt, state.observer.lastCycleCompletedAt)
+  assert.deepEqual(state, before)
+})
+
+test('legacy and market-closed dashboard snapshots report unknown overdue health instead of false alarms', async () => {
+  for (const observer of [persistedState.observer, { ...persistedState.observer, cycleOutcome: 'MARKET_CLOSED', nextCycleOverdueAt: '2026-01-01T00:00:00Z' }]) {
+    const snapshot = await createPaperService({ store: { read: () => ({ ...persistedState, observer }) } }).readSnapshot()
+    assert.equal(snapshot.observer.cycleHealth.overdue, null)
+    assert.equal(snapshot.observer.cycleHealth.active, null)
+  }
+})
+
 test('dashboard summaries use the configured dynamic universe plus retained trade history', async () => {
   const service = createPaperService({
     store: {
