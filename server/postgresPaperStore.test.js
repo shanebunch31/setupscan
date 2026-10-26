@@ -44,6 +44,150 @@ test('idle PostgreSQL pool errors are captured instead of becoming unhandled pro
   assert.ok(store.getLastConnectionError().at)
 })
 
+class TransactionClientPool extends EventEmitter {
+  constructor() { super(); this.clients = []; this.onQuery = null }
+  async connect() {
+    const client = new EventEmitter()
+    client.queries = []
+    client.releases = []
+    client.query = async (text, values) => {
+      client.queries.push(text)
+      return this.onQuery?.(client, text, values) ?? { rows: [] }
+    }
+    client.release = (error) => {
+      assert.equal(client.listenerCount('error'), 1, 'client remains protected through release')
+      client.releases.push(error)
+    }
+    this.clients.push(client)
+    return client
+  }
+}
+
+const transactionState = { trades: [{ symbol: 'SPY', signalTimestamp: '2026-01-02T15:00:00Z' }] }
+const transactionMetadata = { processedCandles: [{ symbol: 'SPY', timestamp: '2026-01-02T16:00:00Z' }] }
+
+for (const phase of ['BEGIN', 'INSERT INTO paper_observer_state', 'COMMIT']) {
+  test(`checked-out connection error at ${phase} rejects save and discards the client`, { timeout: 2000 }, async () => {
+    const pool = new TransactionClientPool()
+    const store = createPostgresPaperStore({ pool })
+    await store.init()
+    const failure = new Error('Connection terminated unexpectedly')
+    let finishQuery
+    pool.onQuery = (client, text) => {
+      if (text.startsWith(phase)) {
+        // Unlike a query rejection, an unhandled EventEmitter error would crash
+        // the process. Also ensure a query that never settles cannot trap save().
+        queueMicrotask(() => client.emit('error', failure))
+        return new Promise((resolve) => { finishQuery = resolve })
+      }
+    }
+
+    await assert.rejects(store.save(transactionState, transactionMetadata), (error) => error === failure)
+    const client = pool.clients.at(-1)
+    assert.deepEqual(client.releases, [failure])
+    assert.equal(client.listenerCount('error'), 0, 'transaction listener is removed after release')
+    assert.equal(client.queries.includes('ROLLBACK'), false, 'do not query a known broken connection')
+    assert.equal(store.getLastConnectionError().message, failure.message)
+    const queriesAtFailure = [...client.queries]
+    finishQuery({ rows: [] })
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(client.queries, queriesAtFailure, 'late query completion cannot continue writes')
+  })
+}
+
+test('connection error between transaction queries prevents the next write', async () => {
+  const pool = new TransactionClientPool()
+  const store = createPostgresPaperStore({ pool })
+  await store.init()
+  const failure = new Error('connection lost between queries')
+  pool.onQuery = (client, text) => {
+    if (text.startsWith('INSERT INTO paper_observer_state')) {
+      queueMicrotask(() => client.emit('error', failure))
+      return { rows: [] }
+    }
+  }
+  await assert.rejects(store.save(transactionState), (error) => error === failure)
+  const client = pool.clients.at(-1)
+  assert.equal(client.queries.some((text) => text.startsWith('INSERT INTO paper_trades')), false)
+  assert.deepEqual(client.releases, [failure])
+})
+
+for (const phase of ['BEGIN', 'INSERT INTO paper_trades', 'COMMIT']) {
+  test(`query rejection at ${phase} preserves rollback and appropriate client disposal`, async () => {
+    const pool = new TransactionClientPool()
+    const store = createPostgresPaperStore({ pool })
+    await store.init()
+    const failure = new Error('query failed')
+    pool.onQuery = (_, text) => { if (text.startsWith(phase)) throw failure }
+    await assert.rejects(store.save(transactionState, transactionMetadata), (error) => error === failure)
+    const client = pool.clients.at(-1)
+    assert.equal(client.queries.includes('ROLLBACK'), phase !== 'BEGIN')
+    assert.deepEqual(client.releases, [phase === 'INSERT INTO paper_trades' ? undefined : failure])
+    assert.equal(client.listenerCount('error'), 0)
+    if (phase !== 'COMMIT') assert.equal(client.queries.includes('COMMIT'), false)
+  })
+}
+
+test('rollback failure discards the connection and preserves the original query error', async () => {
+  const pool = new TransactionClientPool()
+  const store = createPostgresPaperStore({ pool })
+  await store.init()
+  const failure = new Error('write failed')
+  const rollbackFailure = new Error('rollback failed')
+  pool.onQuery = (_, text) => {
+    if (text.startsWith('INSERT INTO paper_trades')) throw failure
+    if (text === 'ROLLBACK') throw rollbackFailure
+  }
+  await assert.rejects(store.save(transactionState), (error) => error === failure)
+  assert.deepEqual(pool.clients.at(-1).releases, [rollbackFailure])
+})
+
+test('connection error during rollback rejects promptly and discards the client', { timeout: 2000 }, async () => {
+  const pool = new TransactionClientPool()
+  const store = createPostgresPaperStore({ pool })
+  await store.init()
+  const failure = new Error('connection lost during rollback')
+  pool.onQuery = (client, text) => {
+    if (text.startsWith('INSERT INTO paper_trades')) throw new Error('write failed')
+    if (text === 'ROLLBACK') {
+      queueMicrotask(() => client.emit('error', failure))
+      return new Promise(() => {})
+    }
+  }
+  await assert.rejects(store.save(transactionState), (error) => error === failure)
+  assert.deepEqual(pool.clients.at(-1).releases, [failure])
+})
+
+test('initialization connection errors reject safely and allow a fresh-client retry', async () => {
+  const pool = new TransactionClientPool()
+  const store = createPostgresPaperStore({ pool })
+  const failure = new Error('initialization connection lost')
+  pool.onQuery = (client, text) => { if (text.includes('CREATE TABLE')) client.emit('error', failure) }
+  await assert.rejects(store.init(), (error) => error === failure)
+  assert.deepEqual(pool.clients[0].releases, [failure])
+  pool.onQuery = null
+  await store.init()
+  assert.equal(pool.clients.length, 2)
+  assert.deepEqual(pool.clients[1].releases, [undefined])
+  assert.equal(pool.clients[1].listenerCount('error'), 0)
+})
+
+test('successful snapshot save keeps all writes inside one transaction and releases normally', async () => {
+  const pool = new TransactionClientPool()
+  const store = createPostgresPaperStore({ pool })
+  await store.init()
+  await store.save(transactionState, transactionMetadata)
+  const client = pool.clients.at(-1)
+  assert.equal(client.queries.length, 5)
+  assert.equal(client.queries[0], 'BEGIN')
+  assert.match(client.queries[1], /^INSERT INTO paper_observer_state/)
+  assert.match(client.queries[2], /^INSERT INTO paper_trades/)
+  assert.match(client.queries[3], /^INSERT INTO paper_processed_candles/)
+  assert.equal(client.queries[4], 'COMMIT')
+  assert.deepEqual(client.releases, [undefined])
+  assert.equal(client.listenerCount('error'), 0)
+})
+
 test('read-only observer snapshot access does not initialize or modify the schema', async () => {
   const queries = []
   const pool = new RetryablePool()

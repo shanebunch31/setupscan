@@ -66,16 +66,45 @@ export function createPostgresPaperStore({ connectionString = process.env.DATABA
   async function withTransaction(action) {
     const client = await clientPool.connect()
     let begun = false
+    let committing = false
+    let connectionError
+    let discardError
+    let rejectConnection
+    const connectionFailed = new Promise((_, reject) => { rejectConnection = reject })
+    // Errors can arrive between queries, when no query is awaiting this promise.
+    connectionFailed.catch(() => {})
+    const onClientError = (error) => {
+      connectionError ??= error
+      lastConnectionError = { message: connectionError.message, at: new Date().toISOString() }
+      rejectConnection(connectionError)
+    }
+    client.on?.('error', onClientError)
+    const query = async (...args) => {
+      if (connectionError) throw connectionError
+      const result = await Promise.race([client.query(...args), connectionFailed])
+      if (connectionError) throw connectionError
+      return result
+    }
     try {
-      await client.query('BEGIN')
+      await query('BEGIN')
       begun = true
-      const result = await action(client)
-      await client.query('COMMIT')
+      const result = await action({ query })
+      committing = true
+      await query('COMMIT')
       return result
     } catch (error) {
-      if (begun) { try { await client.query('ROLLBACK') } catch {} }
-      throw error
-    } finally { client.release() }
+      // A failed BEGIN/COMMIT leaves the connection's transaction state uncertain.
+      if (!begun || committing) discardError = error
+      if (begun && !connectionError) {
+        try { await query('ROLLBACK') } catch (rollbackError) { discardError = rollbackError }
+      }
+      throw connectionError ?? error
+    } finally {
+      // Keep our listener until pg has installed its idle listener or discarded
+      // the client. Passing an error to release prevents reuse of a damaged client.
+      try { client.release(connectionError ?? discardError) }
+      finally { client.removeListener?.('error', onClientError) }
+    }
   }
   async function symbolsFrom(client) {
     const result = await client.query('SELECT symbol FROM paper_observer_symbols WHERE enabled = true ORDER BY symbol')
@@ -153,21 +182,11 @@ export function createPostgresPaperStore({ connectionString = process.env.DATABA
   }
   async function save(state, metadata = {}) {
     await init()
-    const client = await clientPool.connect()
-    let transactionStarted = false
-    try {
-      await client.query('BEGIN')
-      transactionStarted = true
+    await withTransaction(async (client) => {
       await client.query('INSERT INTO paper_observer_state (id, state, status, last_successful_update, last_processed_candle, current_error) VALUES (1, $1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, status = EXCLUDED.status, last_successful_update = EXCLUDED.last_successful_update, last_processed_candle = EXCLUDED.last_processed_candle, current_error = EXCLUDED.current_error', [state, metadata.status ?? 'IDLE', metadata.lastSuccessfulUpdate ?? null, metadata.lastProcessedCandle ?? null, metadata.currentError ?? null])
       for (const trade of state.trades ?? []) await client.query('INSERT INTO paper_trades (symbol, signal_timestamp, trade) VALUES ($1, $2, $3) ON CONFLICT (symbol, signal_timestamp) DO UPDATE SET trade = EXCLUDED.trade', [trade.symbol, trade.signalTimestamp, trade])
       for (const candle of metadata.processedCandles ?? []) await client.query('INSERT INTO paper_processed_candles (symbol, candle_timestamp) VALUES ($1, $2) ON CONFLICT DO NOTHING', [candle.symbol, candle.timestamp])
-      await client.query('COMMIT')
-    } catch (error) {
-      if (transactionStarted) {
-        try { await client.query('ROLLBACK') } catch {}
-      }
-      throw error
-    } finally { client.release() }
+    })
   }
   async function status() {
     await init()
