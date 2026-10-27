@@ -1,4 +1,5 @@
 import { robustnessThresholds } from '../backtest/robustness.js'
+import { ablationConfiguration } from '../backtest/scannerComponentAblation.js'
 import { candidateExitConfiguration } from '../backtest/candidateExitManagement.js'
 import { executionResolutionConfiguration } from '../backtest/candidateExecutionResolution.js'
 import { canonicalPairs, relativeValueDefaults } from '../backtest/relativeValueBacktest.js'
@@ -58,6 +59,8 @@ function experimentConfiguration(experimentId, output) {
   if (!output || typeof output !== 'object') return null
   const options = output.options ?? null
   switch (experimentId) {
+    case 'scanner-component-ablation':
+      return structuredClone(ablationConfiguration)
     case 'candidate-execution-resolution':
       return { ...executionResolutionConfiguration }
     case 'candidate-exit-management':
@@ -185,6 +188,7 @@ const strategyDiscoveryMetas = [momentumBreakoutMeta, meanReversionMeta, priorDa
 
 function currentConfigurationFor(experimentId, dataset, codeRevision) {
   let output
+  if (experimentId === 'scanner-component-ablation') return structuredClone(ablationConfiguration)
   if (experimentId === 'candidate-execution-resolution') return structuredClone(executionResolutionConfiguration)
   if (experimentId === 'candidate-exit-management') return structuredClone(candidateExitConfiguration)
   if (experimentId === 'robustness') {

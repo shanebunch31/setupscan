@@ -4,6 +4,20 @@
 // read from it to populate summary fields; they never recompute or alter a research conclusion.
 import { createFinding, createResearchRecord, deriveResearchStatus, normalizeMetrics } from './researchRecord.js'
 
+export function adaptScannerComponentAblationOutput(definition, payload, context = {}) {
+  const metrics = Object.fromEntries((payload?.rows ?? []).map(row => [row.key, {
+    ...normalizeMetrics(row.metrics ?? { tradeCount: 0 }),
+    strategyId: 'setup-scan-baseline',
+    membershipRule: row.variant === 'baseline' ? 'research-eligible-75-plus' : `ablation-${row.variant}-fixed-75`,
+    ruleSetVariant: `scanner-ablation-${row.variant}`, symbol: row.symbol ?? 'pooled', periodRole: row.group,
+    ablation: row,
+  }]))
+  const { rows: _rows, ...summary } = payload ?? {}
+  return createAdaptedRecord(definition, payload, { ...context, symbols: payload?.symbols ?? context.symbols,
+    parameters: { ...context.parameters, scannerAblation: summary }, costModel: { status: 'not-modeled' },
+  }, metrics)
+}
+
 export function adaptExecutionResolutionOutput(definition, payload, context = {}) {
   const metrics = Object.fromEntries((payload?.rows ?? []).flatMap((row) => ['hourly', 'fiveMinute'].map((method) => [
     `${row.key}::${method}`, {

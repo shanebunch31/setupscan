@@ -1,4 +1,5 @@
 import {
+  adaptScannerComponentAblationOutput,
   adaptExecutionResolutionOutput,
   adaptCandidateExitManagementOutput,
   adaptCandidateContextRobustnessOutput,
@@ -30,6 +31,14 @@ const EXCLUDE_AMBIGUITY_POLICY = Object.freeze({
 })
 
 const definitions = [
+  {
+    id: 'scanner-component-ablation', methodologyVersion: 'scanner-component-ablation-1',
+    requiredSymbols: MULTI_SYMBOL_REQUIREMENTS, defaultSelected: false,
+    title: 'Scanner Component Ablation', category: 'baseline-validation', ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
+    description: 'Ablation = temporarily remove one ingredient to see how much it really contributes. Exploratory score-subtraction study only.',
+    methodology: 'Hourly SPY/QQQ/IWM; unchanged research-eligible 75+ baseline, fixed 75 floor after each score subtraction, no rescaling or production changes. EMA/Trend challenger counts the larger existing contribution once. Shared Signal Quality next-open/0.5%-risk/2R/12-observed-bar outcomes; incomplete expired and cross-year outcomes excluded. Causal SPY regimes; UTC decision years; missing inputs separate from false. Under 30 resolved insufficient, under 100 small exploratory sample. Sequential R drawdown, no portfolio/cost model. Repeated comparisons are dependent, not confirmatory or causal evidence.',
+    adapter: adaptScannerComponentAblationOutput,
+  },
   {
     id: 'candidate-execution-resolution', methodologyVersion: 'candidate-execution-resolution-3', requiredSymbols: [], defaultSelected: false,
     title: 'Trend Up + Medium Volatility — hourly versus five-minute execution', category: 'context-regime',

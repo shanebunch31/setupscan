@@ -17,6 +17,31 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { ResearchRunDetail } from '../src/research/ResearchRunDetail.js'
 import { checkResearchReplayCompatibility } from '../src/research/replayCompatibility.js'
 
+test('scanner ablation runs, saves and reloads normalized evidence with canonical dataset identity using mock PostgreSQL', async () => {
+  const id = 'scanner-component-ablation'
+  const request = { symbols: ['SPY','QQQ','IWM'], timeframe: '1Hour', requestedStart: '2024-01-01T00:00:00Z', requestedEnd: '2024-03-01T00:00:00Z', requestedExperiments: [id] }
+  const run = await runResearch(request, { fetchHistoricalMarketData: async (symbol, timeframe) => {
+    const candles = Array.from({ length: 300 }, (_, i) => {
+      const close = 100 + i * .03 + Math.sin(i / 6)
+      return { symbol, timeframe, timestamp: new Date(Date.UTC(2024,0,1)+i*3600000).toISOString(), open: close, high: close+.2, low: close-.2, close, volume:1000+i }
+    })
+    return { provider:'synthetic-test',symbol,timeframe,adjustmentMode:'split',candles,start:candles[0].timestamp,end:candles.at(-1).timestamp,requestedStart:request.requestedStart,requestedEnd:request.requestedEnd,candleCount:candles.length,complete:true }
+  } })
+  assert.equal(run.status,'completed')
+  assert.ok(run.records[0].metrics['full::baseline'].ablation.resolvedCount > 0)
+  const projected = projectResearchRunForPersistence(run)
+  const store = createResearchRunStore({ pool: new MemoryResearchPool() })
+  await store.saveResearchRun(projected)
+  const saved = await store.getResearchRun(run.runContext.runId)
+  assert.equal(saved.records[0].methodologyVersion,'scanner-component-ablation-1')
+  assert.equal(saved.dataset.datasetId,run.dataset.datasetId)
+  assert.equal(stringifyResearchJson(saved.records),stringifyResearchJson(projected.records))
+  assert.deepEqual(saved.synthesis,projected.synthesis)
+  assert.equal(saved.experimentResults[0].nativeOutput,null)
+  assert.ok((await store.getResearchDataset(run.dataset.datasetId)).datasetId)
+  assert.match(renderToStaticMarkup(React.createElement(ResearchRunDetail,{run:saved})),/Scanner Component Ablation/)
+})
+
 test('execution resolution saves both canonical timeframes and normalized paired evidence through the mock store', async () => {
   const id = 'candidate-execution-resolution'
   const request = { symbols: ['SPY'], timeframe: '1Hour', requestedStart: '2024-01-01T00:00:00Z', requestedEnd: '2024-06-01T00:00:00Z', requestedExperiments: [id] }

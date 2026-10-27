@@ -1,4 +1,5 @@
 import { enrichHistoricalCandles } from '../data/marketData.js'
+import { runScannerComponentAblation } from '../backtest/scannerComponentAblation.js'
 import { runJoinedContextStudy } from '../backtest/joinedContextStudy.js'
 import { runCandidateContextRobustness } from '../backtest/candidateContextRobustness.js'
 import { runCandidateExitManagement } from '../backtest/candidateExitManagement.js'
@@ -51,6 +52,10 @@ function discoveryDatasetsFor(symbols, availableBySymbol) {
  * No executor fetches, aligns, filters, or rewrites the shared raw candles.
  */
 export const researchExperimentExecutors = Object.freeze({
+  'scanner-component-ablation': freezeExecutor('scanner-component-ablation', ({ availableBySymbol, runContext }) => {
+    if (runContext.timeframe !== '1Hour') return { available: false, reason: 'Scanner ablation requires 1Hour inputs.' }
+    return runScannerComponentAblation(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol), runContext)
+  }),
   'candidate-execution-resolution': freezeExecutor('candidate-execution-resolution', ({ dataset, availableBySymbol, requestedSymbols, runContext }) => {
     if (runContext.timeframe !== '1Hour') return { available: false, reason: 'Execution comparison requires 1Hour decision inputs.' }
     if (dataset.adjustmentMode === 'mixed') return { available: false, reason: 'Hourly and 5Min inputs must use compatible price-adjustment modes.' }
