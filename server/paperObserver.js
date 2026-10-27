@@ -2,6 +2,7 @@ import dotenv from 'dotenv'
 import http from 'node:http'
 import { createPaperObserver } from './paperObserverCore.js'
 import { describeDatabaseUrl } from './postgresPaperStore.js'
+import { createPaperObserverShutdown, resolvePaperShutdownTimeout } from './paperObserverShutdown.js'
 
 dotenv.config()
 const port = Number(process.env.OBSERVER_PORT || 3102)
@@ -13,13 +14,20 @@ let observer = null
 let startupError = null
 let startupFailures = 0
 let startupTimer
+let startupPromise
 
 function startupRetryDelay() {
   return Math.min(startupRetryMaxMs, startupRetryBaseMs * (2 ** Math.min(Math.max(0, startupFailures - 1), 8)))
 }
 
-async function startObserver() {
-  if (observer) return
+function startObserver() {
+  if (observer || lifecycle.isStopping()) return
+  if (startupPromise) return startupPromise
+  startupPromise = initializeObserver().finally(() => { startupPromise = null })
+  return startupPromise
+}
+
+async function initializeObserver() {
   try {
     if (process.env.DATABASE_URL) {
       const { username, host, port: dbPort, database } = describeDatabaseUrl(process.env.DATABASE_URL)
@@ -30,13 +38,14 @@ async function startObserver() {
     observer = await createPaperObserver()
     startupError = null
     startupFailures = 0
-    observer.start()
+    if (!lifecycle.isStopping()) observer.start()
   } catch (error) {
+    if (lifecycle.isStopping()) throw error
     startupFailures += 1
     startupError = error.message
     const delay = startupRetryDelay()
     console.error(`Paper observer startup failed; retrying in ${delay}ms:`, error.message)
-    startupTimer = setTimeout(startObserver, delay)
+    startupTimer = setTimeout(() => { startObserver()?.catch(() => {}) }, delay)
   }
 }
 
@@ -44,6 +53,7 @@ function observerStatus() {
   if (observer) return observer.status()
   return {
     status: 'ERROR',
+    shuttingDown: lifecycle.isStopping(),
     currentError: startupError ?? 'Paper observer has not started.',
     consecutiveFailures: startupFailures,
     mode: 'AUTOMATED PAPER OBSERVER — NO REAL ORDERS',
@@ -64,17 +74,16 @@ const server = http.createServer((request, response) => {
   sendJson(response, 404, { error: 'Not found' })
 })
 
+const lifecycle = createPaperObserverShutdown({
+  getObserver: () => observer,
+  stopStartup: () => { if (startupTimer) clearTimeout(startupTimer) },
+  waitForStartup: () => startupPromise,
+  server,
+  timeoutMs: resolvePaperShutdownTimeout(process.env.PAPER_SHUTDOWN_TIMEOUT_MS),
+})
+
 server.listen(port, () => {
   console.log('AUTOMATED PAPER OBSERVER — NO REAL ORDERS')
   console.log(`Observer status listening on http://localhost:${port}`)
-  startObserver()
+  startObserver()?.catch(() => {}) // Shutdown owns any in-flight startup rejection.
 })
-
-function shutdown() {
-  if (startupTimer) clearTimeout(startupTimer)
-  observer?.stop()
-  server.close(() => process.exit(0))
-}
-
-process.on('SIGTERM', shutdown)
-process.on('SIGINT', shutdown)

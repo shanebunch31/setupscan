@@ -51,6 +51,7 @@ Optional observer settings and current defaults:
 - `PAPER_POLL_INTERVAL_MS=60000`
 - `PAPER_FETCH_TIMEOUT_MS=30000` (per-symbol request deadline; positive values capped at 120000 ms). Requests receive an abort signal; late responses cannot advance observer state.
 - `PAPER_DB_TIMEOUT_MS=30000` — total checked-out PostgreSQL operation/transaction budget, separate from provider fetching. Values below 1 ms or invalid values use the default; values above 120000 ms are capped. Pool acquisition separately retains its 10000 ms limit.
+- `PAPER_SHUTDOWN_TIMEOUT_MS=30000` — total SIGINT/SIGTERM shutdown budget for active-cycle drain, status-server close, and store close. Invalid, zero, negative, or sub-millisecond values use 30000 ms; positive values are rounded down and capped at 120000 ms. Shutdown prevents new cycles and startup retries, waits for normal persistence, then closes resources. Exit 0 means graceful shutdown completed (not that the last cycle had good market data); exit 1 means shutdown failed or exceeded its deadline, and persistence completion may be uncertain. No extra shutdown snapshot is written. Existing fetch/database deadlines remain unchanged. Set this below the hosting supervisor's termination grace period. A fully blocked JavaScript event loop still requires the supervisor's hard termination limit.
 - `OBSERVER_PORT=3102`
 - `DATABASE_SSL` defaults to enabled; set `DATABASE_SSL=false` only when the PostgreSQL deployment explicitly does not use SSL.
 

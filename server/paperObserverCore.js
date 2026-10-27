@@ -5,6 +5,7 @@ import { isRegularSession, nextPollTime } from './marketSession.js'
 import { createPaperStore } from './paperStore.js'
 import { createPostgresPaperStore, resolvePaperDbTimeout } from './postgresPaperStore.js'
 import { paperObserverCycleHealth } from './paperObserverHealth.js'
+import { resolvePaperShutdownTimeout, withShutdownDeadline } from './paperObserverShutdown.js'
 import { preparePaperCandles } from './paperCandlePipeline.js'
 import { historicalCandleEndTime } from '../src/data/historicalDataContract.js'
 import { configuredSeedSymbols, resolvePaperSymbolCap } from './paperSymbols.js'
@@ -23,6 +24,7 @@ function configFromEnvironment(environment = process.env) {
     timeframe: environment.PAPER_TIMEFRAME || '1Hour',
     marketTimezone: environment.PAPER_MARKET_TIMEZONE || 'America/New_York',
     dbTimeoutMs: resolvePaperDbTimeout(environment.PAPER_DB_TIMEOUT_MS),
+    shutdownTimeoutMs: resolvePaperShutdownTimeout(environment.PAPER_SHUTDOWN_TIMEOUT_MS),
     // A bad environment value must not turn a failed cycle into a tight retry loop.
     pollIntervalMs,
     fetchTimeoutMs: Number.isFinite(requestedFetchTimeout) && requestedFetchTimeout > 0 ? Math.min(120000, requestedFetchTimeout) : 30000,
@@ -86,6 +88,9 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
   let running = false
   let timer
   let activeCycle = null
+  let stopping = false
+  let stopPromise
+  let closePromise
 
   function cycleBudget(symbolCount) {
     // Universe read, normal save, and error-recording save, each including the
@@ -283,6 +288,7 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
   }
 
   function processOnce() {
+    if (stopping) return Promise.reject(Object.assign(new Error('Paper observer is shutting down.'), { code: 'PAPER_OBSERVER_STOPPED' }))
     if (activeCycle) return activeCycle
     state.cycleActive = true
     state.cycleStartedAt = now().toISOString()
@@ -307,7 +313,7 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
   }
 
   function start() {
-    if (running) return
+    if (running || stopping) return
     running = true
     const tick = () => {
       if (!running) return
@@ -318,14 +324,27 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
     }
     tick()
   }
-  function stop() { running = false; if (timer !== undefined) cancelSchedule(timer); timer = undefined }
+  function stop() {
+    if (stopPromise) return stopPromise
+    stopping = true
+    running = false
+    if (timer !== undefined) cancelSchedule(timer)
+    timer = undefined
+    // Never write an extra shutdown snapshot or pretend an unfinished save completed.
+    stopPromise = activeCycle ? withShutdownDeadline(activeCycle, config.shutdownTimeoutMs) : Promise.resolve()
+    return stopPromise
+  }
+  function close() {
+    if (!closePromise) closePromise = stop().then(() => selectedStore.close?.())
+    return closePromise
+  }
   function status() {
     const cycleHealth = paperObserverCycleHealth({ ...state, cycleActive: activeCycle !== null }, now(), true)
-    return { ...state, cycleActive: activeCycle !== null, cycleHealth,
+    return { ...state, shuttingDown: stopping, cycleActive: activeCycle !== null, cycleHealth,
       ...(cycleHealth.overdue ? { status: 'ERROR', currentError: 'Paper observer cycle/progress deadline exceeded.', healthErrorCode: 'PAPER_CYCLE_OVERDUE' } : {}),
       config: { ...config, symbols: state.activeSymbols }, mode: 'AUTOMATED PAPER OBSERVER — NO REAL ORDERS', storage: environment.DATABASE_URL ? 'POSTGRES' : 'LOCAL JSON DEVELOPMENT FALLBACK' }
   }
-  return { config, processOnce, start, stop, status, getJournal: () => engine.getJournal({ symbols: state.activeSymbols }), getState: engine.getState }
+  return { config, processOnce, start, stop, close, status, getJournal: () => engine.getJournal({ symbols: state.activeSymbols }), getState: engine.getState }
 }
 
 export { configFromEnvironment }
