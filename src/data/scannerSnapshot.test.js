@@ -1,10 +1,102 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createScannerRange, fetchScannerSnapshot, isSuccessfulScannerRefresh, scannerDataQualityNotices } from './scannerSnapshot.js'
+import { createScannerRange, fetchScannerSnapshot, isSuccessfulScannerRefresh, scannerDataQualityNotices, diagnoseScannerVwap } from './scannerSnapshot.js'
+import { scanSetups } from '../logic/scanner.js'
 
 const range = { start: '2026-09-01T00:00:00.000Z', end: '2026-09-02T00:00:00.000Z' }
 const fixedNow = () => new Date('2026-09-03T12:00:00.000Z')
+
+const incidentCutoff = '2026-10-27T17:00:00.000Z'
+const incidentBars = () => regularSessionCandles('SPY', '2026-10-27T13:30:00.000Z', incidentCutoff)
+
+test('1:05 PM scanner uses 42 completed session bars and makes VWAP evaluable without changing scoring', async () => {
+  const entries = await fetchScannerSnapshot(['SPY', 'QQQ', 'IWM', 'NVDA', 'AMD'], {}, async (symbol, timeframe) => ({
+    candles: timeframe === '1Hour'
+      ? [candle(symbol, '2026-10-27T16:00:00.000Z', 105)]
+      : incidentBars(),
+  }), () => new Date('2026-10-27T17:05:00.000Z'))
+  for (const entry of entries) {
+    assert.equal(entry.snapshot.vwap, 100)
+    assert.equal(entry.vwapDiagnostic.status, 'AVAILABLE')
+    assert.equal(entry.vwapDiagnostic.evaluationTime, incidentCutoff)
+    assert.equal(entry.vwapDiagnostic.usedCandleCount, 42)
+    assert.equal(entry.vwapDiagnostic.latestIncludedCandle, '2026-10-27T16:55:00.000Z')
+    assert.equal(entry.vwapDiagnostic.latestIncludedCandleEnd, incidentCutoff)
+    const scored = scanSetups([entry.snapshot])[0]
+    assert.equal(scored.reasons.find(r => r.label === 'Price vs VWAP').points, 20)
+    assert.deepEqual(entry.snapshot.vwapDiagnostic, entry.vwapDiagnostic)
+  }
+})
+
+test('VWAP diagnostics distinguish empty, wrong-day, unfinished and pre-session evidence', () => {
+  assert.equal(diagnoseScannerVwap({ candles: [] }, incidentCutoff).reason, 'EMPTY_RESPONSE')
+  assert.equal(diagnoseScannerVwap({ candles: [candle('SPY', '2026-10-26T14:00:00Z', 100)] }, incidentCutoff).reason, 'NO_SAME_EASTERN_DATE')
+  assert.equal(diagnoseScannerVwap({ candles: [candle('SPY', incidentCutoff, 100)] }, incidentCutoff).reason, 'NO_COMPLETED_CANDLES')
+  assert.equal(diagnoseScannerVwap({ candles: [candle('SPY', '2026-10-27T12:00:00Z', 100)] }, '2026-10-27T13:00:00Z').reason, 'NO_COMPLETED_REGULAR_SESSION_CANDLES')
+})
+
+test('VWAP diagnostics exclude future and extended-hours bars and preserve complete-session calculation', () => {
+  const bars = [...incidentBars(), candle('SPY', incidentCutoff, 900), candle('SPY', '2026-10-27T17:05:00Z', 900), candle('SPY', '2026-10-27T12:00:00Z', 900)]
+  const result = diagnoseScannerVwap({ candles: bars }, incidentCutoff)
+  assert.equal(result.returnedCandleCount, 45)
+  assert.equal(result.completedCandleCount, 43)
+  assert.equal(result.usedCandleCount, 42)
+  assert.equal(result.vwap, 100)
+})
+
+test('VWAP retains missing-opening, middle and final-slot protection with an observable reason', () => {
+  for (const index of [0, 20, 41]) {
+    const bars = incidentBars().filter((_, i) => i !== index)
+    const result = diagnoseScannerVwap({ candles: bars }, incidentCutoff)
+    assert.equal(result.reason, 'MISSING_OR_INVALID_SESSION_BARS')
+    assert.equal(result.vwap, null)
+    assert.equal(result.usedCandleCount, 0)
+    assert.equal(result.missingSessionSlots.length, 1)
+    assert.equal(result.missingSessionSlots[0], ['09:30', '11:10', '12:55'][[0, 20, 41].indexOf(index)])
+  }
+})
+
+test('VWAP validates malformed rows and deduplicates timestamps before calculation', () => {
+  const bars = incidentBars()
+  const valid = diagnoseScannerVwap({ candles: [...bars, bars[0], { timestamp: 'invalid' }] }, incidentCutoff)
+  assert.equal(valid.vwap, 100)
+  assert.equal(valid.validation.duplicateCandleCount, 1)
+  assert.equal(valid.validation.rejectedCandleCount, 1)
+  const invalid = bars.map((c, i) => i === 20 ? { ...c, low: c.high + 1 } : c)
+  assert.equal(diagnoseScannerVwap({ candles: invalid }, incidentCutoff).reason, 'MISSING_OR_INVALID_SESSION_BARS')
+})
+
+test('VWAP keeps provider completeness distinct from exact session coverage and rejects explicit stale data', () => {
+  const partial = diagnoseScannerVwap({ candles: incidentBars(), complete: false }, incidentCutoff)
+  assert.equal(partial.providerComplete, false)
+  assert.equal(partial.vwap, 100)
+  assert.equal(diagnoseScannerVwap({ candles: incidentBars(), stale: true }, incidentCutoff).reason, 'PROVIDER_MARKED_STALE')
+  const huge = incidentBars().map(c => ({ ...c, open: 1e308, high: 1e308, low: 1e308, close: 1e308 }))
+  assert.equal(diagnoseScannerVwap({ candles: huge }, incidentCutoff).reason, 'NON_FINITE_VWAP')
+})
+
+test('provider error diagnostics preserve hourly indicators and never include the provider error text', async () => {
+  const secretMarker = 'do-not-expose-provider-url-or-token'
+  const entries = await fetchScannerSnapshot(['SPY'], {}, async (symbol, timeframe) => {
+    if (timeframe === '5Min') throw new Error(secretMarker)
+    return { candles: Array.from({ length: 30 }, (_, i) => candle(symbol, new Date(Date.parse('2026-10-26T11:00:00Z') + i * 3600000).toISOString(), 100 + i)) }
+  }, () => new Date('2026-10-27T17:05:00Z'))
+  assert.equal(entries[0].available, true)
+  assert.ok(Number.isFinite(entries[0].snapshot.ema21))
+  assert.equal(entries[0].snapshot.vwap, null)
+  assert.equal(entries[0].vwapDiagnostic.reason, 'FIVE_MINUTE_REQUEST_FAILED')
+  assert.equal(entries[0].vwapDiagnostic.returnedCandleCount, null)
+  assert.equal(JSON.stringify(entries).includes(secretMarker), false)
+  assert.match(scannerDataQualityNotices(entries).join(' '), /FIVE_MINUTE_REQUEST_FAILED/)
+})
+
+test('VWAP session cutoff follows Eastern daylight and standard time', () => {
+  const bars = regularSessionCandles('SPY', '2026-11-03T14:30:00Z', '2026-11-03T18:00:00Z')
+  const result = diagnoseScannerVwap({ candles: bars }, '2026-11-03T18:00:00Z')
+  assert.equal(result.usedCandleCount, 42)
+  assert.equal(result.vwap, 100)
+})
 
 test('scanner refresh ranges use the current time instead of a stale mount-time cutoff', () => {
   assert.deepEqual(createScannerRange(new Date('2026-09-10T12:00:00.000Z')), {

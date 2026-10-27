@@ -1,5 +1,5 @@
 
-import { enrichHistoricalCandles, fetchHistoricalMarketData } from './marketData.js'
+import { enrichHistoricalCandles, fetchHistoricalMarketData, validateAndOrderHistoricalCandles } from './marketData.js'
 
 const HOUR_MS = 60 * 60 * 1000
 const FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -21,6 +21,12 @@ export function scannerDataQualityNotices(entries = []) {
   ]
 
   return entries.flatMap((entry) => [
+    ...(entry.vwapDiagnostic?.reason
+      ? [`${entry.symbol}: regular-session VWAP unavailable (${entry.vwapDiagnostic.reason}); hourly indicators remain separate.${entry.vwapDiagnostic.missingSessionSlots?.length ? ` Missing/invalid ET slots: ${entry.vwapDiagnostic.missingSessionSlots.length}; first ${entry.vwapDiagnostic.missingSessionSlots[0]}, last ${entry.vwapDiagnostic.missingSessionSlots.at(-1)}. Latest completed session bar: ${entry.vwapDiagnostic.latestCompletedSessionCandle ?? 'unavailable'}.` : ''}`]
+      : []),
+    ...(entry.vwapDiagnostic?.providerComplete === false
+      ? [`${entry.symbol}: the 5-minute response is marked incomplete; VWAP availability uses a separate regular-session coverage check.`]
+      : []),
     ...(entry.incomplete === true
       ? [`${entry.symbol}: the historical hourly data set is incomplete, so no scanner score was produced.`]
       : []),
@@ -58,7 +64,8 @@ function easternDateKey(timestamp) {
   return `${values.year}-${values.month}-${values.day}`
 }
 
-function hasMissingFiveMinuteCandles(candles, evaluationTime) {
+function hasMissingFiveMinuteCandles(candles, evaluationTime, diagnostic = {}) {
+  diagnostic.missingSessionSlots = []
   const evaluationMs = new Date(evaluationTime).getTime()
   if (!Number.isFinite(evaluationMs)) return true
 
@@ -132,7 +139,7 @@ function hasMissingFiveMinuteCandles(candles, evaluationTime) {
       Number.isFinite(candle.volume) &&
       candle.volume > 0
 
-    if (!validCandle) return true
+    if (!validCandle) continue
 
     availableCandles.set(minute, candle)
   }
@@ -142,50 +149,61 @@ function hasMissingFiveMinuteCandles(candles, evaluationTime) {
     expectedMinute < sessionCutoffMinute;
     expectedMinute += 5
   ) {
-    if (!availableCandles.has(expectedMinute)) return true
+    if (!availableCandles.has(expectedMinute)) {
+      diagnostic.missingSessionSlots.push(`${String(Math.floor(expectedMinute / 60)).padStart(2, '0')}:${String(expectedMinute % 60).padStart(2, '0')}`)
+    }
   }
 
-  return false
+  return diagnostic.missingSessionSlots.length > 0
 }
 
-function getVwapAtEvaluationTime(fiveMinuteCandles, evaluationTime) {
-  if (!fiveMinuteCandles.length) return null
-
+// Safe, structured diagnostics only: never copy provider error messages or payloads here.
+export function diagnoseScannerVwap(fiveMinuteData, evaluationTime) {
+  const input = Array.isArray(fiveMinuteData?.candles) ? fiveMinuteData.candles : []
   const evaluationMs = new Date(evaluationTime).getTime()
-  if (!Number.isFinite(evaluationMs)) return null
-
-  const evaluationDate = easternDateKey(evaluationMs)
-
-    const completedCandles = fiveMinuteCandles
-    .filter((candle) => {
-      const timestampMs = new Date(candle.timestamp).getTime()
-      const endMs = candleEndTime(candle, FIVE_MINUTES_MS)
-
-      return (
-        Number.isFinite(timestampMs) &&
-        Number.isFinite(endMs) &&
-        endMs <= evaluationMs &&
-        easternDateKey(timestampMs) === evaluationDate
-      )
-    })
-    .sort(
-      (a, b) =>
-        new Date(a.timestamp).getTime() -
-        new Date(b.timestamp).getTime(),
-    )
-
-
-  if (!completedCandles.length) return null
-
-  if (hasMissingFiveMinuteCandles(completedCandles, evaluationTime)) {
-    return null
+  const diagnostic = {
+    status: 'UNAVAILABLE', reason: null,
+    evaluationTime: Number.isFinite(evaluationMs) ? new Date(evaluationMs).toISOString() : null,
+    returnedCandleCount: input.length, sameDateCandleCount: 0, completedCandleCount: 0,
+    regularSessionCandleCount: 0, usedCandleCount: 0, latestIncludedCandle: null,
+    latestIncludedCandleEnd: null, vwap: null,
+    providerComplete: typeof fiveMinuteData?.complete === 'boolean' ? fiveMinuteData.complete : null,
+    providerStale: fiveMinuteData?.stale === true,
   }
-
-  const enriched = enrichHistoricalCandles(completedCandles, '5Min')
-
-  const latest = enriched[enriched.length - 1]
-
-  return Number.isFinite(latest?.vwap) ? latest.vwap : null
+  const unavailable = reason => ({ ...diagnostic, reason })
+  if (!Number.isFinite(evaluationMs)) return unavailable('INVALID_EVALUATION_TIME')
+  if (!input.length) return unavailable('EMPTY_RESPONSE')
+  const { candles, dataQuality } = validateAndOrderHistoricalCandles(input)
+  diagnostic.validation = dataQuality
+  const evaluationDate = easternDateKey(evaluationMs)
+  const sameDate = candles.filter(c => easternDateKey(c.timestamp) === evaluationDate)
+  diagnostic.sameDateCandleCount = sameDate.length
+  if (!sameDate.length) return unavailable(candles.length ? 'NO_SAME_EASTERN_DATE' : 'NO_VALID_CANDLES')
+  const completed = sameDate.filter(c => candleEndTime(c, FIVE_MINUTES_MS) <= evaluationMs)
+  diagnostic.completedCandleCount = completed.length
+  const sessionFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  })
+  const inSession = timestamp => {
+    const parts = Object.fromEntries(sessionFormatter.formatToParts(new Date(timestamp)).map(p => [p.type, p.value]))
+    const minute = Number(parts.hour) * 60 + Number(parts.minute)
+    return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(parts.weekday) && minute >= 570 && minute < 960
+  }
+  const session = completed.filter(c => inSession(c.timestamp))
+  diagnostic.regularSessionCandleCount = session.length
+  diagnostic.latestCompletedSessionCandle = session.at(-1)?.timestamp ?? null
+  if (!completed.length) return unavailable('NO_COMPLETED_CANDLES')
+  if (!session.length) return unavailable('NO_COMPLETED_REGULAR_SESSION_CANDLES')
+  if (diagnostic.providerStale) return unavailable('PROVIDER_MARKED_STALE')
+  if (hasMissingFiveMinuteCandles(completed, evaluationTime, diagnostic)) return unavailable('MISSING_OR_INVALID_SESSION_BARS')
+  const enriched = enrichHistoricalCandles(completed, '5Min')
+  const vwap = enriched.at(-1)?.vwap
+  if (!Number.isFinite(vwap)) return unavailable('NON_FINITE_VWAP')
+  // A broad-window completeness flag is not a session-coverage test. Preserve it as a warning;
+  // the existing exact session-slot check above independently establishes usable VWAP coverage.
+  return { ...diagnostic, status: 'AVAILABLE', reason: null, vwap,
+    usedCandleCount: session.length, latestIncludedCandle: session.at(-1).timestamp,
+    latestIncludedCandleEnd: new Date(candleEndTime(session.at(-1), FIVE_MINUTES_MS)).toISOString() }
 }
 
 export async function fetchScannerSnapshot(
@@ -234,23 +252,33 @@ export async function fetchScannerSnapshot(
 
       let vwap = null
       let fiveMinuteDataQuality = null
+      const evaluationTime = candleEndTime(latest, HOUR_MS)
+      let vwapDiagnostic = null
+      let fiveMinuteData = null
+      let vwapStage = 'request'
 
       try {
-        const fiveMinuteData = await fetchData(symbol, '5Min', range)
+        fiveMinuteData = await fetchData(symbol, '5Min', range)
+        vwapStage = 'calculation'
         fiveMinuteDataQuality = fiveMinuteData?.dataQuality ?? null
-        vwap = getVwapAtEvaluationTime(
-          fiveMinuteData?.candles ?? [],
-          candleEndTime(latest, HOUR_MS),
-        )
+        vwapDiagnostic = diagnoseScannerVwap(fiveMinuteData, evaluationTime)
+        vwap = vwapDiagnostic.vwap
       } catch {
-        // Hourly indicators remain usable when VWAP data is unavailable.
+        // Do not expose arbitrary provider errors (which may contain URLs or credentials).
+        vwapDiagnostic = { ...diagnoseScannerVwap(null, evaluationTime),
+          reason: vwapStage === 'request' ? 'FIVE_MINUTE_REQUEST_FAILED' : 'VWAP_PROCESSING_FAILED',
+          returnedCandleCount: Array.isArray(fiveMinuteData?.candles) ? fiveMinuteData.candles.length : null }
       }
+      vwapDiagnostic.hourlyCandleTimestamp = latest.timestamp
+      vwapDiagnostic.checkedAt = new Date(nowMs).toISOString()
 
       return {
         symbol,
         available: true,
         dataQuality: { hourly: hourlyDataQuality, fiveMinute: fiveMinuteDataQuality },
+        vwapDiagnostic,
         snapshot: {
+          vwapDiagnostic,
           symbol,
           price: latest.price,
           change,

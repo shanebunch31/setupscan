@@ -20,6 +20,10 @@ function isWeekendOnlyGap(fromTimestamp, toTimestamp) {
   const target = new Date(toMs)
   target.setUTCHours(0, 0, 0, 0)
 
+  // No intervening date does not mean a weekend: an intraday cache can be stale.
+  // Let the interval-end coverage check decide whether this request is covered.
+  if (cursor > target) return false
+
   while (cursor <= target) {
     const day = cursor.getUTCDay()
 

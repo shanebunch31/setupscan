@@ -2,6 +2,59 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { handleHistoricalRoute } from './historicalRoute.js'
 import { createHistoricalCacheKey } from '../src/research/historicalCacheKey.js'
+import { diagnoseScannerVwap } from '../src/data/scannerSnapshot.js'
+
+test('same-day five-minute cache ending at 11:45 ET fetches its missing tail and restores session VWAP', async () => {
+  const bars = Array.from({ length: 78 }, (_, i) => ({
+    symbol: 'SPY', timeframe: '5Min', timestamp: new Date(Date.parse('2026-10-27T13:30:00Z') + i * 300000).toISOString(),
+    open: 100, high: 101, low: 99, close: 100, volume: 100,
+  }))
+  const cached = bars.slice(0, 28)
+  const cutoff = '2026-10-27T20:00:00Z'
+  const missing = diagnoseScannerVwap({ candles: cached }, cutoff)
+  assert.equal(missing.missingSessionSlots.length, 50)
+  assert.equal(missing.missingSessionSlots[0], '11:50')
+  assert.equal(missing.missingSessionSlots.at(-1), '15:55')
+  const calls = [], saves = []
+  let response
+  await handleHistoricalRoute({
+    response: {}, url: new URL(`http://local/api/historical?symbol=SPY&timeframe=5Min&start=2026-10-01&end=${cutoff}`),
+    researchRunStore: {
+      findResearchHistoricalCacheCoverage: async () => ({ symbol: 'SPY', timeframe: '5Min', complete: true, actualEnd: cached.at(-1).timestamp, candles: cached }),
+      saveResearchHistoricalCache: async entry => saves.push(entry),
+    },
+    fetchHistoricalMarketBars: async input => {
+      calls.push(input)
+      return { complete: true, candles: bars.slice(27) }
+    },
+    sendJson: (_, status, body) => { response = { status, body } }, createHistoricalCacheKey,
+  })
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].start, cached.at(-1).timestamp)
+  assert.equal(calls[0].end, cutoff)
+  assert.equal(response.status, 200)
+  assert.equal(response.body.candles.length, 78)
+  assert.equal(saves.length, 1)
+  const diagnostic = diagnoseScannerVwap(response.body, cutoff)
+  assert.equal(diagnostic.vwap, 100)
+  assert.equal(diagnostic.usedCandleCount, 78)
+})
+
+test('same-day cache still reuses an exactly completed interval but fetches later hourly coverage', async () => {
+  for (const [end, expectedCalls] of [['2026-10-27T17:00:00Z', 0], ['2026-10-27T18:00:00Z', 1]]) {
+    let calls = 0
+    await handleHistoricalRoute({
+      response: {}, url: new URL(`http://local/api/historical?symbol=SPY&timeframe=1Hour&end=${end}`),
+      researchRunStore: {
+        findResearchHistoricalCacheCoverage: async () => ({ complete: true, actualEnd: '2026-10-27T16:00:00Z', candles: [] }),
+        saveResearchHistoricalCache: async () => {},
+      },
+      fetchHistoricalMarketBars: async () => { calls++; return { complete: true, candles: [] } },
+      sendJson: (_, status) => assert.equal(status, 200), createHistoricalCacheKey,
+    })
+    assert.equal(calls, expectedCalls)
+  }
+})
 
 test('fully covered historical requests reuse the cached series', async () => {
   let fetchCalls = 0
