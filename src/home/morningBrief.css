@@ -1,0 +1,420 @@
+.morning-brief {
+  display: grid;
+  gap: 14px;
+}
+
+.morning-brief-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+
+  padding: 8px 2px 4px;
+}
+
+.morning-brief-header h1 {
+  margin: 0;
+
+  color: var(--terminal-text);
+
+  font-size: 29px;
+  font-weight: 700;
+  letter-spacing: -0.045em;
+}
+
+.morning-brief-header > div > p:last-child {
+  margin: 6px 0 0;
+
+  color: #91a8bd;
+
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.morning-brief-header-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.morning-brief-header-status small {
+  color: #71879c;
+  font-size: 9px;
+}
+
+.brief-summary-grid {
+  display: grid;
+  grid-template-columns:
+    repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.brief-summary-card {
+  min-width: 0;
+
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 14px;
+
+  background: var(--terminal-panel);
+  border: 1px solid var(--terminal-border);
+  border-radius: 7px;
+}
+
+.brief-summary-icon {
+  flex: 0 0 auto;
+
+  width: 42px;
+  height: 42px;
+
+  display: grid;
+  place-items: center;
+
+  color: var(--terminal-cyan);
+
+  background: rgba(22, 135, 255, 0.11);
+  border: 1px solid rgba(40, 183, 245, 0.15);
+  border-radius: 9px;
+}
+
+.brief-summary-card > div:last-child {
+  min-width: 0;
+}
+
+.brief-summary-card span {
+  display: block;
+
+  color: #8fa4ba;
+
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.brief-summary-card strong {
+  display: block;
+
+  margin-top: 4px;
+
+  color: #eef5fb;
+
+  font-size: 20px;
+  line-height: 1.15;
+}
+
+.brief-summary-card small {
+  display: block;
+
+  margin-top: 5px;
+
+  color: #8298ad;
+
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.brief-summary-card .market-status {
+  padding: 0;
+
+  background: transparent;
+  border: 0;
+
+  font-size: 11px;
+}
+
+.brief-main-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 0.9fr)
+    minmax(0, 1.1fr);
+  gap: 12px;
+}
+
+.brief-panel {
+  min-width: 0;
+
+  background: var(--terminal-panel);
+  border: 1px solid var(--terminal-border);
+  border-radius: 7px;
+
+  overflow: hidden;
+}
+
+.brief-panel-heading {
+  min-height: 65px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+
+  padding: 13px 16px;
+
+  border-bottom: 1px solid var(--terminal-border);
+}
+
+.brief-panel-heading .eyebrow {
+  margin-bottom: 5px;
+}
+
+.brief-panel-heading h2 {
+  margin: 0;
+
+  color: #edf4fa;
+
+  font-size: 16px;
+}
+
+.brief-panel-heading > span {
+  color: var(--terminal-cyan);
+
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.brief-setup-list,
+.brief-research-list {
+  display: grid;
+}
+
+.brief-setup-row {
+  width: 100%;
+
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  padding: 13px 16px;
+
+  color: #dce7f1;
+  background: transparent;
+
+  border-bottom: 1px solid #112a40;
+
+  text-align: left;
+}
+
+.brief-setup-row:hover {
+  background: #0b2439;
+}
+
+.brief-setup-row > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.brief-setup-row > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.brief-setup-row strong {
+  font-size: 12px;
+}
+
+.brief-setup-row span {
+  color: #8fa4ba;
+
+  font-size: 9px;
+}
+
+.brief-setup-row small {
+  margin-left: 2px;
+
+  color: #71879c;
+
+  font-size: 8px;
+}
+
+.brief-setup-row > div:last-child strong {
+  color: var(--terminal-green);
+}
+
+.brief-research-row {
+  padding: 12px 16px;
+
+  border-bottom: 1px solid #112a40;
+}
+
+.brief-research-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brief-research-title strong {
+  color: #dfe9f2;
+
+  font-size: 11px;
+}
+
+.brief-research-title span {
+  padding: 2px 5px;
+
+  color: #041b15;
+  background: var(--terminal-green);
+
+  border-radius: 3px;
+
+  font-size: 7px;
+  font-weight: 800;
+}
+
+.brief-research-row p {
+  margin: 5px 0 0;
+
+  color: #8fa4ba;
+
+  font-size: 9px;
+}
+
+.brief-research-row small {
+  display: block;
+
+  margin-top: 4px;
+
+  color: #687f94;
+
+  font-size: 8px;
+}
+
+.brief-evidence-note {
+  margin: 0;
+  padding: 10px 16px;
+
+  color: #8197aa;
+  background: #071827;
+
+  border-top: 1px solid #112a40;
+
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.brief-link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+
+  margin: 11px 16px;
+
+  padding: 7px 10px;
+
+  color: #9ed0ff;
+  background: #0b2848;
+
+  border: 1px solid #164b79;
+  border-radius: 5px;
+
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.brief-link-button:hover {
+  color: white;
+  border-color: var(--terminal-blue);
+}
+
+.brief-empty {
+  margin: 0;
+
+  padding: 18px 16px;
+
+  color: #8298ad;
+
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.brief-attention-panel {
+  margin-bottom: 6px;
+}
+
+.brief-attention-list {
+  display: grid;
+}
+
+.brief-attention-list > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+
+  padding: 10px 16px;
+
+  color: #d9b36b;
+
+  border-bottom: 1px solid #112a40;
+
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.brief-attention-list svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.brief-all-clear {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+
+  padding: 14px 16px;
+
+  color: #90d9c0;
+
+  font-size: 10px;
+}
+
+.brief-bottom-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+
+  padding-right: 16px;
+
+  border-top: 1px solid #112a40;
+}
+
+.brief-bottom-actions small {
+  color: #71879c;
+
+  font-size: 8px;
+}
+
+@media (max-width: 1000px) {
+  .brief-summary-grid {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+
+  .brief-main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 650px) {
+  .morning-brief-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .morning-brief-header-status {
+    align-items: flex-start;
+  }
+
+  .brief-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .brief-bottom-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

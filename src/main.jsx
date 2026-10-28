@@ -7,6 +7,7 @@ import {
   BarChart3,
   Bell,
   CircleHelp,
+  House,
   LineChart,
   Menu,
   RefreshCw,
@@ -38,6 +39,8 @@ import { VolatilityAwareVariantsLab } from './backtest/VolatilityAwareVariantsLa
 import { StrategyDiscoveryLab } from './backtest/StrategyDiscoveryLab.jsx'
 import { PaperTradingPanel } from './paper/PaperTradingPanel.jsx'
 import { MarketStatus } from './MarketStatus.js'
+import { MarketSnapshotStrip } from './MarketSnapshotStrip.jsx'
+import { MorningBrief } from './home/MorningBrief.jsx'
 import { createRefreshTimestamp, formatLastRefresh, formatMarketTime } from './marketTime.js'
 import { filterScannerResults, ScannerFiltersButton, ScannerThresholdFilter, SCANNER_TERM_EXPLANATIONS } from './scannerFilters.js'
 import { METRIC_DEFINITIONS, MetricsGlossary, TermHelp } from './backtest/MetricsGlossary.jsx'
@@ -51,6 +54,7 @@ import './styles.css'
 const DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'IWM', 'NVDA', 'TSLA', 'AAPL', 'AMD', 'META', 'AMZN']
 const robustnessSymbols = ['SPY', 'QQQ', 'IWM']
 const navItems = [
+  { id: 'home', label: 'Home' },
   { id: 'scan', label: 'Scan' },
   { id: 'paper', label: 'Paper Trading' },
   { id: 'backtest', label: 'Backtest' },
@@ -82,6 +86,7 @@ function scannerEmptyMessage(isLoading, evaluatedCount, unavailableCount, thresh
   return `No scanner results meet this minimum score of ${threshold}.`
 }
 const APP_ROUTES = {
+  home: '/home',
   scan: '/scan',
   paper: '/paper',
   backtest: '/backtest',
@@ -101,7 +106,7 @@ const RESEARCH_ROUTES = {
 function readAppRoute() {
   if (typeof window === 'undefined') {
     return {
-      view: 'scan',
+      view: 'home',
       researchWorkspaceView: 'workbench',
     }
   }
@@ -145,7 +150,7 @@ function navigateAppRoute(view, researchWorkspaceView = 'workbench') {
   const route =
     view === 'research'
       ? RESEARCH_ROUTES[researchWorkspaceView] ?? RESEARCH_ROUTES.workbench
-      : APP_ROUTES[view] ?? APP_ROUTES.scan
+      : APP_ROUTES[view] ?? APP_ROUTES.home
 
   window.history.pushState({}, '', route)
 }
@@ -805,6 +810,7 @@ function TopBar({
           Add
         </button>
       </form>
+      <MarketSnapshotStrip />
 
       <MarketStatus now={currentTime} />
 
@@ -851,6 +857,7 @@ function AppSidebar({
   onSelectSymbol,
 }) {
   const icons = {
+    home: House,
     scan: Activity,
     paper: LineChart,
     backtest: BarChart3,
@@ -888,14 +895,15 @@ function AppSidebar({
           const Icon = icons[item.id] ?? Activity
 
           return (
-            <button
-              key={item.id}
-              type="button"
-              className={`sidebar-nav-button ${
-                view === item.id ? 'active' : ''
-              }`}
-              onClick={() => onNavigate(item.id)}
-            >
+           <button
+            key={item.id}
+            type="button"
+            className={`sidebar-nav-button ${
+            view === item.id ? 'active' : ''
+     }`}
+            aria-current={view === item.id ? 'page' : undefined}
+            onClick={() => onNavigate(item.id)}
+       >
               <Icon size={17} />
               <span>{item.label}</span>
             </button>
@@ -915,7 +923,11 @@ function AppSidebar({
                 className={
                   researchWorkspaceView === id ? 'active' : ''
                 }
-                aria-current={view === item.id ? 'page' : undefined}
+                aria-current={
+  researchWorkspaceView === id
+    ? 'page'
+    : undefined
+}
                 onClick={() => onResearchNavigate(id)}
               >
                 {label}
@@ -1042,7 +1054,7 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
   }, [])
 
   useEffect(() => {
-  if (view !== 'scan') {
+  if (view !== 'scan' && view !== 'home') {
     setScanLoading(false)
     return undefined
   }
@@ -1445,6 +1457,28 @@ const handleResearchWorkspaceNavigate = (nextView) => {
       />
 
       <main className="dashboard">
+        {view === 'home' && (
+  <MorningBrief
+    currentTime={currentTime}
+    results={results}
+    scanLoading={scanLoading}
+    scanUnavailable={scanUnavailable}
+    scanDataQuality={scanDataQuality}
+    onOpenSetup={(symbol) => {
+      setSelectedSymbol(symbol)
+      setExpandedSymbol(symbol)
+      handleNavigate('scan')
+    }}
+    onOpenPaper={() =>
+      handleNavigate('paper')
+    }
+    onOpenResearch={() =>
+      handleResearchWorkspaceNavigate(
+        'history',
+      )
+    }
+  />
+)}
         {view === 'scan' && (
           <>
 <section className="scan-page-heading">
