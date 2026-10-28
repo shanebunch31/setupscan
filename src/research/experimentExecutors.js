@@ -1,4 +1,5 @@
 import { enrichHistoricalCandles } from '../data/marketData.js'
+import { runScannerScoreStability } from '../backtest/scannerScoreRedundancyStability.js'
 import { runScannerComponentAblation } from '../backtest/scannerComponentAblation.js'
 import { runJoinedContextStudy } from '../backtest/joinedContextStudy.js'
 import { runCandidateContextRobustness } from '../backtest/candidateContextRobustness.js'
@@ -52,6 +53,14 @@ function discoveryDatasetsFor(symbols, availableBySymbol) {
  * No executor fetches, aligns, filters, or rewrites the shared raw candles.
  */
 export const researchExperimentExecutors = Object.freeze({
+  'scanner-score-redundancy-stability': freezeExecutor('scanner-score-redundancy-stability', ({ dataset, availableBySymbol, runContext }) => {
+    if (runContext.timeframe !== '1Hour') return { available: false, reason: 'Score stability requires 1Hour inputs.' }
+    const raw = Object.fromEntries(MULTI_SYMBOL_UNIVERSE.map(symbol => [symbol,
+      dataset.calculationSeries?.find(s => s.symbol === symbol && s.timeframe === '1Hour')?.candles ??
+      dataset.fetchResultsBySymbol?.[symbol]?.calculationCandles ?? availableBySymbol.get(symbol).candles,
+    ]))
+    return runScannerScoreStability(raw, { requestedStart: runContext.requestedStart, requestedEnd: runContext.requestedEnd ?? runContext.requestedAt })
+  }),
   'scanner-component-ablation': freezeExecutor('scanner-component-ablation', ({ availableBySymbol, runContext }) => {
     if (runContext.timeframe !== '1Hour') return { available: false, reason: 'Scanner ablation requires 1Hour inputs.' }
     return runScannerComponentAblation(rawSeriesFor(MULTI_SYMBOL_UNIVERSE, availableBySymbol), runContext)

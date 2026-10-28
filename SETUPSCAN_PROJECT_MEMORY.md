@@ -1,5 +1,14 @@
 # SetupScan — Project Memory
 
+## Implementation checkpoint — October 28, 2026: Scanner Score Redundancy / Stability
+
+- Added opt-in research experiment `scanner-score-redundancy-stability`, methodology `scanner-score-redundancy-stability-1`.
+- Five fixed definitions: current baseline (100), keep EMA/remove Trend (85), keep Trend/remove EMA (80), combined family 20 (85), combined family 15 (80). Baseline floor 75; each challenger has fixed 75 and mechanical ceil(75% of maximum), respectively 64 or 60. No weight/threshold search or score rescaling.
+- Reuses Signal Quality outcome calculations and causal regimes, with available calculation pre-roll retained. Mechanical floors examine all scored observations, including those below the original 75. Combined families require available EMA/Trend inputs and award shared credit only when both conditions pass; disagreements and unavailable inputs are reported.
+- Normalized saved evidence includes period/year/symbol/regime accounting, four R-cost tiers, baseline-ranked Eastern-date stress tests, equivalent-variant checks and deterministic conservative conclusions. Existing ablation records remain readable. Workbench and saved-run views use a small dedicated renderer, not a redesign.
+- Verification: focused research/persistence/legacy/Shadow compatibility group 151/151 passed; `npm.cmd test` 1116/1116 passed with normal filesystem permissions (restricted execution blocked existing temporary-file rename tests); `npm.cmd run build` passed with the existing bundle-size warning; `git diff --check` passed. No real database/provider access. Shadow fingerprint regression passed.
+- **Implementation only:** no real historical run was performed or reviewed for this new study. Historical conclusions and any candidate/production changes remain unapproved. Scanner scoring, Paper Trader eligibility/execution and the active Shadow Forward tracker are unchanged.
+
 ## 1. Project Purpose
 
 SetupScan is a trading research application designed to investigate trading strategies and identify setups that may be consistent over time.

@@ -4,6 +4,20 @@
 // read from it to populate summary fields; they never recompute or alter a research conclusion.
 import { createFinding, createResearchRecord, deriveResearchStatus, normalizeMetrics } from './researchRecord.js'
 
+export function adaptScannerScoreStabilityOutput(definition, payload, context = {}) {
+  const metrics = Object.fromEntries((payload?.rows ?? []).map(row => [row.key, {
+    ...normalizeMetrics(row.metrics ?? { tradeCount: 0 }), strategyId: 'setup-scan-baseline',
+    membershipRule: row.variant === 'baseline' ? 'research-eligible-75-plus' : `score-stability-${row.variant}-${row.mode}-${row.threshold}`,
+    ruleSetVariant: `scanner-score-stability-${row.variant}-${row.mode}`,
+    symbol: row.symbol ?? 'pooled', periodRole: row.group, scoreStability: row,
+  }]))
+  const { rows: _rows, ...summary } = payload ?? {}
+  return createAdaptedRecord(definition, payload, { ...context, symbols: payload?.symbols ?? context.symbols,
+    parameters: { ...context.parameters, scoreStability: summary },
+    costModel: { status: 'modeled', costTiers: [0, .02, .05, .10].map(costR => ({ costR })) },
+  }, metrics)
+}
+
 export function adaptScannerComponentAblationOutput(definition, payload, context = {}) {
   const metrics = Object.fromEntries((payload?.rows ?? []).map(row => [row.key, {
     ...normalizeMetrics(row.metrics ?? { tradeCount: 0 }),

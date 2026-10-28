@@ -1,4 +1,5 @@
 import {
+  adaptScannerScoreStabilityOutput,
   adaptScannerComponentAblationOutput,
   adaptExecutionResolutionOutput,
   adaptCandidateExitManagementOutput,
@@ -31,6 +32,14 @@ const EXCLUDE_AMBIGUITY_POLICY = Object.freeze({
 })
 
 const definitions = [
+  {
+    id: 'scanner-score-redundancy-stability', methodologyVersion: 'scanner-score-redundancy-stability-1',
+    requiredSymbols: MULTI_SYMBOL_REQUIREMENTS, defaultSelected: false,
+    title: 'Scanner Score Redundancy / Stability', category: 'baseline-validation', ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
+    description: 'Five predeclared score definitions; fixed versus mechanical floors. Does apparent improvement persist across periods, symbols, regimes, costs and days?',
+    methodology: 'Research-only hourly SPY/QQQ/IWM. Current baseline, keep EMA, keep Trend, shared family 20 or 15. Fixed 75 versus ceil(75% of maximum); no search or rescaling. Shared family requires available, agreeing positive EMA and Trend; disagreements earn zero. Baseline preserves current researchEligible membership; adjusted floors can admit below-75 observations. Shared Signal Quality next-open/0.5%-risk/2R/12-observed-bar outcomes with stop-first ambiguity; incomplete and cross-period outcomes excluded. UTC decision periods; Eastern day concentration; causal SPY trend/volatility. Costs 0/0.02/0.05/0.10R. Under 30 insufficient, 30–99 exploratory, 100+ descriptive only. Repeated historical follow-up is not untouched validation. No production rule changes.',
+    adapter: adaptScannerScoreStabilityOutput,
+  },
   {
     id: 'scanner-component-ablation', methodologyVersion: 'scanner-component-ablation-1',
     requiredSymbols: MULTI_SYMBOL_REQUIREMENTS, defaultSelected: false,
