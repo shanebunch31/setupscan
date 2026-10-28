@@ -1,4 +1,5 @@
 import {
+  adaptQualificationStackOutput,
   adaptScannerScoreStabilityOutput,
   adaptScannerComponentAblationOutput,
   adaptExecutionResolutionOutput,
@@ -32,6 +33,14 @@ const EXCLUDE_AMBIGUITY_POLICY = Object.freeze({
 })
 
 const definitions = [
+  {
+    id: 'qualification-stack-condition-count', methodologyVersion: 'qualification-stack-condition-count-1',
+    requiredSymbols: MULTI_SYMBOL_REQUIREMENTS, defaultSelected: false,
+    title: 'Qualification Stack / Condition Count', category: 'baseline-validation', ambiguityPolicy: STOP_FIRST_AMBIGUITY_POLICY,
+    description: 'Compare full-condition counts, missing conditions and missing pairs, with EMA/Trend separate or counted once. Research only; no score optimization.',
+    methodology: 'Completed hourly SPY/QQQ/IWM decisions; all required inputs evaluable, partial score credit never counts as a full pass. Six current conditions versus five families (EMA AND Trend). Exact counts and exhaustive predeclared single/pair omissions. Shared Signal Quality next-open/0.5%-risk/2R/12-observed-bar outcomes, stop-first ambiguity and incomplete/cross-period exclusions. UTC periods; causal SPY regimes; fixed 0/0.02/0.05/0.10R costs and Qualified-baseline Eastern-day removals. Under 30 insufficient; 30–99 exploratory; 100+ descriptive only. Five families are not statistically independent. Repeated subgroup exploration cannot authorize production changes.',
+    adapter: adaptQualificationStackOutput,
+  },
   {
     id: 'scanner-score-redundancy-stability', methodologyVersion: 'scanner-score-redundancy-stability-1',
     requiredSymbols: MULTI_SYMBOL_REQUIREMENTS, defaultSelected: false,

@@ -3,6 +3,7 @@ import { CandidateRobustnessResult } from './CandidateRobustnessResult.js'
 import { ExecutionResolutionResult } from './ExecutionResolutionResult.js'
 import { ScannerAblationResult } from './ScannerAblationResult.js'
 import { ScannerScoreStabilityResult } from './ScannerScoreStabilityResult.js'
+import { QualificationStackResult } from './QualificationStackResult.js'
 import { Link2, LoaderCircle, Play, Plus, Save } from 'lucide-react'
 import { listResearchExperiments } from './registry.js'
 import { getResearchRun, saveResearchRun } from './researchRunHistory.js'
@@ -237,6 +238,7 @@ export function RunResultSummary({ result }) {
     (result.records ?? []).filter((record) => record.id === 'candidate-execution-resolution').map((record) => h(ExecutionResolutionResult, { key: record.id, record })),
     (result.records ?? []).filter((record) => record.id === 'scanner-component-ablation').map((record) => h(ScannerAblationResult, { key: record.id, record })),
     (result.records ?? []).filter((record) => record.id === 'scanner-score-redundancy-stability').map((record) => h(ScannerScoreStabilityResult, { key: record.id, record })),
+    (result.records ?? []).filter((record) => record.id === 'qualification-stack-condition-count').map((record) => h(QualificationStackResult, { key: record.id, record })),
     h('p', { className: 'workbench-result-caveat' }, 'Research uses underlying-stock prices, not option-contract quotes or fills. Cost tiers are modeled assumptions, not historical bid/ask or actual execution replay. A large search across variants is more likely to produce a chance result than a small search; this review does not provide a complete cross-run variant count.'),
     h('section', { className: 'workbench-result-ambiguity', 'aria-label': 'Same-candle outcome policies' },
       h('h3', null, 'How same-candle stop and target outcomes are handled'),

@@ -1,4 +1,5 @@
 import { robustnessThresholds } from '../backtest/robustness.js'
+import { qualificationStackConfiguration } from '../backtest/qualificationStackConditionCount.js'
 import { ablationConfiguration } from '../backtest/scannerComponentAblation.js'
 import { scoreStabilityConfiguration } from '../backtest/scannerScoreRedundancyStability.js'
 import { candidateExitConfiguration } from '../backtest/candidateExitManagement.js'
@@ -60,6 +61,8 @@ function experimentConfiguration(experimentId, output) {
   if (!output || typeof output !== 'object') return null
   const options = output.options ?? null
   switch (experimentId) {
+    case 'qualification-stack-condition-count':
+      return structuredClone(qualificationStackConfiguration)
     case 'scanner-score-redundancy-stability':
       return structuredClone(scoreStabilityConfiguration)
     case 'scanner-component-ablation':
@@ -191,6 +194,7 @@ const strategyDiscoveryMetas = [momentumBreakoutMeta, meanReversionMeta, priorDa
 
 function currentConfigurationFor(experimentId, dataset, codeRevision) {
   let output
+  if (experimentId === 'qualification-stack-condition-count') return structuredClone(qualificationStackConfiguration)
   if (experimentId === 'scanner-score-redundancy-stability') return structuredClone(scoreStabilityConfiguration)
   if (experimentId === 'scanner-component-ablation') return structuredClone(ablationConfiguration)
   if (experimentId === 'candidate-execution-resolution') return structuredClone(executionResolutionConfiguration)

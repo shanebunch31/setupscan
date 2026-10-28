@@ -4,6 +4,21 @@
 // read from it to populate summary fields; they never recompute or alter a research conclusion.
 import { createFinding, createResearchRecord, deriveResearchStatus, normalizeMetrics } from './researchRecord.js'
 
+export function adaptQualificationStackOutput(definition, payload, context = {}) {
+  const { rows = [], ...summary } = payload ?? {}
+  // Count partitions are primary evidence; overlapping subgroup detail is retained once.
+  const metrics = Object.fromEntries(rows.filter(r => r.kind === 'count').map(row => [row.key, {
+    ...normalizeMetrics(row.metrics ?? { tradeCount: 0 }), strategyId: 'setup-scan-baseline',
+    membershipRule: row.view === 'six' && row.bucket === 'count-6' ? 'qualified-only' : `qualification-stack-${row.view}-${row.bucket}`,
+    ruleSetVariant: `qualification-stack-${row.view}-${row.bucket}`,
+    symbol: row.symbol ?? 'pooled', periodRole: row.group, qualificationStack: row,
+  }]))
+  return createAdaptedRecord(definition, payload, { ...context, symbols: payload?.symbols ?? context.symbols,
+    parameters: { ...context.parameters, qualificationStack: { ...summary, subgroups: rows.filter(r => r.kind !== 'count') } },
+    costModel: { status: 'modeled', costTiers: [0, .02, .05, .10].map(costR => ({ costR })) },
+  }, metrics)
+}
+
 export function adaptScannerScoreStabilityOutput(definition, payload, context = {}) {
   const metrics = Object.fromEntries((payload?.rows ?? []).map(row => [row.key, {
     ...normalizeMetrics(row.metrics ?? { tradeCount: 0 }), strategyId: 'setup-scan-baseline',
