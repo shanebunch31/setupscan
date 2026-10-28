@@ -2,7 +2,10 @@ import path from 'node:path'
 import { createPaperTradingEngine } from './paperTrading.js'
 import { createPaperStore } from './paperStore.js'
 import { createPostgresPaperStore } from './postgresPaperStore.js'
-import { configuredSeedSymbols } from './paperSymbols.js'
+import {
+  configuredSeedSymbols,
+  resolvePaperSymbolCap,
+} from './paperSymbols.js'
 import { paperObserverCycleHealth } from './paperObserverHealth.js'
 
 function selectStore({ store, environment, createJsonStore, createPostgresStore }) {
@@ -51,13 +54,105 @@ export function createPaperService({
   now = () => new Date(),
 } = {}) {
   const selected = selectStore({ store, environment, createJsonStore, createPostgresStore })
+  function universeOptions() {
+    return {
+      seedSymbols:
+        configuredSeedSymbols(environment),
+      cap: resolvePaperSymbolCap(
+        environment.PAPER_SYMBOL_CAP,
+      ),
+    }
+  }
+
+  async function readSymbolUniverse() {
+    const options = universeOptions()
+
+    if (
+      typeof selected.store
+        .readObserverSymbols !== 'function'
+    ) {
+      return {
+        initialized: false,
+        symbols: options.seedSymbols,
+        cap: options.cap,
+      }
+    }
+
+    const universe =
+      await selected.store.readObserverSymbols()
+
+    return {
+      initialized: universe.initialized,
+      symbols: universe.initialized
+        ? universe.symbols
+        : options.seedSymbols,
+      cap: options.cap,
+    }
+  }
+
+  async function addSymbol(symbol) {
+    if (
+      typeof selected.store
+        .addObserverSymbol !== 'function'
+    ) {
+      const error = new Error(
+        'Paper symbol storage is unavailable.',
+      )
+      error.code =
+        'PAPER_SYMBOL_UNIVERSE_UNAVAILABLE'
+      throw error
+    }
+
+    const options = universeOptions()
+
+    const symbols =
+      await selected.store.addObserverSymbol(
+        symbol,
+        options,
+      )
+
+    return {
+      initialized: true,
+      symbols,
+      cap: options.cap,
+    }
+  }
+
+  async function removeSymbol(symbol) {
+    if (
+      typeof selected.store
+        .removeObserverSymbol !== 'function'
+    ) {
+      const error = new Error(
+        'Paper symbol storage is unavailable.',
+      )
+      error.code =
+        'PAPER_SYMBOL_UNIVERSE_UNAVAILABLE'
+      throw error
+    }
+
+    const options = universeOptions()
+
+    const symbols =
+      await selected.store.removeObserverSymbol(
+        symbol,
+        options,
+      )
+
+    return {
+      initialized: true,
+      symbols,
+      cap: options.cap,
+    }
+  }
 
   async function readSnapshot() {
     const state = await selected.store.read()
-    const configuredUniverse = typeof selected.store.readObserverSymbols === 'function'
-      ? await selected.store.readObserverSymbols()
-      : { initialized: false, symbols: [] }
-    const configuredSymbols = configuredUniverse.initialized ? configuredUniverse.symbols : configuredSeedSymbols(environment)
+        const configuredUniverse =
+      await readSymbolUniverse()
+
+    const configuredSymbols =
+      configuredUniverse.symbols
     const activeSymbols = Array.isArray(state.observer?.activeSymbols) ? state.observer.activeSymbols : []
     const cursorSymbols = Object.keys(state.observer?.processedCandles ?? {})
     const tradeSymbols = (state.trades ?? []).map((trade) => trade.symbol)
@@ -68,10 +163,20 @@ export function createPaperService({
       refreshedAt: now().toISOString(),
       storage: selected.storage,
       observer: state.observer ? { ...state.observer, cycleActive: null, cycleHealth: paperObserverCycleHealth(state.observer, now()) } : null,
-      symbolUniverse: { initialized: configuredUniverse.initialized, symbols: configuredSymbols },
+            symbolUniverse: {
+        initialized:
+          configuredUniverse.initialized,
+        symbols: configuredSymbols,
+        cap: configuredUniverse.cap,
+      },
       data: observerData(state, symbols, configuredSymbols),
     }
   }
 
-  return { readSnapshot }
+    return {
+    readSnapshot,
+    readSymbolUniverse,
+    addSymbol,
+    removeSymbol,
+  }
 }

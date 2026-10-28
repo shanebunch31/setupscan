@@ -6,6 +6,7 @@ import {
 } from './alpacaTrading.js'
 import { handlePaperAccountRequest } from './paperAccountRoute.js'
 import { createPaperDashboardRoute } from './paperDashboardRoute.js'
+import { createPaperUniverseRoute } from './paperUniverseRoute.js'
 import { handlePaperOrderRequest } from './paperOrderRoute.js'
 import { createPaperService } from './paperService.js'
 import { createResearchInvestigationApi } from './researchInvestigationApi.js'
@@ -30,6 +31,12 @@ const paperService = createPaperService()
 const handlePaperDashboardRequest = createPaperDashboardRoute({
   paperService,
 })
+
+const handlePaperUniverseRequest =
+  createPaperUniverseRoute({
+    paperService,
+  })
+
 const researchRunStore = process.env.DATABASE_URL
   ? createResearchRunStore()
   : null
@@ -95,6 +102,19 @@ const server = http.createServer(
 
     if (url.pathname === '/api/research-shadow') {
       await shadowRoute(request, response)
+      return
+    }
+
+    if (
+      url.pathname ===
+      '/api/paper-universe'
+    ) {
+      await handlePaperUniverseRequest({
+        request,
+        response,
+        sendJson,
+      })
+
       return
     }
 

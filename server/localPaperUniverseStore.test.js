@@ -65,7 +65,11 @@ test('real JSON adapter serves a read-only dashboard with an authoritative empty
   const before = fs.readFileSync(journalPath + '.symbols.json', 'utf8')
   const service = createPaperService({ environment: { PAPER_SYMBOLS: 'SPY' }, createJsonStore: () => store })
   const snapshot = await service.readSnapshot()
-  assert.deepEqual(snapshot.symbolUniverse, { initialized: true, symbols: [] })
+  assert.deepEqual(snapshot.symbolUniverse, {
+  initialized: true,
+  symbols: [],
+  cap: 10,
+})
   assert.deepEqual(snapshot.bySymbol, {})
   assert.equal(fs.existsSync(journalPath), false)
   assert.equal(fs.readFileSync(journalPath + '.symbols.json', 'utf8'), before)

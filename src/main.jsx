@@ -41,6 +41,7 @@ import { PaperTradingPanel } from './paper/PaperTradingPanel.jsx'
 import { MarketStatus } from './MarketStatus.js'
 import { MarketSnapshotStrip } from './MarketSnapshotStrip.jsx'
 import { MorningBrief } from './home/MorningBrief.jsx'
+import { apiUrl } from './config/apiBase.js'
 import { createRefreshTimestamp, formatLastRefresh, formatMarketTime } from './marketTime.js'
 import { filterScannerResults, ScannerFiltersButton, ScannerThresholdFilter, SCANNER_TERM_EXPLANATIONS } from './scannerFilters.js'
 import { METRIC_DEFINITIONS, MetricsGlossary, TermHelp } from './backtest/MetricsGlossary.jsx'
@@ -51,7 +52,42 @@ import {
 import { projectResearchComparisonRuns, ResearchWorkspace } from './research/ResearchWorkspace.js'
 import './styles.css'
 
-const DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'IWM', 'NVDA', 'TSLA', 'AAPL', 'AMD', 'META', 'AMZN']
+async function requestPaperUniverse(action, symbol) {
+  const options = action
+    ? {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action,
+          symbol,
+        }),
+      }
+    : undefined
+
+  const response = await fetch(
+    apiUrl('/api/paper-universe'),
+    options,
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new Error(
+      data.error ||
+        'Paper Observer symbol universe is unavailable.',
+    )
+  }
+
+  if (!Array.isArray(data.symbols)) {
+    throw new Error(
+      'Paper Observer returned an invalid symbol universe.',
+    )
+  }
+
+  return data
+}
 const robustnessSymbols = ['SPY', 'QQQ', 'IWM']
 const navItems = [
   { id: 'home', label: 'Home' },
@@ -771,22 +807,30 @@ function TopBar({
   navOpen,
   onToggleNav,
   currentTime,
+  watchlist,
   watchlistSymbol,
   onWatchlistSymbolChange,
-  onAddSymbol,
-  onSelectSymbol,
+ onAddSymbol,
+onSelectSymbol,
+watchlistSyncing,
+watchlistError,
+watchlistCap,
 }) {
-  const submitSymbol = (event) => {
+
+  const submitSymbol = async (event) => {
     event.preventDefault()
 
     const symbol = watchlistSymbol.trim().toUpperCase()
 
     if (!symbol) return
 
-    onAddSymbol(symbol)
-    onSelectSymbol(symbol)
-    onWatchlistSymbolChange('')
-    onNavigate('scan')
+   const added = await onAddSymbol(symbol)
+
+if (!added) return
+
+onSelectSymbol(symbol)
+onWatchlistSymbolChange('')
+onNavigate('scan')
   }
 
   return (
@@ -806,10 +850,28 @@ function TopBar({
           aria-label="Add symbol to watchlist and scanner"
         />
 
-        <button type="submit">
-          Add
-        </button>
+       <button
+  type="submit"
+  disabled={watchlistSyncing}
+>
+  {watchlistSyncing ? 'Syncing…' : 'Add'}
+</button>
       </form>
+      {watchlistError && (
+  <span
+    className="topbar-sync-error"
+    role="alert"
+  >
+    {watchlistError}
+  </span>
+)}
+
+{!watchlistError &&
+  Number.isFinite(watchlistCap) && (
+    <span className="topbar-sync-status">
+      {watchlist.length}/{watchlistCap} monitored
+    </span>
+  )}
       <MarketSnapshotStrip />
 
       <MarketStatus now={currentTime} />
@@ -940,7 +1002,7 @@ function AppSidebar({
           <span className="sidebar-section-label">WATCHLIST</span>
 
           <div className="sidebar-watchlist">
-            {watchlist.slice(0, 7).map((symbol) => (
+            {watchlist.map((symbol) => (
               <button
                 key={symbol}
                 type="button"
@@ -977,27 +1039,12 @@ function App() {
   const initialRoute = readAppRoute()
 const [view, setView] = useState(initialRoute.view)
 const [navOpen, setNavOpen] = useState(false)
-const [watchlist, setWatchlist] = useState(DEFAULT_WATCHLIST)
+const [watchlist, setWatchlist] = useState([])
 const [watchlistSymbol, setWatchlistSymbol] = useState('')
-const addToWatchlist = (symbol) => {
-  const normalized = symbol.trim().toUpperCase()
-
-  if (!normalized || watchlist.includes(normalized)) return
-
-  setWatchlist((current) => [...current, normalized])
-}
-
-const removeFromWatchlist = (symbol) => {
-  setWatchlist((current) => {
-    const next = current.filter((item) => item !== symbol)
-
-    if (selectedSymbol === symbol && next.length > 0) {
-      setSelectedSymbol(next[0])
-    }
-
-    return next
-  })
-}
+const [watchlistLoading, setWatchlistLoading] = useState(true)
+const [watchlistSyncing, setWatchlistSyncing] = useState(false)
+const [watchlistError, setWatchlistError] = useState(null)
+const [watchlistCap, setWatchlistCap] = useState(null)
 const [researchTab, setResearchTab] = useState('robustness')
 const [researchWorkspaceView, setResearchWorkspaceView] = useState(
   initialRoute.researchWorkspaceView,
@@ -1048,6 +1095,104 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
   const [selectedChartLoading, setSelectedChartLoading] = useState(false)
   const [selectedChartError, setSelectedChartError] = useState(null)
   const [selectedChartRange, setSelectedChartRange] = useState('5D')
+  useEffect(() => {
+  let active = true
+
+  setWatchlistLoading(true)
+  setWatchlistError(null)
+
+  requestPaperUniverse()
+    .then((universe) => {
+      if (!active) return
+
+      setWatchlist(universe.symbols)
+      setWatchlistCap(universe.cap ?? null)
+
+      setSelectedSymbol((current) =>
+        universe.symbols.includes(current)
+          ? current
+          : universe.symbols[0] ?? '',
+      )
+    })
+    .catch((error) => {
+      if (!active) return
+
+      setWatchlist([])
+      setWatchlistError(error.message)
+    })
+    .finally(() => {
+      if (active) {
+        setWatchlistLoading(false)
+      }
+    })
+
+  return () => {
+    active = false
+  }
+}, [])
+
+const addToWatchlist = async (symbol) => {
+  const normalized = symbol.trim().toUpperCase()
+
+  if (!normalized) return false
+
+  if (watchlist.includes(normalized)) {
+    setWatchlistError(null)
+    return true
+  }
+
+  setWatchlistSyncing(true)
+  setWatchlistError(null)
+
+  try {
+    const universe = await requestPaperUniverse(
+      'add',
+      normalized,
+    )
+
+    setWatchlist(universe.symbols)
+    setWatchlistCap(universe.cap ?? null)
+
+    return true
+  } catch (error) {
+    setWatchlistError(error.message)
+    return false
+  } finally {
+    setWatchlistSyncing(false)
+  }
+}
+
+const removeFromWatchlist = async (symbol) => {
+  const normalized = symbol.trim().toUpperCase()
+
+  if (!normalized) return false
+
+  setWatchlistSyncing(true)
+  setWatchlistError(null)
+
+  try {
+    const universe = await requestPaperUniverse(
+      'remove',
+      normalized,
+    )
+
+    setWatchlist(universe.symbols)
+    setWatchlistCap(universe.cap ?? null)
+
+    setSelectedSymbol((current) =>
+      current === normalized
+        ? universe.symbols[0] ?? ''
+        : current,
+    )
+
+    return true
+  } catch (error) {
+    setWatchlistError(error.message)
+    return false
+  } finally {
+    setWatchlistSyncing(false)
+  }
+}
   useEffect(() => {
     const clock = setInterval(() => setCurrentTime(new Date()), 15000)
     return () => clearInterval(clock)
@@ -1436,6 +1581,10 @@ const handleResearchWorkspaceNavigate = (nextView) => {
     <div className="app-shell">
       <TopBar
   view={view}
+  watchlist={watchlist}
+  watchlistSyncing={watchlistSyncing}
+  watchlistError={watchlistError}
+  watchlistCap={watchlistCap}
   onNavigate={handleNavigate}
   navOpen={navOpen}
   onToggleNav={() => setNavOpen(!navOpen)}

@@ -152,7 +152,11 @@ test('dashboard summaries use the configured dynamic universe plus retained trad
   })
   const snapshot = await service.readSnapshot()
   assert.deepEqual(Object.keys(snapshot.bySymbol), ['AMZN', 'QQQ'])
-  assert.deepEqual(snapshot.symbolUniverse, { initialized: true, symbols: ['AMZN'] })
+  assert.deepEqual(snapshot.symbolUniverse, {
+  initialized: true,
+  symbols: ['AMZN'],
+  cap: 10,
+})
   assert.equal(snapshot.data.find((item) => item.symbol === 'AMZN').status, 'AVAILABLE')
   assert.equal(snapshot.data.find((item) => item.symbol === 'QQQ').status, 'HISTORICAL — NOT ENABLED')
 })
