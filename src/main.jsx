@@ -10,7 +10,9 @@ import {
   LineChart,
   Menu,
   RefreshCw,
+  Search,
   Settings2,
+  Target,
   ShieldCheck,
   TrendingDown,
   TrendingUp,
@@ -181,6 +183,356 @@ function TrendBadge({ trend }) {
   )
 }
 
+function CandlestickChart({ candles = [], range = '5D' }) {
+  const [hoveredCandle, setHoveredCandle] = useState(null)
+
+  const easternDateFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+
+  const getSessionKey = (timestamp) => {
+    const parts = easternDateFormatter.formatToParts(
+      new Date(timestamp),
+    )
+
+    const year = parts.find((part) => part.type === 'year')?.value
+    const month = parts.find((part) => part.type === 'month')?.value
+    const day = parts.find((part) => part.type === 'day')?.value
+
+    return `${year}-${month}-${day}`
+  }
+
+  const allValidCandles = candles
+    .filter(
+      (candle) =>
+        Number.isFinite(candle.open) &&
+        Number.isFinite(candle.high) &&
+        Number.isFinite(candle.low) &&
+        Number.isFinite(candle.close) &&
+        Number.isFinite(new Date(candle.timestamp).getTime()),
+    )
+    .sort(
+      (a, b) =>
+        new Date(a.timestamp).getTime() -
+        new Date(b.timestamp).getTime(),
+    )
+
+  const availableSessions = [
+    ...new Set(
+      allValidCandles.map((candle) =>
+        getSessionKey(candle.timestamp),
+      ),
+    ),
+  ]
+
+  const sessionCount =
+    range === '1D'
+      ? 1
+      : range === '3D'
+        ? 3
+        : range === '5D'
+          ? 5
+          : null
+
+  const allowedSessions =
+    sessionCount === null
+      ? null
+      : new Set(availableSessions.slice(-sessionCount))
+
+  const validCandles =
+    allowedSessions === null
+      ? allValidCandles
+      : allValidCandles.filter((candle) =>
+          allowedSessions.has(
+            getSessionKey(candle.timestamp),
+          ),
+        )
+
+  useEffect(() => {
+    setHoveredCandle(null)
+  }, [range, candles])
+
+  if (validCandles.length < 2) {
+    return (
+      <div className="selected-chart-empty">
+        Not enough completed candle data to draw this chart.
+      </div>
+    )
+  }
+
+  const width = 900
+  const height = 270
+
+  const left = 10
+  const right = 58
+  const priceTop = 12
+  const priceBottom = 202
+  const volumeTop = 214
+  const volumeBottom = 248
+
+  const lows = validCandles.map((candle) => candle.low)
+  const highs = validCandles.map((candle) => candle.high)
+
+  const rawLow = Math.min(...lows)
+  const rawHigh = Math.max(...highs)
+
+  const rawRange = rawHigh - rawLow
+  const pricePadding = rawRange > 0 ? rawRange * 0.06 : 1
+
+  const minPrice = rawLow - pricePadding
+  const maxPrice = rawHigh + pricePadding
+  const priceRange = maxPrice - minPrice
+
+  const plotWidth = width - left - right
+  const priceHeight = priceBottom - priceTop
+  const volumeHeight = volumeBottom - volumeTop
+
+  const step = plotWidth / validCandles.length
+  const bodyWidth = Math.max(
+    3,
+    Math.min(12, step * 0.58),
+  )
+
+  const maxVolume = Math.max(
+    1,
+    ...validCandles.map((candle) =>
+      Number.isFinite(candle.volume)
+        ? candle.volume
+        : 0,
+    ),
+  )
+
+  const xFor = (index) =>
+    left + index * step + step / 2
+
+  const yFor = (price) =>
+    priceTop +
+    ((maxPrice - price) / priceRange) * priceHeight
+
+  const priceTicks = [0, 0.25, 0.5, 0.75, 1]
+
+  const labelIndexes = [
+    0,
+    Math.floor((validCandles.length - 1) / 2),
+    validCandles.length - 1,
+  ]
+
+  const formatChartDate = (timestamp) =>
+    new Date(timestamp).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'America/New_York',
+    })
+
+  const formatCandleTime = (timestamp) =>
+    new Date(timestamp).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: 'America/New_York',
+      timeZoneName: 'short',
+    })
+
+  const formatVolume = (volume) =>
+    Number.isFinite(volume)
+      ? new Intl.NumberFormat('en-US', {
+          notation: 'compact',
+          maximumFractionDigits: 1,
+        }).format(volume)
+      : 'Unavailable'
+
+  return (
+    <div className="candlestick-chart-shell">
+      <div className="candlestick-hover-readout">
+        {hoveredCandle ? (
+          <>
+            <span className="hover-candle-time">
+              {formatCandleTime(hoveredCandle.timestamp)}
+            </span>
+
+            <span>
+              O <strong>{formatPrice(hoveredCandle.open)}</strong>
+            </span>
+
+            <span>
+              H <strong>{formatPrice(hoveredCandle.high)}</strong>
+            </span>
+
+            <span>
+              L <strong>{formatPrice(hoveredCandle.low)}</strong>
+            </span>
+
+            <span>
+              C <strong>{formatPrice(hoveredCandle.close)}</strong>
+            </span>
+
+            <span>
+              Vol <strong>{formatVolume(hoveredCandle.volume)}</strong>
+            </span>
+          </>
+        ) : (
+          <span className="hover-chart-help">
+            Hover over a candle to see open, high, low, close and volume.
+          </span>
+        )}
+      </div>
+
+      <div className="candlestick-chart">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          role="img"
+          aria-label={`Completed one-hour candlestick chart — ${range}`}
+          onMouseLeave={() => setHoveredCandle(null)}
+        >
+          {priceTicks.map((ratio) => {
+            const y =
+              priceTop +
+              ratio * priceHeight
+
+            const value =
+              maxPrice -
+              ratio * priceRange
+
+            return (
+              <g key={ratio}>
+                <line
+                  className="candlestick-grid-line"
+                  x1={left}
+                  x2={width - right}
+                  y1={y}
+                  y2={y}
+                />
+
+                <text
+                  className="candlestick-price-label"
+                  x={width - right + 8}
+                  y={y + 3}
+                >
+                  {value.toFixed(2)}
+                </text>
+              </g>
+            )
+          })}
+
+          {validCandles.map((candle, index) => {
+            const x = xFor(index)
+
+            const openY = yFor(candle.open)
+            const closeY = yFor(candle.close)
+            const highY = yFor(candle.high)
+            const lowY = yFor(candle.low)
+
+            const isUp = candle.close >= candle.open
+            const isHovered =
+              hoveredCandle?.timestamp === candle.timestamp
+
+            const bodyY = Math.min(openY, closeY)
+
+            const bodyHeight = Math.max(
+              2,
+              Math.abs(closeY - openY),
+            )
+
+            const volume =
+              Number.isFinite(candle.volume)
+                ? candle.volume
+                : 0
+
+            const volumeBarHeight =
+              (volume / maxVolume) * volumeHeight
+
+            return (
+              <g
+                key={`${candle.timestamp}-${index}`}
+                className={`${
+                  isUp
+                    ? 'chart-candle-up'
+                    : 'chart-candle-down'
+                } ${isHovered ? 'is-hovered' : ''}`}
+                onMouseEnter={() =>
+                  setHoveredCandle(candle)
+                }
+              >
+                <rect
+                  className="candlestick-hover-target"
+                  x={x - step / 2}
+                  y={priceTop}
+                  width={step}
+                  height={volumeBottom - priceTop}
+                  fill="transparent"
+                />
+
+                <line
+                  x1={x}
+                  x2={x}
+                  y1={highY}
+                  y2={lowY}
+                  stroke="currentColor"
+                  strokeWidth={
+                    isHovered ? '2' : '1.4'
+                  }
+                />
+
+                <rect
+                  x={x - bodyWidth / 2}
+                  y={bodyY}
+                  width={bodyWidth}
+                  height={bodyHeight}
+                  fill="currentColor"
+                  rx="1"
+                />
+
+                <rect
+                  className="candlestick-volume"
+                  x={x - bodyWidth / 2}
+                  y={
+                    volumeBottom -
+                    volumeBarHeight
+                  }
+                  width={bodyWidth}
+                  height={volumeBarHeight}
+                  fill="currentColor"
+                />
+              </g>
+            )
+          })}
+
+          <line
+            className="candlestick-volume-divider"
+            x1={left}
+            x2={width - right}
+            y1={volumeTop - 5}
+            y2={volumeTop - 5}
+          />
+
+          {labelIndexes.map((index) => (
+            <text
+              key={index}
+              className="candlestick-date-label"
+              x={xFor(index)}
+              y={265}
+              textAnchor={
+                index === 0
+                  ? 'start'
+                  : index === validCandles.length - 1
+                    ? 'end'
+                    : 'middle'
+              }
+            >
+              {formatChartDate(
+                validCandles[index].timestamp,
+              )}
+            </text>
+          ))}
+        </svg>
+      </div>
+    </div>
+  )
+}
 const formatBreakdownR = (value) => `${value === Infinity ? '∞' : value.toFixed(2)}R`
 
 function BreakdownTable({ title, groups }) {
@@ -408,34 +760,61 @@ function BacktestDataSummary({ data, error }) {
   )
 }
 
-function NavBar({ view, onNavigate, navOpen, onToggleNav, currentTime }) {
+function TopBar({
+  view,
+  onNavigate,
+  navOpen,
+  onToggleNav,
+  currentTime,
+  watchlistSymbol,
+  onWatchlistSymbolChange,
+  onAddSymbol,
+  onSelectSymbol,
+}) {
+  const submitSymbol = (event) => {
+    event.preventDefault()
+
+    const symbol = watchlistSymbol.trim().toUpperCase()
+
+    if (!symbol) return
+
+    onAddSymbol(symbol)
+    onSelectSymbol(symbol)
+    onWatchlistSymbolChange('')
+    onNavigate('scan')
+  }
+
   return (
     <header className="topbar">
-      <div className="brand">
-        <div className="brand-mark">
-          <Activity size={19} />
-        </div>
-        <div>
-          <strong>SetupScan</strong>
-          <span>MARKET RESEARCH CONSOLE</span>
-        </div>
-      </div>
-      <nav className="primary-nav">
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            className={`nav-link ${view === item.id ? 'active' : ''}`}
-            aria-current={view === item.id ? 'page' : undefined}
-            onClick={() => onNavigate(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
+      <form
+        className="topbar-symbol-search"
+        onSubmit={submitSymbol}
+      >
+        <Search size={16} />
+
+        <input
+          value={watchlistSymbol}
+          onChange={(event) =>
+            onWatchlistSymbolChange(event.target.value.toUpperCase())
+          }
+          placeholder="Search symbol to add to watchlist and scanner..."
+          aria-label="Add symbol to watchlist and scanner"
+        />
+
+        <button type="submit">
+          Add
+        </button>
+      </form>
+
       <MarketStatus now={currentTime} />
-      <button className="icon-button" aria-label="Notifications">
+
+      <button
+        className="icon-button"
+        aria-label="Notifications"
+      >
         <Bell size={18} />
       </button>
+
       <button
         className="icon-button nav-toggle"
         aria-label="Toggle navigation"
@@ -443,6 +822,7 @@ function NavBar({ view, onNavigate, navOpen, onToggleNav, currentTime }) {
       >
         {navOpen ? <X size={18} /> : <Menu size={18} />}
       </button>
+
       {navOpen && (
         <nav className="mobile-nav">
           {navItems.map((item) => (
@@ -461,6 +841,125 @@ function NavBar({ view, onNavigate, navOpen, onToggleNav, currentTime }) {
   )
 }
 
+function AppSidebar({
+  view,
+  onNavigate,
+  researchWorkspaceView,
+  onResearchNavigate,
+  watchlist,
+  selectedSymbol,
+  onSelectSymbol,
+}) {
+  const icons = {
+    scan: Activity,
+    paper: LineChart,
+    backtest: BarChart3,
+    research: CircleHelp,
+    settings: Settings2,
+  }
+
+  const researchLinks = [
+    ['labs', 'Research Labs'],
+    ['workbench', 'Research Workbench'],
+    ['history', 'History'],
+    ['comparison', 'Comparison'],
+    ['shadow', 'Shadow Forward'],
+  ]
+
+  return (
+    <aside className="app-sidebar">
+      <div className="sidebar-brand">
+  <div className="sidebar-brand-title">
+    <div className="brand-mark">
+      <BarChart3 size={19} />
+    </div>
+
+    <strong>SetupScan</strong>
+  </div>
+
+  <p className="sidebar-motto">
+    <span>Find the signal</span>
+    <br />
+    <em>before the noise.</em>
+  </p>
+</div>
+      <nav className="sidebar-main-nav" aria-label="Main navigation">
+        {navItems.map((item) => {
+          const Icon = icons[item.id] ?? Activity
+
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={`sidebar-nav-button ${
+                view === item.id ? 'active' : ''
+              }`}
+              onClick={() => onNavigate(item.id)}
+            >
+              <Icon size={17} />
+              <span>{item.label}</span>
+            </button>
+          )
+        })}
+      </nav>
+
+      {view === 'research' ? (
+        <section className="sidebar-section">
+          <span className="sidebar-section-label">RESEARCH</span>
+
+          <div className="sidebar-subnav">
+            {researchLinks.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={
+                  researchWorkspaceView === id ? 'active' : ''
+                }
+                aria-current={view === item.id ? 'page' : undefined}
+                onClick={() => onResearchNavigate(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : (
+        <section className="sidebar-section">
+          <span className="sidebar-section-label">WATCHLIST</span>
+
+          <div className="sidebar-watchlist">
+            {watchlist.slice(0, 7).map((symbol) => (
+              <button
+                key={symbol}
+                type="button"
+                className={selectedSymbol === symbol ? 'active' : ''}
+                onClick={() => onSelectSymbol(symbol)}
+              >
+                <span>{symbol}</span>
+
+                {selectedSymbol === symbol && (
+                  <small>Selected</small>
+                )}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className="sidebar-help">
+        <CircleHelp size={19} />
+
+        <div>
+          <strong>Need help?</strong>
+          <p>
+            SetupScan explains unfamiliar trading and research terms in
+            plain English.
+          </p>
+        </div>
+      </div>
+    </aside>
+  )
+}
 
 function App() {
   const initialRoute = readAppRoute()
@@ -498,6 +997,7 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
   const [threshold, setThreshold] = useState(65)
   const [scannerFiltersOpen, setScannerFiltersOpen] = useState(false)
   const [selectedSymbol, setSelectedSymbol] = useState('SPY')
+  const [expandedSymbol, setExpandedSymbol] = useState(null)
   const [backtestRangeYears, setBacktestRangeYears] = useState(2)
   const [watchlistOpen, setWatchlistOpen] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
@@ -532,6 +1032,10 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
   const [scanUnavailable, setScanUnavailable] = useState([])
   const [scanDataQuality, setScanDataQuality] = useState([])
   const [scanLoading, setScanLoading] = useState(true)
+  const [selectedChartCandles, setSelectedChartCandles] = useState([])
+  const [selectedChartLoading, setSelectedChartLoading] = useState(false)
+  const [selectedChartError, setSelectedChartError] = useState(null)
+  const [selectedChartRange, setSelectedChartRange] = useState('5D')
   useEffect(() => {
     const clock = setInterval(() => setCurrentTime(new Date()), 15000)
     return () => clearInterval(clock)
@@ -592,6 +1096,63 @@ const [researchWorkspaceView, setResearchWorkspaceView] = useState(
     active = false
   }
 }, [view, scanRange, watchlist])
+
+useEffect(() => {
+  if (view !== 'scan' || !selectedSymbol) {
+    return undefined
+  }
+
+  let active = true
+
+  setSelectedChartLoading(true)
+  setSelectedChartError(null)
+
+  fetchHistoricalMarketData(
+    selectedSymbol,
+    '1Hour',
+    createScannerRange(),
+  )
+    .then((data) => {
+      if (!active) return
+
+      const nowMs = Date.now()
+
+      const completedCandles = (data?.candles ?? [])
+        .filter((candle) => {
+          const candleStart =
+            new Date(candle.timestamp).getTime()
+
+          return (
+            Number.isFinite(candleStart) &&
+            candleStart + 60 * 60 * 1000 <= nowMs
+          )
+        })
+        .slice(-40)
+
+      setSelectedChartCandles(completedCandles)
+
+      if (!completedCandles.length) {
+        setSelectedChartError(
+          'No completed 1-hour candles are available for this symbol.',
+        )
+      }
+
+      setSelectedChartLoading(false)
+    })
+    .catch(() => {
+      if (!active) return
+
+      setSelectedChartCandles([])
+      setSelectedChartError(
+        'Price chart data is currently unavailable.',
+      )
+      setSelectedChartLoading(false)
+    })
+
+  return () => {
+    active = false
+  }
+}, [view, selectedSymbol, lastUpdated])
 
 const results = useMemo(
   () => scanSetups(scanSnapshot),
@@ -755,6 +1316,14 @@ const visibleResults = scoreQualified
   const selectedChecksPassed =
   selected?.reasons?.filter((reason) => reason.points > 0).length ?? 0
 
+  const selectScannerSymbol = (symbol) => {
+  setSelectedSymbol(symbol)
+
+  setExpandedSymbol((current) =>
+    current === symbol ? null : symbol
+  )
+}
+
   const refreshData = async () => {
     setScanLoading(true)
     try {
@@ -853,93 +1422,158 @@ const handleResearchWorkspaceNavigate = (nextView) => {
 
   return (
     <div className="app-shell">
-      <NavBar
+      <TopBar
+  view={view}
+  onNavigate={handleNavigate}
+  navOpen={navOpen}
+  onToggleNav={() => setNavOpen(!navOpen)}
+  currentTime={currentTime}
+  watchlistSymbol={watchlistSymbol}
+  onWatchlistSymbolChange={setWatchlistSymbol}
+  onAddSymbol={addToWatchlist}
+  onSelectSymbol={setSelectedSymbol}
+/>
+
+      <AppSidebar
         view={view}
         onNavigate={handleNavigate}
-        navOpen={navOpen}
-        onToggleNav={() => setNavOpen(!navOpen)}
-        currentTime={currentTime}
+        researchWorkspaceView={researchWorkspaceView}
+        onResearchNavigate={handleResearchWorkspaceNavigate}
+        watchlist={watchlist}
+        selectedSymbol={selectedSymbol}
+        onSelectSymbol={setSelectedSymbol}
       />
+
       <main className="dashboard">
         {view === 'scan' && (
           <>
-            <section className="hero-row">
-              <div>
-                <p className="eyebrow">RULE-BASED SETUP SCANNER</p>
-                <h1>
-                  Find the signal
-                  <br />
-                  <em>before the noise.</em>
-                </h1>
-                <p className="hero-copy">
-                  A disciplined read on trend, momentum, and participation across your core
-                  watchlist.
-                </p>
-                {scanLoading ? (
-                  <p className="hero-copy">Loading real Alpaca historical data…</p>
-                ) : scanUnavailable.length ? (
-                  <p className="hero-copy">
-                    Unavailable or incomplete historical data: {scanUnavailable.join(', ')}
-                  </p>
-                ) : null}
-                {scanDataQuality.length ? (
-                  <p className="hero-copy" role="status">
-                    Historical data checks: {scanDataQuality.join(' ')}
-                  </p>
-                ) : null}
-              </div>
-              <div className="hero-meta">
-                <div className="data-freshness">
-                  <span className="status-dot" />{' '}
-                  {historicalStatus === 'ALPACA HISTORICAL'
-                    ? `MARKET DATA · ${historicalData?.symbol ?? selectedSymbol} · 1H`
-                    : `${historicalStatus} data · delayed snapshot`}
-              </div>
-                <button className="refresh-button" onClick={refreshData} disabled={scanLoading}>
-                  <RefreshCw size={15} /> Refresh <span>{formatLastRefresh(lastUpdated)}</span>
-               </button>
-              </div>
-            </section>
-                        <section className="summary-grid">
-              <div className="summary-card">
-                <div className="summary-label">
-                  Scanned today <BarChart3 size={16} />
-                </div>
-                <strong>{results.length}</strong>
-                <span>symbols monitored</span>
-              </div>
+<section className="scan-page-heading">
+  <div className="scan-heading-copy">
+    <h1>Today&apos;s Top Setups</h1>
 
-              <div className="summary-card">
-                <div className="summary-label">
-                  Qualified setups <TermHelp term="Qualified setup" explanation="Meets the scanner's rule-based conditions. This does not establish profitability or authorize live trading." /> <ArrowUpRight size={16} />
-                </div>
-                <strong>{results.filter((item) => item.qualifiedSetup === true).length.toString().padStart(2, '0')}</strong>
-                <span>Rule conditions met; not a profitability finding</span>
-              </div>
+    <p className="scan-page-subtitle">
+      Rule-based setups ranked using SetupScan&apos;s current scanner criteria.
+    </p>
 
-              <div className="summary-card">
-                <div className="summary-label">
-                  Potential setups <TermHelp term="Potential setup" explanation="A strong score-based setup that does not meet every required trade-trigger condition." /> <Activity size={16} />
-                </div>
-                <strong>{results.filter((item) => item.status === 'Potential Setup').length.toString().padStart(2, '0')}</strong>
-                <span>Strong setups needing confirmation</span>
-              </div>
+    {scanLoading ? (
+      <p className="scan-data-message">
+        Loading real Alpaca historical data…
+      </p>
+    ) : scanUnavailable.length ? (
+      <p className="scan-data-message">
+        Unavailable or incomplete historical data:{' '}
+        {scanUnavailable.join(', ')}
+      </p>
+    ) : null}
 
-              <div className="summary-card">
-                <div className="summary-label">
-                  Average setup score <TermHelp term="Average setup score" explanation="The mean score across available symbols in this scan." /> <LineChart size={16} />
-                </div>
-                <strong>{averageScore ?? '—'}</strong>
-                <span>{results.length} evaluated · {scanUnavailable.length} unavailable</span>
-              </div>
-            </section>
+    {scanDataQuality.length ? (
+      <p className="scan-data-message" role="status">
+        Historical data checks: {scanDataQuality.join(' ')}
+      </p>
+    ) : null}
+  </div>
+
+  <div className="scan-heading-actions">
+    <div className="data-freshness">
+      <span className="status-dot" />
+
+      <span>
+        {historicalStatus === 'ALPACA HISTORICAL'
+          ? `MARKET DATA · ${historicalData?.symbol ?? selectedSymbol} · 1H`
+          : `${historicalStatus} · delayed snapshot`}
+      </span>
+    </div>
+
+    <button
+      className="refresh-button"
+      onClick={refreshData}
+      disabled={scanLoading}
+    >
+      <RefreshCw size={15} />
+      Refresh
+      <span>{formatLastRefresh(lastUpdated)}</span>
+    </button>
+  </div>
+</section>
+
+<section className="summary-grid">
+  <div className="summary-card">
+    <div className="summary-icon">
+      <Target size={22} />
+    </div>
+
+    <div className="summary-card-copy">
+      <div className="summary-label">
+        Qualified Setups
+      </div>
+
+      <strong>
+        {qualifiedSetups.length.toString().padStart(2, '0')}
+      </strong>
+
+      <span>Rule conditions met; not a profitability finding</span>
+    </div>
+  </div>
+
+  <div className="summary-card">
+    <div className="summary-icon">
+      <BarChart3 size={20} />
+    </div>
+
+    <div className="summary-card-copy">
+      <div className="summary-label">
+        Scanned Today
+      </div>
+
+      <strong>{results.length}</strong>
+
+      <span>
+        {results.length} evaluated · {scanUnavailable.length} unavailable
+      </span>
+    </div>
+  </div>
+
+  <div className="summary-card">
+    <div className="summary-icon">
+      <Activity size={20} />
+    </div>
+
+    <div className="summary-card-copy">
+      <div className="summary-label">
+        Potential Setups
+      </div>
+
+      <strong>
+        {potentialSetups.length.toString().padStart(2, '0')}
+      </strong>
+
+      <span>Strong scores awaiting confirmation</span>
+    </div>
+  </div>
+
+  <div className="summary-card">
+    <div className="summary-icon">
+      <LineChart size={20} />
+    </div>
+
+    <div className="summary-card-copy">
+      <div className="summary-label">
+        Average Setup Score
+      </div>
+
+      <strong>{averageScore ?? '—'}</strong>
+
+      <span>Average across evaluated symbols</span>
+    </div>
+  </div>
+</section>
 
             <div className="content-grid">
               <section className="scanner-panel panel">
                 <div className="panel-heading">
                   <div>
                     <p className="eyebrow">LIVE SCAN</p>
-                    <h2>Setup scanner</h2>
+                    <h2>Today&apos;s Scan</h2>
                     <p className="qualified-explanation">
                       Showing {scoreQualified.length} of {results.length} evaluated symbols at score threshold {threshold}; {scanUnavailable.length} unavailable.
                     </p>
@@ -963,64 +1597,328 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                       </tr>
                     </thead>
                     <tbody>
-                      {visibleResults.map((item) => (
-                        <tr
-                          key={item.symbol}
-                          className={selectedSymbol === item.symbol ? 'selected-row' : ''}
-                          onClick={() => setSelectedSymbol(item.symbol)}
-                        >
-                          <td>
-                            <div className="symbol-cell">
-                              <span className="ticker-dot">{item.symbol.slice(0, 1)}</span>
-                              <button
-                                type="button"
-                                className="scanner-row-select"
-                                aria-label={`Select ${item.symbol} scanner details`}
-                                aria-pressed={selectedSymbol === item.symbol}
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  setSelectedSymbol(item.symbol)
-                                }}
-                              >
-                                {item.symbol}
-                              </button>
-                            </div>
-                          </td>
-                          <td className="price-cell">
-                            {formatPrice(item.price)}
-                            <small className={item.change >= 0 ? 'positive' : 'negative'}>
-                              {item.change >= 0 ? '+' : ''}
-                              {item.change.toFixed(2)}%
-                            </small>
-                          </td>
-                          <td>
-                            <TrendBadge trend={item.trend} />
-                          </td>
-                          <td>{formatPrice(item.vwap)}</td>
-                          <td>
-                            <span className={item.ema9 > item.ema21 ? 'positive' : 'negative'}>
-                              {formatPrice(item.ema9)}
-                            </span>
-                            <small> / {formatPrice(item.ema21)}</small>
-                          </td>
-                          <td>
-                            <span className={item.rsi > 50 ? 'positive' : 'negative'}>
-                              {item.rsi}
-                            </span>
-                          </td>
-                          <td>{Number.isFinite(item.relativeVolume) ? `${item.relativeVolume.toFixed(2)}x` : '—'}</td>
-                          <td>
-                            <ScoreRing score={item.score} />
-                          </td>
-                          <td>
-                            <span
-                              className={`status-pill ${item.status.toLowerCase().replace(' ', '-')}`}
-                            >
-                              {item.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+
+                {visibleResults.map((item) => (
+  <React.Fragment key={item.symbol}>
+    <tr
+      className={
+        selectedSymbol === item.symbol
+          ? 'selected-row'
+          : ''
+      }
+      onClick={() => selectScannerSymbol(item.symbol)}
+    >
+      <td>
+        <div className="symbol-cell">
+          <span className="ticker-dot">
+            {item.symbol.slice(0, 1)}
+          </span>
+
+          <button
+            type="button"
+            className="scanner-row-select"
+            aria-label={`Select ${item.symbol} scanner details`}
+            aria-pressed={selectedSymbol === item.symbol}
+            onClick={(event) => {
+              event.stopPropagation()
+              selectScannerSymbol(item.symbol)
+            }}
+          >
+            {item.symbol}
+          </button>
+        </div>
+      </td>
+
+      <td className="price-cell">
+        {formatPrice(item.price)}
+
+        <small
+          className={
+            item.change >= 0
+              ? 'positive'
+              : 'negative'
+          }
+        >
+          {item.change >= 0 ? '+' : ''}
+          {item.change.toFixed(2)}%
+        </small>
+      </td>
+
+      <td>
+        <TrendBadge trend={item.trend} />
+      </td>
+
+      <td>
+        {formatPrice(item.vwap)}
+      </td>
+
+      <td>
+        <span
+          className={
+            item.ema9 > item.ema21
+              ? 'positive'
+              : 'negative'
+          }
+        >
+          {formatPrice(item.ema9)}
+        </span>
+
+        <small>
+          {' / '}
+          {formatPrice(item.ema21)}
+        </small>
+      </td>
+
+      <td>
+        <span
+          className={
+            item.rsi > 50
+              ? 'positive'
+              : 'negative'
+          }
+        >
+          {item.rsi}
+        </span>
+      </td>
+
+      <td>
+        {Number.isFinite(item.relativeVolume)
+          ? `${item.relativeVolume.toFixed(2)}x`
+          : '—'}
+      </td>
+
+      <td>
+        <ScoreRing score={item.score} />
+      </td>
+
+      <td>
+        <span
+          className={`status-pill ${item.status
+            .toLowerCase()
+            .replace(' ', '-')}`}
+        >
+          {item.status}
+        </span>
+      </td>
+    </tr>
+    {expandedSymbol === item.symbol &&
+selected?.symbol === item.symbol ? (
+  <tr className="scanner-expanded-row">
+    <td colSpan="9">
+      <section className="selected-setup-panel scanner-inline-detail">
+        <div className="selected-setup-header">
+          <div>
+            <p className="eyebrow">
+              SELECTED SYMBOL
+            </p>
+
+            <h2>
+              {selected.symbol} — {selected.status}
+            </h2>
+
+            <p>
+              {selectedChecksPassed} of 6 scanner checks passed
+            </p>
+          </div>
+
+          <TrendBadge trend={selected.trend} />
+        </div>
+
+        <div className="selected-setup-layout">
+          <aside className="selected-score-column">
+            <div
+              className="selected-score-ring"
+              style={{
+                '--score-progress': `${Math.max(
+                  0,
+                  Math.min(100, selected.score),
+               ) * 3.6}deg`,
+             }}
+           >
+  <div className="selected-score-ring-inner">
+    <strong>{selected.score}</strong>
+    <span>/100</span>
+  </div>
+</div>
+
+            <span className="selected-score-label">
+              Setup Score
+            </span>
+
+            <div className="selected-price">
+              <strong>
+                {formatPrice(selected.price)}
+              </strong>
+
+              <span
+                className={
+                  selected.change >= 0
+                    ? 'positive'
+                    : 'negative'
+                }
+              >
+                {selected.change >= 0 ? '+' : ''}
+                {selected.change.toFixed(2)}%
+              </span>
+            </div>
+
+            <div className="selected-check-list">
+              {selected.reasons.map((reason) => (
+                <div
+                  className="selected-check"
+                  key={reason.label}
+                >
+                  <span
+                    className={
+                      reason.points > 0
+                        ? 'check-pass'
+                        : 'check-missing'
+                    }
+                  >
+                    {reason.points > 0 ? '✓' : '—'}
+                  </span>
+
+                  <div>
+                    <strong>{reason.label}</strong>
+                    <small>{reason.detail}</small>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </aside>
+
+          <div className="selected-chart-column">
+           <div className="selected-chart-toolbar">
+  <div>
+    <strong>Price Action</strong>
+
+    <span>
+      Completed 1-hour candles · {selectedChartRange}
+    </span>
+  </div>
+
+  <div className="chart-range-controls">
+    {['1D', '3D', '5D', 'ALL'].map((range) => (
+      <button
+        key={range}
+        type="button"
+        className={
+          selectedChartRange === range
+            ? 'chart-range-button active'
+            : 'chart-range-button'
+        }
+        onClick={(event) => {
+          event.stopPropagation()
+          setSelectedChartRange(range)
+        }}
+      >
+        {range}
+      </button>
+    ))}
+
+    <span className="chart-timeframe-pill">
+      1H
+    </span>
+  </div>
+</div>
+
+            {selectedChartLoading ? (
+              <div className="selected-chart-state">
+                Loading {selected.symbol} price data…
+              </div>
+            ) : selectedChartError ? (
+              <div className="selected-chart-state">
+                {selectedChartError}
+              </div>
+            ) : (
+              <CandlestickChart
+              candles={selectedChartCandles}
+              range={selectedChartRange}
+         />
+            )}
+          </div>
+        </div>
+
+        <div className="selected-info-grid">
+          <article>
+            <h3>Why This Setup?</h3>
+
+            <p>
+              {selected.status === 'Qualified Setup'
+  ? `Meets the scanner's rule-based conditions. This does not establish profitability or authorize live trading.`
+                : selected.status === 'Potential Setup'
+                  ? `${selectedChecksPassed} of 6 scanner checks are currently contributing. ${selected.symbol} has a strong setup score, but one or more required confirmations are still missing.`
+                  : `${selectedChecksPassed} of 6 scanner checks are currently contributing. SetupScan is not labeling ${selected.symbol} as a qualifying setup right now.`}
+            </p>
+          </article>
+
+          <article>
+            <h3>Current Reference Levels</h3>
+
+            <dl>
+              <div>
+                <dt>Last Price</dt>
+                <dd>{formatPrice(selected.price)}</dd>
+              </div>
+
+              <div>
+                <dt>VWAP</dt>
+                <dd>{formatPrice(selected.vwap)}</dd>
+              </div>
+
+              <div>
+                <dt>EMA 9</dt>
+                <dd>{formatPrice(selected.ema9)}</dd>
+              </div>
+
+              <div>
+                <dt>EMA 21</dt>
+                <dd>{formatPrice(selected.ema21)}</dd>
+              </div>
+            </dl>
+          </article>
+
+          <article>
+            <h3>Scanner Context</h3>
+
+            <dl>
+              <div>
+                <dt>Status</dt>
+                <dd>{selected.status}</dd>
+              </div>
+
+              <div>
+                <dt>Checks Passed</dt>
+                <dd>{selectedChecksPassed} / 6</dd>
+              </div>
+
+              <div>
+                <dt>Relative Volume</dt>
+                <dd>
+                  {Number.isFinite(selected.relativeVolume)
+                    ? `${selected.relativeVolume.toFixed(2)}x`
+                    : 'Unavailable'}
+                </dd>
+              </div>
+
+              <div>
+                <dt>Trend</dt>
+                <dd>{selected.trend}</dd>
+              </div>
+            </dl>
+
+            <p className="selected-context-note">
+              These are current scanner measurements,
+              not historical performance statistics.
+            </p>
+          </article>
+        </div>
+      </section>
+    </td>
+  </tr>
+) : null}
+  </React.Fragment>
+))}
                       {!visibleResults.length ? <tr><td colSpan="9">{scannerEmptyMessage(scanLoading, results.length, scanUnavailable.length, threshold)}</td></tr> : null}
                     </tbody>
                   </table>
@@ -1127,75 +2025,9 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                 </section>
               </aside>
             </div>
-            <section className="detail-grid single-column">
-              {selected ? (
-                <section className="detail-panel panel">
-                  <div className="detail-header">
-                    <div>
-                      <p className="eyebrow">SETUP BREAKDOWN</p>
-                      <h2>
-                        Why {selected.symbol} received setup score {selected.score} <TermHelp term="Signal" explanation={SCANNER_TERM_EXPLANATIONS.signal} />
-                      </h2>
-                      <p className="setup-check-count">
-                       {selectedChecksPassed} of 6 checks passed
-                      </p>
-                    </div>
-                    <TrendBadge trend={selected.trend} />
-                  </div>
-                  <div className="detail-metrics">
-                    <div>
-                      <span>Last price</span>
-                      <strong>{formatPrice(selected.price)}</strong>
-                      <small className={selected.change >= 0 ? 'positive' : 'negative'}>
-                        {selected.change >= 0 ? '+' : ''}
-                        {selected.change.toFixed(2)}% today
-                      </small>
-                    </div>
-                    <div>
-                      <span>Setup type</span>
-                      <strong>
-                        {selected.status === 'Qualified Setup'
-                          ? 'Breakout / reclaim confirmed'
-                          : selected.status === 'Potential Setup'
-                            ? 'Potential setup'
-                            : 'No setup'}
-                      </strong>
-                      <small>
-                        {selected.status === 'Qualified Setup'
-                          ? 'All trade conditions aligned'
-                          : selected.status === 'Potential Setup'
-                            ? 'Strong setup — awaiting confirmation'
-                            : 'Waiting for confirmation'}
-                      </small>
-                    </div>
-                  </div>
-                  <div className="reason-list">
-                    {selected.reasons.map((reason) => (
-                      <div className="reason-item" key={reason.label}>
-                        <span className={reason.points > 0 ? 'reason-positive' : 'reason-attention'}>
-                          {reason.points > 0 ? '+' : ''}
-                          {reason.points}
-                        </span>
-                        <div>
-                          <strong>{reason.label}</strong>
-                          <p>{reason.detail}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              ) : (
-                <section className="detail-panel panel">
-                  <div className="empty-state">
-                    {scanLoading
-                      ? 'Loading real Alpaca historical data…'
-                      : 'No real Alpaca data available for this watchlist right now.'}
-                  </div>
-                </section>
-              )}
-            </section>
           </>
         )}
+
         {view === 'paper' && <PaperTradingPanel />}
         {view === 'backtest' && (
           <>
