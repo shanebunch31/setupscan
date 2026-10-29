@@ -73,13 +73,14 @@ main = replaceOnce(
   '    createSelectedChartRange(),',
 )
 
-main = replaceOnce(
-  main,
-  `        })\n        .slice(-40)\n\n      setSelectedChartCandles(completedCandles)`,
-  `        })\n\n      setSelectedChartCandles(completedCandles)`,
-  'remove 40-candle chart cap',
-  'createSelectedChartRange(),\n  )\n    .then((data) => {',
-)
+if (main.includes('.slice(-40)')) {
+  main = replaceOnce(
+    main,
+    `        })\n        .slice(-40)\n\n      setSelectedChartCandles(completedCandles)`,
+    `        })\n\n      setSelectedChartCandles(completedCandles)`,
+    'remove 40-candle chart cap',
+  )
+}
 
 main = replaceOnce(
   main,
