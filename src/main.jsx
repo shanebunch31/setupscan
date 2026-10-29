@@ -50,6 +50,9 @@ import {
   listResearchRuns,
 } from './research/researchRunHistory.js'
 import { projectResearchComparisonRuns, ResearchWorkspace } from './research/ResearchWorkspace.js'
+import { SetupHelpDrawer } from './help/SetupHelpDrawer.jsx'
+import { createScanChartRange, completedChartCandles, selectChartRange, chartSessionKey } from './data/scanChart.js'
+import { groupScannerEvidence } from './scanEvidence.js'
 import './styles.css'
 
 async function requestPaperUniverse(action, symbol) {
@@ -224,73 +227,34 @@ function TrendBadge({ trend }) {
   )
 }
 
+const SCANNER_REASON_SHORT_LABELS = {
+  'Price vs VWAP': 'VWAP',
+  'EMA alignment': 'EMA',
+  'RSI momentum': 'RSI',
+  'Relative volume': 'RVOL',
+  'Breakout / reclaim': 'BREAKOUT',
+  'Trend confirmation': 'TREND',
+}
+
+function scannerConfirmationSummary(item) {
+  const passed = (item?.reasons ?? [])
+    .filter((reason) => reason.points > 0)
+    .map(
+      (reason) =>
+        SCANNER_REASON_SHORT_LABELS[reason.label] ?? reason.label,
+    )
+
+  if (!passed.length) {
+    return 'No checks currently contributing'
+  }
+
+  return passed.join(' · ')
+}
+
 function CandlestickChart({ candles = [], range = '5D' }) {
   const [hoveredCandle, setHoveredCandle] = useState(null)
 
-  const easternDateFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
-
-  const getSessionKey = (timestamp) => {
-    const parts = easternDateFormatter.formatToParts(
-      new Date(timestamp),
-    )
-
-    const year = parts.find((part) => part.type === 'year')?.value
-    const month = parts.find((part) => part.type === 'month')?.value
-    const day = parts.find((part) => part.type === 'day')?.value
-
-    return `${year}-${month}-${day}`
-  }
-
-  const allValidCandles = candles
-    .filter(
-      (candle) =>
-        Number.isFinite(candle.open) &&
-        Number.isFinite(candle.high) &&
-        Number.isFinite(candle.low) &&
-        Number.isFinite(candle.close) &&
-        Number.isFinite(new Date(candle.timestamp).getTime()),
-    )
-    .sort(
-      (a, b) =>
-        new Date(a.timestamp).getTime() -
-        new Date(b.timestamp).getTime(),
-    )
-
-  const availableSessions = [
-    ...new Set(
-      allValidCandles.map((candle) =>
-        getSessionKey(candle.timestamp),
-      ),
-    ),
-  ]
-
-  const sessionCount =
-    range === '1D'
-      ? 1
-      : range === '3D'
-        ? 3
-        : range === '5D'
-          ? 5
-          : null
-
-  const allowedSessions =
-    sessionCount === null
-      ? null
-      : new Set(availableSessions.slice(-sessionCount))
-
-  const validCandles =
-    allowedSessions === null
-      ? allValidCandles
-      : allValidCandles.filter((candle) =>
-          allowedSessions.has(
-            getSessionKey(candle.timestamp),
-          ),
-        )
+  const validCandles = selectChartRange(candles, range)
 
   useEffect(() => {
     setHoveredCandle(null)
@@ -333,7 +297,7 @@ function CandlestickChart({ candles = [], range = '5D' }) {
 
   const step = plotWidth / validCandles.length
   const bodyWidth = Math.max(
-    3,
+    1,
     Math.min(12, step * 0.58),
   )
 
@@ -388,6 +352,11 @@ function CandlestickChart({ candles = [], range = '5D' }) {
 
   return (
     <div className="candlestick-chart-shell">
+      <p className="chart-date-coverage">
+        {formatChartDate(validCandles[0].timestamp)} – {formatChartDate(validCandles.at(-1).timestamp)}
+        {' · '}{new Set(validCandles.map((candle) => chartSessionKey(candle.timestamp))).size} trading sessions
+        {' · '}{validCandles.length} completed candles · ET
+      </p>
       <div className="candlestick-hover-readout">
         {hoveredCandle ? (
           <>
@@ -886,6 +855,7 @@ onNavigate('scan')
       <button
         className="icon-button nav-toggle"
         aria-label="Toggle navigation"
+        aria-expanded={navOpen}
         onClick={onToggleNav}
       >
         {navOpen ? <X size={18} /> : <Menu size={18} />}
@@ -917,6 +887,8 @@ function AppSidebar({
   watchlist,
   selectedSymbol,
   onSelectSymbol,
+  onOpenHelp,
+  navOpen,
 }) {
   const icons = {
     home: House,
@@ -936,7 +908,7 @@ function AppSidebar({
   ]
 
   return (
-    <aside className="app-sidebar">
+    <aside className={`app-sidebar ${navOpen ? 'is-open' : ''}`}>
       <div className="sidebar-brand">
   <div className="sidebar-brand-title">
     <div className="brand-mark">
@@ -1020,7 +992,7 @@ function AppSidebar({
         </section>
       )}
 
-      <div className="sidebar-help">
+      <button type="button" className="sidebar-help" onClick={onOpenHelp} aria-haspopup="dialog">
         <CircleHelp size={19} />
 
         <div>
@@ -1030,7 +1002,7 @@ function AppSidebar({
             plain English.
           </p>
         </div>
-      </div>
+      </button>
     </aside>
   )
 }
@@ -1039,6 +1011,7 @@ function App() {
   const initialRoute = readAppRoute()
 const [view, setView] = useState(initialRoute.view)
 const [navOpen, setNavOpen] = useState(false)
+const [helpOpen, setHelpOpen] = useState(false)
 const [watchlist, setWatchlist] = useState([])
 const [watchlistSymbol, setWatchlistSymbol] = useState('')
 const [watchlistLoading, setWatchlistLoading] = useState(true)
@@ -1254,8 +1227,19 @@ const removeFromWatchlist = async (symbol) => {
   }
 }, [view, scanRange, watchlist])
 
+const results = useMemo(
+  () => scanSetups(scanSnapshot),
+  [scanSnapshot],)
+  const scoreQualified = filterScannerResults(results, threshold)
+const qualifiedSetups = results.filter((item) => item.qualifiedSetup === true)
+const potentialSetups = results.filter(
+  (item) => item.potentialSetup === true && item.qualifiedSetup !== true
+)
+const visibleResults = scoreQualified
+  const selected = visibleResults.find((item) => item.symbol === selectedSymbol) ?? visibleResults[0]
+
 useEffect(() => {
-  if (view !== 'scan' || !selectedSymbol) {
+  if (view !== 'scan' || !selected?.symbol) {
     return undefined
   }
 
@@ -1265,26 +1249,14 @@ useEffect(() => {
   setSelectedChartError(null)
 
   fetchHistoricalMarketData(
-    selectedSymbol,
+    selected.symbol,
     '1Hour',
-    createScannerRange(),
+    createScanChartRange(),
   )
     .then((data) => {
       if (!active) return
 
-      const nowMs = Date.now()
-
-      const completedCandles = (data?.candles ?? [])
-        .filter((candle) => {
-          const candleStart =
-            new Date(candle.timestamp).getTime()
-
-          return (
-            Number.isFinite(candleStart) &&
-            candleStart + 60 * 60 * 1000 <= nowMs
-          )
-        })
-        .slice(-40)
+      const completedCandles = completedChartCandles(data?.candles ?? [])
 
       setSelectedChartCandles(completedCandles)
 
@@ -1309,11 +1281,9 @@ useEffect(() => {
   return () => {
     active = false
   }
-}, [view, selectedSymbol, lastUpdated])
+}, [view, selected?.symbol, lastUpdated])
 
-const results = useMemo(
-  () => scanSetups(scanSnapshot),
-  [scanSnapshot],)
+
   useEffect(() => {
   if (view !== 'backtest') return undefined
 
@@ -1459,27 +1429,17 @@ const results = useMemo(
     [historicalData],
   )
   const backtest = useMemo(() => runSetupScanBacktest(backtestCandles), [backtestCandles])
-  const averageScore = results.length
-    ? Math.round(results.reduce((total, item) => total + item.score, 0) / results.length)
+  const topSetupScore = results.length
+    ? Math.max(...results.map((item) => item.score))
     : null
-  const scoreQualified = filterScannerResults(results, threshold)
-const qualifiedSetups = results.filter((item) => item.qualifiedSetup === true)
-const potentialSetups = results.filter(
-  (item) => item.potentialSetup === true && item.qualifiedSetup !== true
-)
-const visibleResults = scoreQualified
-  const selected = visibleResults.find((item) => item.symbol === selectedSymbol) ?? visibleResults[0]
 
-  const selectedChecksPassed =
-  selected?.reasons?.filter((reason) => reason.points > 0).length ?? 0
+
+  const selectedEvidence = groupScannerEvidence(selected?.reasons)
+  const selectedChecksPassed = selectedEvidence.passed.length
 
   const selectScannerSymbol = (symbol) => {
-  setSelectedSymbol(symbol)
-
-  setExpandedSymbol((current) =>
-    current === symbol ? null : symbol
-  )
-}
+    setSelectedSymbol(symbol)
+  }
 
   const refreshData = async () => {
     setScanLoading(true)
@@ -1601,9 +1561,12 @@ const handleResearchWorkspaceNavigate = (nextView) => {
         researchWorkspaceView={researchWorkspaceView}
         onResearchNavigate={handleResearchWorkspaceNavigate}
         watchlist={watchlist}
-        selectedSymbol={selectedSymbol}
+        selectedSymbol={view === 'scan' ? selected?.symbol : selectedSymbol}
         onSelectSymbol={setSelectedSymbol}
+        onOpenHelp={() => setHelpOpen(true)}
+        navOpen={navOpen}
       />
+      <SetupHelpDrawer open={helpOpen} view={view} onClose={() => setHelpOpen(false)} />
 
       <main className="dashboard">
         {view === 'home' && (
@@ -1657,16 +1620,6 @@ const handleResearchWorkspaceNavigate = (nextView) => {
   </div>
 
   <div className="scan-heading-actions">
-    <div className="data-freshness">
-      <span className="status-dot" />
-
-      <span>
-        {historicalStatus === 'ALPACA HISTORICAL'
-          ? `MARKET DATA · ${historicalData?.symbol ?? selectedSymbol} · 1H`
-          : `${historicalStatus} · delayed snapshot`}
-      </span>
-    </div>
-
     <button
       className="refresh-button"
       onClick={refreshData}
@@ -1674,7 +1627,7 @@ const handleResearchWorkspaceNavigate = (nextView) => {
     >
       <RefreshCw size={15} />
       Refresh
-      <span>{formatLastRefresh(lastUpdated)}</span>
+      <span>{scanLoading ? 'Refreshing…' : lastUpdated ? formatLastRefresh(lastUpdated) : 'Latest snapshot'}</span>
     </button>
   </div>
 </section>
@@ -1694,7 +1647,7 @@ const handleResearchWorkspaceNavigate = (nextView) => {
         {qualifiedSetups.length.toString().padStart(2, '0')}
       </strong>
 
-      <span>Rule conditions met; not a profitability finding</span>
+      <span>All required scanner checks</span>
     </div>
   </div>
 
@@ -1730,7 +1683,7 @@ const handleResearchWorkspaceNavigate = (nextView) => {
         {potentialSetups.length.toString().padStart(2, '0')}
       </strong>
 
-      <span>Strong scores awaiting confirmation</span>
+      <span>Strong score; confirmation still missing</span>
     </div>
   </div>
 
@@ -1741,12 +1694,12 @@ const handleResearchWorkspaceNavigate = (nextView) => {
 
     <div className="summary-card-copy">
       <div className="summary-label">
-        Average Setup Score
+        Top Setup Score
       </div>
 
-      <strong>{averageScore ?? '—'}</strong>
+      <strong>{topSetupScore ?? '—'}</strong>
 
-      <span>Average across evaluated symbols</span>
+      <span>Highest current rule score</span>
     </div>
   </div>
 </section>
@@ -1765,130 +1718,106 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                 </div>
                 <ScannerThresholdFilter open={scannerFiltersOpen} threshold={threshold} onChange={setThreshold} />
                 <div className="table-wrap">
-                  <table>
+                  <table className="scan-compact-table">
                     <thead>
                       <tr>
                         <th>Symbol</th>
-                        <th>Price</th>
+                        <th>Price / Change</th>
                         <th>Trend <TermHelp term="Trend" explanation={SCANNER_TERM_EXPLANATIONS.trend} /></th>
-                        <th>VWAP <TermHelp term="VWAP" explanation={SCANNER_TERM_EXPLANATIONS.vwap} /></th>
-                        <th>EMA 9 / 21 <TermHelp term="EMA 9 / 21" explanation={SCANNER_TERM_EXPLANATIONS.ema} /></th>
-                        <th>RSI <TermHelp term="RSI" explanation={SCANNER_TERM_EXPLANATIONS.rsi} /></th>
-                        <th>Rel. volume <TermHelp term="Relative volume" explanation={SCANNER_TERM_EXPLANATIONS.relativeVolume} /></th>
-                        <th>Setup score <TermHelp term="Setup score" explanation={SCANNER_TERM_EXPLANATIONS.score} /></th>
-                        <th>Signal status <TermHelp term="Signal status" explanation={`${SCANNER_TERM_EXPLANATIONS.signal} ${SCANNER_TERM_EXPLANATIONS.status}`} /></th>
+                        <th>Key Confirmations</th>
+                        <th>Score <TermHelp term="Setup score" explanation={SCANNER_TERM_EXPLANATIONS.score} /></th>
+                        <th>Status <TermHelp term="Signal status" explanation={SCANNER_TERM_EXPLANATIONS.signal + ' ' + SCANNER_TERM_EXPLANATIONS.status} /></th>
                       </tr>
                     </thead>
                     <tbody>
 
                 {visibleResults.map((item) => (
-  <React.Fragment key={item.symbol}>
-    <tr
-      className={
-        selectedSymbol === item.symbol
-          ? 'selected-row'
-          : ''
-      }
-      onClick={() => selectScannerSymbol(item.symbol)}
-    >
-      <td>
-        <div className="symbol-cell">
-          <span className="ticker-dot">
-            {item.symbol.slice(0, 1)}
-          </span>
+                  <tr
+                    key={item.symbol}
+                    className={selected?.symbol === item.symbol ? 'selected-row' : ''}
+                    onClick={() => selectScannerSymbol(item.symbol)}
+                  >
+                    <td>
+                      <div className="symbol-cell">
+                        <span className="ticker-dot">
+                          {item.symbol.slice(0, 1)}
+                        </span>
 
-          <button
-            type="button"
-            className="scanner-row-select"
-            aria-label={`Select ${item.symbol} scanner details`}
-            aria-pressed={selectedSymbol === item.symbol}
-            onClick={(event) => {
-              event.stopPropagation()
-              selectScannerSymbol(item.symbol)
-            }}
-          >
-            {item.symbol}
-          </button>
-        </div>
-      </td>
+                        <button
+                          type="button"
+                          className="scanner-row-select"
+                          aria-label={`Select ${item.symbol} scanner details`}
+                          aria-pressed={selected?.symbol === item.symbol}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            selectScannerSymbol(item.symbol)
+                          }}
+                        >
+                          {item.symbol}
+                        </button>
+                      </div>
+                    </td>
 
-      <td className="price-cell">
-        {formatPrice(item.price)}
+                    <td className="price-cell">
+                      {formatPrice(item.price)}
 
-        <small
-          className={
-            item.change >= 0
-              ? 'positive'
-              : 'negative'
-          }
-        >
-          {item.change >= 0 ? '+' : ''}
-          {item.change.toFixed(2)}%
-        </small>
-      </td>
+                      <small className={item.change >= 0 ? 'positive' : 'negative'}>
+                        {item.change >= 0 ? '+' : ''}
+                        {item.change.toFixed(2)}%
+                      </small>
+                    </td>
 
-      <td>
-        <TrendBadge trend={item.trend} />
-      </td>
+                    <td>
+                      <TrendBadge trend={item.trend} />
+                    </td>
 
-      <td>
-        {formatPrice(item.vwap)}
-      </td>
+                    <td>
+                      <span className="scan-key-confirmations">
+                        {scannerConfirmationSummary(item)}
+                      </span>
+                    </td>
 
-      <td>
-        <span
-          className={
-            item.ema9 > item.ema21
-              ? 'positive'
-              : 'negative'
-          }
-        >
-          {formatPrice(item.ema9)}
-        </span>
+                    <td>
+                      <ScoreRing score={item.score} />
+                    </td>
 
-        <small>
-          {' / '}
-          {formatPrice(item.ema21)}
-        </small>
-      </td>
-
-      <td>
-        <span
-          className={
-            item.rsi > 50
-              ? 'positive'
-              : 'negative'
-          }
-        >
-          {item.rsi}
-        </span>
-      </td>
-
-      <td>
-        {Number.isFinite(item.relativeVolume)
-          ? `${item.relativeVolume.toFixed(2)}x`
-          : '—'}
-      </td>
-
-      <td>
-        <ScoreRing score={item.score} />
-      </td>
-
-      <td>
-        <span
-          className={`status-pill ${item.status
-            .toLowerCase()
-            .replace(' ', '-')}`}
-        >
-          {item.status}
-        </span>
-      </td>
-    </tr>
-    {expandedSymbol === item.symbol &&
-selected?.symbol === item.symbol ? (
-  <tr className="scanner-expanded-row">
-    <td colSpan="9">
-      <section className="selected-setup-panel scanner-inline-detail">
+                    <td>
+                      <span className={'status-pill ' + item.status.toLowerCase().replace(' ', '-')}>
+                        {item.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                      {!visibleResults.length ? <tr><td colSpan="6">{scannerEmptyMessage(scanLoading, results.length, scanUnavailable.length, threshold)}</td></tr> : null}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mobile-list">
+                  {visibleResults.map((item) => (
+                    <button
+                      className={`mobile-row ${selected?.symbol === item.symbol ? 'selected-row' : ''}`}
+                      key={item.symbol}
+                      onClick={() => setSelectedSymbol(item.symbol)}
+                    >
+                      <div className="symbol-cell">
+                        <span className="ticker-dot">{item.symbol.slice(0, 1)}</span>
+                        <strong>{item.symbol}</strong>
+                        <TrendBadge trend={item.trend} />
+                      </div>
+                      <div className="mobile-score">
+                        <ScoreRing score={item.score} />
+                        <span
+                          className={`status-pill ${item.status.toLowerCase().replace(' ', '-')}`}
+                        >
+                          {item.status}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                  {!visibleResults.length ? <p className="empty-state">{scannerEmptyMessage(scanLoading, results.length, scanUnavailable.length, threshold)}</p> : null}
+                </div>
+                {selected ? (
+<section className="selected-setup-panel scanner-below-table-detail">
         <div className="selected-setup-header">
           <div>
             <p className="eyebrow">
@@ -1946,27 +1875,22 @@ selected?.symbol === item.symbol ? (
             </div>
 
             <div className="selected-check-list">
-              {selected.reasons.map((reason) => (
-                <div
-                  className="selected-check"
-                  key={reason.label}
-                >
-                  <span
-                    className={
-                      reason.points > 0
-                        ? 'check-pass'
-                        : 'check-missing'
-                    }
-                  >
-                    {reason.points > 0 ? '✓' : '—'}
-                  </span>
-
-                  <div>
-                    <strong>{reason.label}</strong>
-                    <small>{reason.detail}</small>
-                  </div>
-                </div>
+              <h3>Passed <span>{selectedChecksPassed} of {selected.reasons.length}</span></h3>
+              {selectedEvidence.passed.map((reason) => (
+                <details className="selected-check-detail" key={reason.label}>
+                  <summary><span className="check-pass">✓</span>{reason.label}</summary>
+                  <p>{reason.detail}</p>
+                </details>
               ))}
+              {!selectedChecksPassed && <p>No full confirmations yet.</p>}
+              {selectedEvidence.missing.length > 0 && (
+                <div className="selected-missing-summary">
+                  <h3>Missing <span>{selectedEvidence.missing.length}</span></h3>
+                  {selectedEvidence.missing.map((reason) => (
+                    <span key={reason.label}>— {reason.label}{reason.points > 0 ? ' · partial credit' : ''}</span>
+                  ))}
+                </div>
+              )}
             </div>
           </aside>
 
@@ -1980,7 +1904,10 @@ selected?.symbol === item.symbol ? (
     </span>
   </div>
 
-  <div className="chart-range-controls">
+  <div className="chart-controls">
+    <div className="chart-control-group" role="group" aria-label="Chart range">
+    <span className="chart-control-label">Range</span>
+    <div className="chart-range-controls">
     {['1D', '3D', '5D', 'ALL'].map((range) => (
       <button
         key={range}
@@ -1990,6 +1917,7 @@ selected?.symbol === item.symbol ? (
             ? 'chart-range-button active'
             : 'chart-range-button'
         }
+        aria-pressed={selectedChartRange === range}
         onClick={(event) => {
           event.stopPropagation()
           setSelectedChartRange(range)
@@ -1999,9 +1927,12 @@ selected?.symbol === item.symbol ? (
       </button>
     ))}
 
-    <span className="chart-timeframe-pill">
-      1H
-    </span>
+    </div>
+    </div>
+    <div className="chart-control-group chart-interval-control">
+      <span className="chart-control-label">Interval</span>
+      <span className="chart-timeframe-pill">1H</span>
+    </div>
   </div>
 </div>
 
@@ -2030,13 +1961,13 @@ selected?.symbol === item.symbol ? (
               {selected.status === 'Qualified Setup'
   ? `Meets the scanner's rule-based conditions. This does not establish profitability or authorize live trading.`
                 : selected.status === 'Potential Setup'
-                  ? `${selectedChecksPassed} of 6 scanner checks are currently contributing. ${selected.symbol} has a strong setup score, but one or more required confirmations are still missing.`
-                  : `${selectedChecksPassed} of 6 scanner checks are currently contributing. SetupScan is not labeling ${selected.symbol} as a qualifying setup right now.`}
+                  ? `${selectedChecksPassed} of 6 scanner checks fully confirmed. ${selected.symbol} has a strong setup score, but one or more required confirmations are still missing.`
+                  : `${selectedChecksPassed} of 6 scanner checks fully confirmed. SetupScan is not labeling ${selected.symbol} as a qualifying setup right now.`}
             </p>
           </article>
 
           <article>
-            <h3>Current Reference Levels</h3>
+            <h3>Reference Levels</h3>
 
             <dl>
               <div>
@@ -2061,75 +1992,35 @@ selected?.symbol === item.symbol ? (
             </dl>
           </article>
 
-          <article>
-            <h3>Scanner Context</h3>
+          <article className="selected-confirmation-card">
+            <h3>
+              {selected.status === 'Qualified Setup'
+                ? 'Confirmation Status'
+                : selected.status === 'No Setup'
+                  ? 'Why No Setup?'
+                  : 'Missing Confirmation'}
+            </h3>
 
-            <dl>
-              <div>
-                <dt>Status</dt>
-                <dd>{selected.status}</dd>
+            {selectedEvidence.missing.length > 0 ? (
+              <div className="selected-missing-list">
+                {selectedEvidence.missing
+                  .map((reason) => (
+                    <div key={reason.label}>
+                      <strong>{reason.label}</strong>
+                      <span>{reason.detail}</span>
+                    </div>
+                  ))}
               </div>
-
-              <div>
-                <dt>Checks Passed</dt>
-                <dd>{selectedChecksPassed} / 6</dd>
-              </div>
-
-              <div>
-                <dt>Relative Volume</dt>
-                <dd>
-                  {Number.isFinite(selected.relativeVolume)
-                    ? `${selected.relativeVolume.toFixed(2)}x`
-                    : 'Unavailable'}
-                </dd>
-              </div>
-
-              <div>
-                <dt>Trend</dt>
-                <dd>{selected.trend}</dd>
-              </div>
-            </dl>
-
-            <p className="selected-context-note">
-              These are current scanner measurements,
-              not historical performance statistics.
-            </p>
+            ) : (
+              <p className="selected-confirmation-clear">
+                All required scanner checks are currently contributing.
+              </p>
+            )}
           </article>
         </div>
       </section>
-    </td>
-  </tr>
-) : null}
-  </React.Fragment>
-))}
-                      {!visibleResults.length ? <tr><td colSpan="9">{scannerEmptyMessage(scanLoading, results.length, scanUnavailable.length, threshold)}</td></tr> : null}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="mobile-list">
-                  {visibleResults.map((item) => (
-                    <button
-                      className={`mobile-row ${selectedSymbol === item.symbol ? 'selected-row' : ''}`}
-                      key={item.symbol}
-                      onClick={() => setSelectedSymbol(item.symbol)}
-                    >
-                      <div className="symbol-cell">
-                        <span className="ticker-dot">{item.symbol.slice(0, 1)}</span>
-                        <strong>{item.symbol}</strong>
-                        <TrendBadge trend={item.trend} />
-                      </div>
-                      <div className="mobile-score">
-                        <ScoreRing score={item.score} />
-                        <span
-                          className={`status-pill ${item.status.toLowerCase().replace(' ', '-')}`}
-                        >
-                          {item.status}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                  {!visibleResults.length ? <p className="empty-state">{scannerEmptyMessage(scanLoading, results.length, scanUnavailable.length, threshold)}</p> : null}
-                </div>
+                ) : null}
+
               </section>
               <aside className="side-column">
                 <section className="qualified-panel panel">

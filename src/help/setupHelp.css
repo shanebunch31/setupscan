@@ -315,3 +315,17 @@
     flex-wrap: wrap;
   }
 }
+
+/* Native modal supplies keyboard containment and makes the page inert. */
+dialog.setup-help-backdrop { width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; padding: 0; border: 0; color: #dce7f1; background: transparent; }
+dialog.setup-help-backdrop[open] { display: flex; }
+dialog.setup-help-backdrop::backdrop { background: #02080fb8; backdrop-filter: blur(3px); }
+.setup-help-drawer { font-family: var(--sans); }
+.setup-help-header p, .setup-help-context p, .setup-help-term p, .setup-help-disclaimer p { font-size: 12px; line-height: 1.55; }
+.setup-help-term strong, .setup-help-context strong, .setup-help-section-heading strong, .setup-help-disclaimer strong { font-size: 12px; }
+.setup-help-search input { font: 12px var(--sans); }
+.setup-help-section-heading span { font-size: 10px; }
+.setup-help-close { display: inline-flex; align-items: center; gap: 5px; width: auto; padding: 0 9px; font: 600 11px var(--sans); }
+.setup-help-close:focus-visible { outline: 2px solid #1687ff; outline-offset: 2px; }
+.setup-help-disclaimer { display: block; }
+

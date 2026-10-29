@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { CircleHelp, Search, X } from 'lucide-react'
 import { SCANNER_TERM_EXPLANATIONS } from '../scannerFilters.js'
 import './setupHelp.css'
@@ -17,7 +17,7 @@ const HELP_TERMS = [
     definition: SCANNER_TERM_EXPLANATIONS.rsi,
   },
   {
-    term: 'Relative Volume',
+    term: 'Relative Volume / RVOL',
     definition: SCANNER_TERM_EXPLANATIONS.relativeVolume,
   },
   {
@@ -66,6 +66,16 @@ const HELP_TERMS = [
   },
 ]
 
+const HOME_TERMS = [
+  { term: 'Top Setups', definition: 'The strongest current Qualified or Potential Setups, ranked by the existing scanner rule score. Select one to inspect it in Scan.' },
+  { term: 'Recent Research', definition: 'Saved experiment runs. Completed means the run finished, not that its strategy is validated.' },
+  { term: 'Market / Data Status', definition: 'Market status describes the trading session. Data status describes whether requested provider data is available and complete.' },
+  { term: 'Operational Check', definition: 'Combines current scanner-data, paper-journal, and research-history warnings. Checking means requests are still pending; healthy means these checks report no warnings.' },
+  { term: 'Paper Trading Shortcut', definition: 'Opens the simulated-trading journal. It does not place a live trade.' },
+]
+
+HELP_TERMS.push({ term: 'Bullish / Bearish Trend', definition: 'The current direction of the fast and slow price references. Bearish is a direction label, not a short-selling recommendation.' })
+
 const PAGE_HELP = {
   home: {
     title: 'Home help',
@@ -75,7 +85,7 @@ const PAGE_HELP = {
   scan: {
     title: 'Scan help',
     body:
-      'Scan ranks the current rule-based scanner results. Expand a symbol to see which checks are contributing, its current reference levels, and completed one-hour price candles. Setup Score is a rule score—not an estimated win probability.',
+      'Scan ranks the current rule-based scanner results. Select a symbol to see which checks are contributing, its current reference levels, and completed one-hour price candles. Setup Score is a rule score—not an estimated win probability.',
   },
   paper: {
     title: 'Paper Trading help',
@@ -101,23 +111,23 @@ const PAGE_HELP = {
 
 export function SetupHelpDrawer({ open, view, onClose }) {
   const [query, setQuery] = useState('')
+  const dialogRef = useRef(null)
   const pageHelp = PAGE_HELP[view] ?? PAGE_HELP.home
 
   useEffect(() => {
-    if (!open) return undefined
-
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        onClose()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-
+    if (!open || !dialogRef.current) return undefined
+    const dialog = dialogRef.current
+    const trigger = document.activeElement
+    const previousOverflow = document.body.style.overflow
+    dialog.showModal()
+    dialog.querySelector('button')?.focus()
+    document.body.style.overflow = 'hidden'
     return () => {
-      window.removeEventListener('keydown', handleKeyDown)
+      dialog.close()
+      document.body.style.overflow = previousOverflow
+      if (trigger?.isConnected) trigger.focus()
     }
-  }, [open, onClose])
+  }, [open])
 
   useEffect(() => {
     if (!open) {
@@ -128,25 +138,39 @@ export function SetupHelpDrawer({ open, view, onClose }) {
   const visibleTerms = useMemo(() => {
     const normalized = query.trim().toLowerCase()
 
-    if (!normalized) return HELP_TERMS
+    const terms = view === 'home' ? HOME_TERMS : HELP_TERMS
+    if (!normalized) return terms
 
-    return HELP_TERMS.filter(({ term, definition }) =>
+    return terms.filter(({ term, definition }) =>
       `${term} ${definition}`.toLowerCase().includes(normalized),
     )
-  }, [query])
+  }, [query, view])
 
   if (!open) return null
 
   return (
-    <div
+    <dialog
+      ref={dialogRef}
       className="setup-help-backdrop"
-      onMouseDown={onClose}
+      aria-labelledby="setup-help-title"
+      onKeyDown={(event) => {
+        if (event.key !== 'Tab') return
+        const controls = [...dialogRef.current.querySelectorAll('button, input')]
+        const first = controls[0]
+        const last = controls.at(-1)
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      }}
+      onCancel={(event) => { event.preventDefault(); onClose() }}
+      onClick={(event) => { if (event.target === event.currentTarget) onClose() }}
     >
       <aside
         className="setup-help-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="setup-help-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="setup-help-header">
@@ -164,7 +188,7 @@ export function SetupHelpDrawer({ open, view, onClose }) {
             onClick={onClose}
             aria-label="Close SetupScan help"
           >
-            <X size={18} />
+            <X size={18} /> Close
           </button>
         </header>
 
@@ -211,10 +235,10 @@ export function SetupHelpDrawer({ open, view, onClose }) {
         <footer className="setup-help-disclaimer">
           <strong>Research signals, not probabilities</strong>
           <p>
-            SetupScan scores and labels summarize rule-based research conditions. They are not probabilities of success or financial advice.
+            Setup Scores are rule-based research signals, not probabilities of profit or financial advice.
           </p>
         </footer>
       </aside>
-    </div>
+    </dialog>
   )
 }

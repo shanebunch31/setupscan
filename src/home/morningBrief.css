@@ -131,6 +131,7 @@
   grid-template-columns:
     minmax(0, 0.9fr)
     minmax(0, 1.1fr);
+  align-items: start;
   gap: 12px;
 }
 
@@ -418,3 +419,9 @@
     flex-direction: column;
   }
 }
+.brief-attention-panel.is-healthy .brief-panel-heading { color: #36d8af; }
+.brief-attention-panel.is-healthy .brief-panel-heading h2 { color: #b0edda; }
+.brief-attention-panel.is-warning .brief-panel-heading { color: #e4b76e; }
+.brief-attention-panel.is-warning .brief-panel-heading h2 { color: #f1ca8d; }
+.brief-attention-panel.is-checking .brief-panel-heading { color: #91a8bd; }
+

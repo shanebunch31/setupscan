@@ -9,7 +9,7 @@ export const SCANNER_TERM_EXPLANATIONS = Object.freeze({
   minimumScore: 'Rows below this score are hidden.',
   trend: 'Fast/slow price direction.',
   status: 'Score-based setup categories. Bearish does not mean SetupScan recommends a short.',
-  vwap: "SetupScan's current running price reference; not a standard volume-weighted session VWAP.",
+  vwap: "The regular-session volume-weighted average price, calculated from completed five-minute bars. Unavailable when session coverage is incomplete.",
   ema: 'Two smoothed price references; their alignment adds points to the score.',
   rsi: 'Recent upward vs. downward price movement, on a 0–100 scale.',
   relativeVolume: "Current volume compared with SetupScan's historical average.",

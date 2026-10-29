@@ -60,20 +60,20 @@ test('scanner empty states distinguish loading, unavailable, partial, and succes
   assert.match(mainSource, /No symbols were successfully evaluated; \$\{unavailableCount\} unavailable/)
   assert.match(mainSource, /No evaluated symbols meet this minimum score; \$\{unavailableCount\} unavailable/)
   assert.match(mainSource, /No scanner results meet this minimum score of \$\{threshold\}/)
-  assert.match(mainSource, /const averageScore = results\.length[\s\S]*: null/)
-  assert.match(mainSource, /\{averageScore \?\? '—'\}/)
+  assert.match(mainSource, /const topSetupScore = results\.length[\s\S]*: null/)
+  assert.match(mainSource, /\{topSetupScore \?\? '—'\}/)
   assert.match(mainSource, /\{results\.length\} evaluated · \{scanUnavailable\.length\} unavailable/)
   assert.equal((mainSource.match(/scannerEmptyMessage\(scanLoading, results\.length, scanUnavailable\.length, threshold\)/g) ?? []).length, 2)
 })
 
 test('scanner qualification copy describes rule conditions without implying profitability or live authorization', () => {
   assert.match(mainSource, /Meets the scanner's rule-based conditions\. This does not establish profitability or authorize live trading/)
-  assert.match(mainSource, /Rule conditions met; not a profitability finding/)
+  assert.match(mainSource, /All required scanner checks/)
   assert.doesNotMatch(mainSource, /eligible to trigger a paper trade or live trade/i)
 })
 
 test('desktop scanner selection has a native keyboard-operable button and visible focus style', () => {
-  assert.match(mainSource, /type="button"[\s\S]*className="scanner-row-select"[\s\S]*aria-label=\{`Select \$\{item\.symbol\} scanner details`\}[\s\S]*aria-pressed=\{selectedSymbol === item\.symbol\}/)
+  assert.match(mainSource, /type="button"[\s\S]*className="scanner-row-select"[\s\S]*aria-label=\{`Select \$\{item\.symbol\} scanner details`\}[\s\S]*aria-pressed=\{selected\?\.symbol === item\.symbol\}/)
   assert.match(mainSource, /event\.stopPropagation\(\)[\s\S]*setSelectedSymbol\(item\.symbol\)/)
   const styles = fs.readFileSync(new URL('../styles.css', import.meta.url), 'utf8')
   assert.match(styles, /\.scanner-row-select:focus-visible\s*\{[^}]*outline: 2px solid var\(--green\)/)

@@ -49,7 +49,7 @@ test('scanner threshold control adds no other filter categories', () => {
 
 test('Scanner explanations preserve technical labels while clarifying status and the VWAP limitation', () => {
   assert.match(SCANNER_TERM_EXPLANATIONS.status, /does not mean SetupScan recommends a short/)
-  assert.match(SCANNER_TERM_EXPLANATIONS.vwap, /not a standard volume-weighted session VWAP/)
+  assert.match(SCANNER_TERM_EXPLANATIONS.vwap, /regular-session volume-weighted average price.*completed five-minute bars/)
   assert.match(SCANNER_TERM_EXPLANATIONS.signal, /rule checks/)
   assert.match(SCANNER_TERM_EXPLANATIONS.setupType, /pattern/)
 })

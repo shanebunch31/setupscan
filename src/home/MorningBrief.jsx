@@ -15,6 +15,7 @@ import { MarketStatus } from '../MarketStatus.js'
 import { formatMarketTime } from '../marketTime.js'
 import { listResearchRuns } from '../research/researchRunHistory.js'
 import { getResearchExperiment } from '../research/registry.js'
+import { operationalCheckState } from './operationalCheck.js'
 import './morningBrief.css'
 
 const BRIEF_VISIT_STORAGE_KEY =
@@ -244,6 +245,14 @@ export function MorningBrief({
       `Research history: ${researchError}`,
     )
   }
+
+  if (!scanLoading && !results.length && !scanUnavailable.length) {
+    attentionItems.push('No scanner results are available to assess data health.')
+  }
+  const operational = operationalCheckState({
+    warnings: attentionItems,
+    loading: scanLoading || paperLoading || researchLoading,
+  })
 
   return (
     <section className="morning-brief">
@@ -545,17 +554,17 @@ export function MorningBrief({
         </section>
       </div>
 
-      <section className="brief-panel brief-attention-panel">
+      <section className={`brief-panel brief-attention-panel is-${operational.tone}`} aria-live="polite">
         <div className="brief-panel-heading">
           <div>
             <p className="eyebrow">
               OPERATIONAL CHECK
             </p>
 
-            <h2>Needs Attention</h2>
+            <h2>{operational.title}</h2>
           </div>
 
-          <AlertTriangle size={18} />
+          {operational.tone === 'warning' ? <AlertTriangle size={18} /> : <ShieldCheck size={18} />}
         </div>
 
         {attentionItems.length ? (
@@ -574,6 +583,8 @@ export function MorningBrief({
               ),
             )}
           </div>
+        ) : operational.tone === 'checking' ? (
+          <p className="brief-empty">Checking scanner data, paper journal, and research history…</p>
         ) : (
           <div className="brief-all-clear">
             <ShieldCheck size={16} />
