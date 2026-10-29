@@ -1,7 +1,4 @@
-import React, {
-  useEffect,
-  useState,
-} from 'react'
+import React, { useEffect, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -9,17 +6,16 @@ import {
   CircleHelp,
   ShieldCheck,
   Target,
-} from 'lucide-react'
-import { apiUrl } from '../config/apiBase.js'
-import { MarketStatus } from '../MarketStatus.js'
-import { formatMarketTime } from '../marketTime.js'
-import { listResearchRuns } from '../research/researchRunHistory.js'
-import { getResearchExperiment } from '../research/registry.js'
-import { operationalCheckState } from './operationalCheck.js'
-import './morningBrief.css'
+} from "lucide-react";
+import { apiUrl } from "../config/apiBase.js";
+import { MarketStatus } from "../MarketStatus.js";
+import { formatMarketTime } from "../marketTime.js";
+import { listResearchRuns } from "../research/researchRunHistory.js";
+import { getResearchExperiment } from "../research/registry.js";
+import { operationalCheckState } from "./operationalCheck.js";
+import "./morningBrief.css";
 
-const BRIEF_VISIT_STORAGE_KEY =
-  'setupscan:last-morning-brief-visit'
+const BRIEF_VISIT_STORAGE_KEY = "setupscan:last-morning-brief-visit";
 
 export function MorningBrief({
   currentTime,
@@ -30,112 +26,88 @@ export function MorningBrief({
   onOpenSetup = () => {},
   onOpenPaper = () => {},
   onOpenResearch = () => {},
+  onOpenResearchRun = () => {},
 }) {
-  const [researchRuns, setResearchRuns] =
-    useState([])
-  const [
-    researchLoading,
-    setResearchLoading,
-  ] = useState(true)
-  const [
-    researchError,
-    setResearchError,
-  ] = useState(null)
+  const [researchRuns, setResearchRuns] = useState([]);
+  const [researchLoading, setResearchLoading] = useState(true);
+  const [researchError, setResearchError] = useState(null);
 
-  const [
-    paperSnapshot,
-    setPaperSnapshot,
-  ] = useState(null)
-  const [
-    paperLoading,
-    setPaperLoading,
-  ] = useState(true)
-  const [paperError, setPaperError] =
-    useState(null)
+  const [paperSnapshot, setPaperSnapshot] = useState(null);
+  const [paperLoading, setPaperLoading] = useState(true);
+  const [paperError, setPaperError] = useState(null);
 
   const [previousVisit] = useState(() => {
-    if (typeof window === 'undefined') {
-      return null
+    if (typeof window === "undefined") {
+      return null;
     }
 
     try {
-      return window.localStorage.getItem(
-        BRIEF_VISIT_STORAGE_KEY,
-      )
+      return window.localStorage.getItem(BRIEF_VISIT_STORAGE_KEY);
     } catch {
-      return null
+      return null;
     }
-  })
+  });
 
   useEffect(() => {
-    let active = true
+    let active = true;
 
-    setResearchLoading(true)
-    setPaperLoading(true)
+    setResearchLoading(true);
+    setPaperLoading(true);
 
     listResearchRuns({
       limit: 6,
       offset: 0,
     })
       .then((response) => {
-        if (!active) return
+        if (!active) return;
 
-        setResearchRuns(
-          Array.isArray(response?.runs)
-            ? response.runs
-            : [],
-        )
+        setResearchRuns(Array.isArray(response?.runs) ? response.runs : []);
 
-        setResearchError(null)
+        setResearchError(null);
       })
       .catch((error) => {
-        if (!active) return
-        setResearchError(error.message)
+        if (!active) return;
+        setResearchError(error.message);
       })
       .finally(() => {
         if (active) {
-          setResearchLoading(false)
+          setResearchLoading(false);
         }
-      })
+      });
 
-    fetch(apiUrl('/api/paper-trading'))
+    fetch(apiUrl("/api/paper-trading"))
       .then((response) =>
-        response
-          .json()
-          .then((data) => ({
-            response,
-            data,
-          })),
+        response.json().then((data) => ({
+          response,
+          data,
+        })),
       )
       .then(({ response, data }) => {
         if (!response.ok) {
-          throw new Error(
-            data?.error ??
-              'Paper journal unavailable',
-          )
+          throw new Error(data?.error ?? "Paper journal unavailable");
         }
 
-        if (!active) return
+        if (!active) return;
 
-        setPaperSnapshot(data)
-        setPaperError(null)
+        setPaperSnapshot(data);
+        setPaperError(null);
       })
       .catch((error) => {
-        if (!active) return
-        setPaperError(error.message)
+        if (!active) return;
+        setPaperError(error.message);
       })
       .finally(() => {
         if (active) {
-          setPaperLoading(false)
+          setPaperLoading(false);
         }
-      })
+      });
 
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       try {
         window.localStorage.setItem(
           BRIEF_VISIT_STORAGE_KEY,
           new Date().toISOString(),
-        )
+        );
       } catch {
         // Brief still works if local storage
         // is unavailable.
@@ -143,130 +115,117 @@ export function MorningBrief({
     }
 
     return () => {
-      active = false
-    }
-  }, [])
+      active = false;
+    };
+  }, []);
 
   const eligibleSetups = [...results]
     .filter(
-      (item) =>
-        item.qualifiedSetup === true ||
-        item.potentialSetup === true,
+      (item) => item.qualifiedSetup === true || item.potentialSetup === true,
     )
     .sort((left, right) => {
       if (right.score !== left.score) {
-        return right.score - left.score
+        return right.score - left.score;
       }
 
-      return left.symbol.localeCompare(
-        right.symbol,
-      )
-    })
+      return left.symbol.localeCompare(right.symbol);
+    });
 
-  const strongestSetups =
-    eligibleSetups.slice(0, 4)
+  const strongestSetups = eligibleSetups.slice(0, 4);
 
-  const openPaperTrades = Array.isArray(
-    paperSnapshot?.trades,
-  )
-    ? paperSnapshot.trades.filter(
-        (trade) => trade.status === 'open',
-      )
-    : []
+  const openPaperTrades = Array.isArray(paperSnapshot?.trades)
+    ? paperSnapshot.trades.filter((trade) => trade.status === "open")
+    : [];
 
   const openPaperSymbols = [
-    ...new Set(
-      openPaperTrades
-        .map((trade) => trade.symbol)
-        .filter(Boolean),
-    ),
-  ]
+    ...new Set(openPaperTrades.map((trade) => trade.symbol).filter(Boolean)),
+  ];
 
-  const dataHealth =
-    scanLoading
-      ? 'Checking'
-      : scanUnavailable.length ||
-          scanDataQuality.length
-        ? 'Partial'
-        : results.length
-          ? 'Healthy'
-          : 'Unavailable'
+  const dataHealth = scanLoading
+    ? "Checking"
+    : scanUnavailable.length || scanDataQuality.length
+      ? "Partial"
+      : results.length
+        ? "Healthy"
+        : "Unavailable";
 
   const previousVisitMs =
-    previousVisit == null
-      ? NaN
-      : Date.parse(previousVisit)
+    previousVisit == null ? NaN : Date.parse(previousVisit);
 
   const isNewResearchRun = (run) => {
-    const runTime = Date.parse(
-      run?.requestedAt,
-    )
+    const runTime = Date.parse(run?.requestedAt);
 
     return (
       Number.isFinite(previousVisitMs) &&
       Number.isFinite(runTime) &&
       runTime > previousVisitMs
-    )
-  }
+    );
+  };
 
-  const newResearchCount =
-    researchRuns.filter(
-      isNewResearchRun,
-    ).length
+  const marketDateKey = (value) => {
+    const date = new Date(value);
 
-  const attentionItems = []
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+
+    return date.toLocaleDateString("en-US", {
+      timeZone: "America/New_York",
+    });
+  };
+
+  const todayResearchKey = marketDateKey(currentTime ?? Date.now());
+
+  const todayResearchCount = researchRuns.filter(
+    (run) => marketDateKey(run?.requestedAt) === todayResearchKey,
+  ).length;
+
+  const attentionItems = [];
 
   if (scanUnavailable.length) {
     attentionItems.push(
-      `Scanner data unavailable or incomplete: ${scanUnavailable.join(', ')}`,
-    )
+      `Scanner data unavailable or incomplete: ${scanUnavailable.join(", ")}`,
+    );
   }
 
   scanDataQuality
     .slice(0, 3)
-    .forEach((message) =>
-      attentionItems.push(message),
-    )
+    .forEach((message) => attentionItems.push(message));
 
   if (scanDataQuality.length > 3) {
     attentionItems.push(
-      `${scanDataQuality.length - 3} additional scanner data-quality notice${scanDataQuality.length - 3 === 1 ? '' : 's'} available on the Scan page.`,
-    )
+      `${scanDataQuality.length - 3} additional scanner data-quality notice${scanDataQuality.length - 3 === 1 ? "" : "s"} available on the Scan page.`,
+    );
   }
 
   if (paperError) {
-    attentionItems.push(
-      `Paper journal: ${paperError}`,
-    )
+    attentionItems.push(`Paper journal: ${paperError}`);
   }
 
   if (researchError) {
-    attentionItems.push(
-      `Research history: ${researchError}`,
-    )
+    attentionItems.push(`Research history: ${researchError}`);
   }
 
   if (!scanLoading && !results.length && !scanUnavailable.length) {
-    attentionItems.push('No scanner results are available to assess data health.')
+    attentionItems.push(
+      "No scanner results are available to assess data health.",
+    );
   }
   const operational = operationalCheckState({
     warnings: attentionItems,
     loading: scanLoading || paperLoading || researchLoading,
-  })
+  });
 
   return (
     <section className="morning-brief">
       <header className="morning-brief-header">
         <div>
-          <p className="eyebrow">
-            SETUPSCAN DAILY OPERATIONS
-          </p>
+          <p className="eyebrow">SETUPSCAN DAILY OPERATIONS</p>
 
           <h1>Morning Brief</h1>
 
           <p>
-            What SetupScan sees, what research
-            changed, and what needs your
+            What SetupScan sees, what research changed, and what needs your
             attention.
           </p>
         </div>
@@ -275,8 +234,7 @@ export function MorningBrief({
           <MarketStatus now={currentTime} />
 
           <small>
-            Evidence first. No automatic
-            strategy promotion or live trading.
+            Evidence first. No automatic strategy promotion or live trading.
           </small>
         </div>
       </header>
@@ -291,14 +249,11 @@ export function MorningBrief({
             <span>Market</span>
 
             <strong>
-              <MarketStatus
-                now={currentTime}
-              />
+              <MarketStatus now={currentTime} />
             </strong>
 
             <small>
-              Latest completed 1-hour snapshots
-              are shown in the top bar.
+              Latest completed 1-hour snapshots are shown in the top bar.
             </small>
           </div>
         </article>
@@ -315,7 +270,7 @@ export function MorningBrief({
 
             <small>
               {scanLoading
-                ? 'Checking scanner data.'
+                ? "Checking scanner data."
                 : `${results.length} evaluated · ${scanUnavailable.length} unavailable`}
             </small>
           </div>
@@ -331,18 +286,18 @@ export function MorningBrief({
 
             <strong>
               {paperLoading
-                ? '—'
+                ? "—"
                 : paperError
-                  ? 'Unavailable'
+                  ? "Unavailable"
                   : openPaperTrades.length}
             </strong>
 
             <small>
               {openPaperSymbols.length
-                ? openPaperSymbols.join(' · ')
+                ? openPaperSymbols.join(" · ")
                 : paperLoading
-                  ? 'Checking the persisted paper journal.'
-                  : 'No open paper positions.'}
+                  ? "Checking the persisted paper journal."
+                  : "No open paper positions."}
             </small>
           </div>
         </article>
@@ -355,15 +310,10 @@ export function MorningBrief({
           <div>
             <span>Current Setups</span>
 
-            <strong>
-              {scanLoading
-                ? '—'
-                : eligibleSetups.length}
-            </strong>
+            <strong>{scanLoading ? "—" : eligibleSetups.length}</strong>
 
             <small>
-              Qualified + Potential setups from
-              the current rule-based scanner.
+              Qualified + Potential setups from the current rule-based scanner.
             </small>
           </div>
         </article>
@@ -373,43 +323,29 @@ export function MorningBrief({
         <section className="brief-panel">
           <div className="brief-panel-heading">
             <div>
-              <p className="eyebrow">
-                CURRENT SCANNER
-              </p>
+              <p className="eyebrow">CURRENT SCANNER</p>
 
-              <h2>
-                Strongest Current Setups
-              </h2>
+              <h2>Strongest Current Setups</h2>
             </div>
 
-            <span>
-              {eligibleSetups.length} found
-            </span>
+            <span>{eligibleSetups.length} found</span>
           </div>
 
           <div className="brief-setup-list">
             {scanLoading ? (
-              <p className="brief-empty">
-                Loading scanner results…
-              </p>
+              <p className="brief-empty">Loading scanner results…</p>
             ) : strongestSetups.length ? (
               strongestSetups.map((setup) => (
                 <button
                   type="button"
                   className="brief-setup-row"
                   key={setup.symbol}
-                  onClick={() =>
-                    onOpenSetup(setup.symbol)
-                  }
+                  onClick={() => onOpenSetup(setup.symbol)}
                 >
                   <div>
-                    <strong>
-                      {setup.symbol}
-                    </strong>
+                    <strong>{setup.symbol}</strong>
 
-                    <span>
-                      {setup.status}
-                    </span>
+                    <span>{setup.status}</span>
                   </div>
 
                   <div>
@@ -424,10 +360,8 @@ export function MorningBrief({
               ))
             ) : (
               <p className="brief-empty">
-                No current Qualified or Potential
-                setups are available. That is a
-                valid scanner result, not an
-                error.
+                No current Qualified or Potential setups are available. That is
+                a valid scanner result, not an error.
               </p>
             )}
           </div>
@@ -436,111 +370,82 @@ export function MorningBrief({
         <section className="brief-panel">
           <div className="brief-panel-heading">
             <div>
-              <p className="eyebrow">
-                RESEARCH ACTIVITY
-              </p>
+              <p className="eyebrow">RESEARCH ACTIVITY</p>
 
               <h2>Recent Research</h2>
             </div>
 
             <span>
-              {Number.isFinite(previousVisitMs)
-                ? `${newResearchCount} new`
-                : 'Recent runs'}
+              {researchLoading ? "Checking…" : `${todayResearchCount} today`}
             </span>
           </div>
 
           <div className="brief-research-list">
             {researchLoading ? (
-              <p className="brief-empty">
-                Loading saved research runs…
-              </p>
+              <p className="brief-empty">Loading saved research runs…</p>
             ) : researchError ? (
               <p className="brief-empty">
-                Research history is currently
-                unavailable.
+                Research history is currently unavailable.
               </p>
             ) : researchRuns.length ? (
-              researchRuns
-                .slice(0, 4)
-                .map((run) => {
-                  const experimentTitles = (
-                    run.requestedExperiments ?? []
-                  ).map(
-                    (id) =>
-                      getResearchExperiment(id)
-                        ?.title ?? id,
-                  )
+              researchRuns.slice(0, 4).map((run) => {
+                const experimentTitles = (run.requestedExperiments ?? []).map(
+                  (id) => getResearchExperiment(id)?.title ?? id,
+                );
 
-                  const visibleTitles =
-                    experimentTitles
-                      .slice(0, 2)
-                      .join(' + ')
+                const visibleTitles = experimentTitles.slice(0, 2).join(" + ");
 
-                  const additionalCount =
-                    Math.max(
-                      0,
-                      experimentTitles.length - 2,
-                    )
+                const additionalCount = Math.max(
+                  0,
+                  experimentTitles.length - 2,
+                );
 
-                  return (
-                    <article
-                      className="brief-research-row"
-                      key={run.runId}
-                    >
-                      <div className="brief-research-title">
-                        <strong>
-                          {visibleTitles ||
-                            'Research run'}
-                        </strong>
+                return (
+                  <button
+                    type="button"
+                    className="brief-research-row"
+                    key={run.runId}
+                    onClick={() => onOpenResearchRun(run.runId)}
+                    aria-label={`Open results for ${
+                      visibleTitles || "research run"
+                    }`}
+                  >
+                    <div className="brief-research-title">
+                      <strong>{visibleTitles || "Research run"}</strong>
 
-                        {isNewResearchRun(
-                          run,
-                        ) ? (
-                          <span>NEW</span>
-                        ) : null}
-                      </div>
+                      {isNewResearchRun(run) ? <span>NEW</span> : null}
+                    </div>
 
-                      <p>
-                        {run.status?.toUpperCase() ??
-                          'UNKNOWN'}
-                        {' · '}
-                        {(run.symbols ?? []).join(
-                          ', ',
-                        ) || 'No symbols'}
-                        {' · '}
-                        {run.timeframe ??
-                          'Timeframe unavailable'}
-                      </p>
+                    <span className="brief-research-meta">
+                      {run.status?.toUpperCase() ?? "UNKNOWN"}
+                      {" · "}
+                      {(run.symbols ?? []).join(", ") || "No symbols"}
+                      {" · "}
+                      {run.timeframe ?? "Timeframe unavailable"}
+                    </span>
 
-                      <small>
-                        {formatMarketTime(
-                          run.requestedAt,
-                          {
-                            includeDate: true,
-                          },
-                        )}
+                    <small>
+                      {formatMarketTime(run.requestedAt, {
+                        includeDate: true,
+                      })}
 
-                        {additionalCount > 0
-                          ? ` · +${additionalCount} more experiment${additionalCount === 1 ? '' : 's'}`
-                          : ''}
-                      </small>
-                    </article>
-                  )
-                })
+                      {additionalCount > 0
+                        ? ` · +${additionalCount} more experiment${additionalCount === 1 ? "" : "s"}`
+                        : ""}
+                    </small>
+                  </button>
+                );
+              })
             ) : (
               <p className="brief-empty">
-                No saved research runs are
-                available yet.
+                No saved research runs are available yet.
               </p>
             )}
           </div>
 
           <p className="brief-evidence-note">
-            A completed research run means the
-            experiment executed. It does not by
-            itself mean a strategy was validated
-            or promoted.
+            A completed research run means the experiment executed. It does not
+            by itself mean a strategy was validated or promoted.
           </p>
 
           <button
@@ -554,46 +459,45 @@ export function MorningBrief({
         </section>
       </div>
 
-      <section className={`brief-panel brief-attention-panel is-${operational.tone}`} aria-live="polite">
+      <section
+        className={`brief-panel brief-attention-panel is-${operational.tone}`}
+        aria-live="polite"
+      >
         <div className="brief-panel-heading">
           <div>
-            <p className="eyebrow">
-              OPERATIONAL CHECK
-            </p>
+            <p className="eyebrow">OPERATIONAL CHECK</p>
 
             <h2>{operational.title}</h2>
           </div>
 
-          {operational.tone === 'warning' ? <AlertTriangle size={18} /> : <ShieldCheck size={18} />}
+          {operational.tone === "warning" ? (
+            <AlertTriangle size={18} />
+          ) : (
+            <ShieldCheck size={18} />
+          )}
         </div>
 
         {attentionItems.length ? (
           <div className="brief-attention-list">
-            {attentionItems.map(
-              (message, index) => (
-                <div
-                  key={`${index}-${message}`}
-                >
-                  <AlertTriangle
-                    size={14}
-                  />
+            {attentionItems.map((message, index) => (
+              <div key={`${index}-${message}`}>
+                <AlertTriangle size={14} />
 
-                  <span>{message}</span>
-                </div>
-              ),
-            )}
+                <span>{message}</span>
+              </div>
+            ))}
           </div>
-        ) : operational.tone === 'checking' ? (
-          <p className="brief-empty">Checking scanner data, paper journal, and research history…</p>
+        ) : operational.tone === "checking" ? (
+          <p className="brief-empty">
+            Checking scanner data, paper journal, and research history…
+          </p>
         ) : (
           <div className="brief-all-clear">
             <ShieldCheck size={16} />
 
             <span>
-              No current scanner,
-              paper-journal, or
-              research-history warnings are
-              being reported by these checks.
+              No current scanner, paper-journal, or research-history warnings
+              are being reported by these checks.
             </span>
           </div>
         )}
@@ -609,12 +513,11 @@ export function MorningBrief({
           </button>
 
           <small>
-            SetupScan should explain weak or
-            missing evidence just as clearly as
+            SetupScan should explain weak or missing evidence just as clearly as
             strong evidence.
           </small>
         </div>
       </section>
     </section>
-  )
+  );
 }

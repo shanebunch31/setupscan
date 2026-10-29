@@ -1589,6 +1589,12 @@ const handleResearchWorkspaceNavigate = (nextView) => {
         'history',
       )
     }
+    onOpenResearchRun={(runId) => {
+  setSelectedResearchRunId(runId)
+  handleResearchWorkspaceNavigate(
+    'history',
+  )
+}}
   />
 )}
         {view === 'scan' && (
