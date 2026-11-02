@@ -1206,3 +1206,39 @@ test('failed shared initialization rejects callers and retries only on the next 
   assert.equal(schemaCalls, 2)
   assert.equal(queries, 2)
 })
+
+test('fresh store recovers history, compact synthesis, canonical inputs and investigation links without full payload reads', async () => {
+  const firstPool = new MemoryResearchPool()
+  const first = createResearchRunStore({ pool: firstPool })
+  const run = makeRunResult({ runId: 'restart-recovery', codeRevision: 'frozen-source-revision' })
+  await first.saveResearchRun(run)
+  const investigation = await first.createResearchInvestigation({ question: 'Does saved evidence survive a restart?', requestedExperiments: ['robustness'] })
+  await first.attachResearchRunToInvestigation(investigation.investigationId, run.runContext.runId)
+  const history = await first.listResearchRuns()
+  const full = await first.getResearchRun(run.runContext.runId)
+  const summary = await first.getResearchRunComparisonSnapshot(run.runContext.runId)
+  const dataset = await first.getResearchDataset(run.dataset.datasetId)
+  // Copy only the fake database's committed rows. No store or service memory is reused.
+  const restartedPool = new MemoryResearchPool()
+  restartedPool.state = structuredClone(firstPool.state)
+  const restarted = createResearchRunStore({ pool: restartedPool })
+  const committed = structuredClone(restartedPool.state)
+  for (let reload = 0; reload < 3; reload++) {
+    assert.deepEqual(await restarted.listResearchRuns(), history)
+    assert.deepEqual(await restarted.getResearchRunComparisonSnapshot(run.runContext.runId), summary)
+  }
+  const reads = restartedPool.queries.filter(({ text }) => text.startsWith('SELECT'))
+  assert.equal(reads.length, 6)
+  for (const { text } of reads) {
+    const projection = text.slice(0, text.indexOf(' FROM '))
+    assert.doesNotMatch(text, /FROM research_run_experiments|FROM research_datasets|FROM research_historical_cache/)
+    assert.doesNotMatch(projection, /\brecord\b|native_payload|calculation_series|effective_experiment_configuration/)
+    if (text.includes('ORDER BY requested_at')) assert.doesNotMatch(projection, /\bsynthesis\b|fetch_issues/)
+  }
+  assert.deepEqual(await restarted.getResearchRun(run.runContext.runId), full)
+  assert.deepEqual(await restarted.getResearchDataset(run.dataset.datasetId), dataset)
+  assert.deepEqual((await restarted.getResearchInvestigation(investigation.investigationId)).runIds, [run.runContext.runId])
+  assert.deepEqual(restartedPool.state, committed, 'reading recovery state must not rewrite saved evidence')
+  await assert.rejects(restarted.saveResearchRun(run), { code: 'RESEARCH_RUN_EXISTS' })
+  assert.deepEqual(restartedPool.state, committed, 'retrying a saved ID must preserve original evidence')
+})

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { createPaperStore } from './paperStore.js'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -146,4 +148,59 @@ test('backup source filters reject credentials, repository outputs, and path tra
   } finally {
     fs.rmSync(parent, { recursive: true, force: true })
   }
+})
+
+test('default backup and isolated restore preserve journal plus authoritative empty universe byte-for-byte', () => {
+  const { parent, sourceRoot, destinationRoot } = tempDirectories()
+  try {
+    const journal = Buffer.from('{"trades":[{"symbol":"SPY","status":"open","stopPrice":101}],"observer":{"processedCandles":{"SPY":"2026-10-30T16:00:00Z"}}}\n')
+    const universe = Buffer.from('{ "initialized": true, "symbols": [] }\n')
+    const journalRelative = 'server/data/paper-trades.json'
+    fs.mkdirSync(path.join(sourceRoot, 'server/data'), { recursive: true })
+    fs.writeFileSync(path.join(sourceRoot, journalRelative), journal)
+    fs.writeFileSync(path.join(sourceRoot, journalRelative + '.symbols.json'), universe)
+    fs.writeFileSync(path.join(sourceRoot, journalRelative + '.symbols.json.tmp'), '{partial')
+    const result = createLocalBackup({ sourceRoot, destinationRoot })
+    assert.deepEqual(result.manifest.files.map((entry) => entry.sourcePath), [journalRelative, journalRelative + '.symbols.json'])
+    const restoreRoot = path.join(parent, 'isolated-restore')
+    for (const entry of result.manifest.files) {
+      const bytes = fs.readFileSync(path.join(result.backupDirectory, entry.backupPath))
+      assert.equal(createHash('sha256').update(bytes).digest('hex'), entry.sha256)
+      const target = path.join(restoreRoot, entry.sourcePath)
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      fs.writeFileSync(target, bytes, { flag: 'wx' })
+    }
+    const restored = createPaperStore(path.join(restoreRoot, journalRelative))
+    assert.deepEqual(restored.load(), JSON.parse(journal))
+    assert.deepEqual(restored.ensureObserverSymbols(() => { throw Error('restored empty universe must not seed') }), [])
+    assert.deepEqual(fs.readFileSync(path.join(sourceRoot, journalRelative)), journal)
+    assert.deepEqual(fs.readFileSync(path.join(sourceRoot, journalRelative + '.symbols.json')), universe)
+  } finally { fs.rmSync(parent, { recursive: true, force: true }) }
+})
+
+test('universe-only development state is backed up and missing journal is reported explicitly', () => {
+  const { parent, sourceRoot, destinationRoot } = tempDirectories()
+  try {
+    const store = createPaperStore(path.join(sourceRoot, 'server/data/paper-trades.json'))
+    store.setObserverSymbols([])
+    const result = createLocalBackup({ sourceRoot, destinationRoot })
+    assert.equal(result.manifest.status, 'complete')
+    assert.deepEqual(result.manifest.skippedSources, [{ sourcePath: 'server/data/paper-trades.json', reason: 'not-present' }])
+    assert.equal(result.manifest.files[0].sourcePath, 'server/data/paper-trades.json.symbols.json')
+    assert.equal(fs.existsSync(path.join(sourceRoot, 'server/data/paper-trades.json')), false)
+  } finally { fs.rmSync(parent, { recursive: true, force: true }) }
+})
+
+test('corrupt universe JSON prevents a successful default backup without modifying either source', () => {
+  const { parent, sourceRoot, destinationRoot } = tempDirectories()
+  try {
+    const store = createPaperStore(path.join(sourceRoot, 'server/data/paper-trades.json'))
+    store.save({ trades: [{ id: 'retained-history' }] })
+    const journal = fs.readFileSync(path.join(sourceRoot, 'server/data/paper-trades.json'))
+    fs.writeFileSync(path.join(sourceRoot, 'server/data/paper-trades.json.symbols.json'), '{broken')
+    assert.throws(() => createLocalBackup({ sourceRoot, destinationRoot }), /invalid JSON/)
+    assert.equal(fs.existsSync(destinationRoot), false)
+    assert.deepEqual(fs.readFileSync(path.join(sourceRoot, 'server/data/paper-trades.json')), journal)
+    assert.equal(fs.readFileSync(path.join(sourceRoot, 'server/data/paper-trades.json.symbols.json'), 'utf8'), '{broken')
+  } finally { fs.rmSync(parent, { recursive: true, force: true }) }
 })

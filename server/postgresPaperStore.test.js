@@ -762,3 +762,24 @@ test('a universe mutation racing with init on the same store creates schema befo
   assert.deepEqual(symbols, ['XYZ'])
   assert.deepEqual(pool.snapshot(), { schema: true, initialized: true, symbols: ['XYZ'] })
 })
+
+test('new PostgreSQL adapter recovers a committed-but-unacknowledged snapshot and retry rollback preserves it', async () => {
+  const pool = new SnapshotPool(openSnapshot)
+  const first = createPostgresPaperStore({ pool })
+  const next = await first.load()
+  next.trades[0] = { ...next.trades[0], stopPrice: 100.5, highestPrice: 102, trailingStopActive: true, holdingBars: 2, lastEvaluatedCandleTimestamp: '2026-01-02T18:00:00Z' }
+  next.observer = { ...next.observer, baselinePendingSymbols: ['QQQ'], activeSymbols: ['SPY', 'QQQ'], processedCandles: { SPY: '2026-01-02T18:00:00Z' } }
+  const metadata = { processedCandles: [{ symbol: 'SPY', timestamp: '2026-01-02T18:00:00Z' }] }
+  pool.loseCommitReply = true
+  await assert.rejects(first.save(next, metadata), (error) => error.paperCommitUncertain === true)
+  const committed = structuredClone(pool.persisted)
+  const restarted = createPostgresPaperStore({ pool })
+  const recovered = await restarted.load()
+  assert.deepEqual(recovered, next)
+  assert.deepEqual(pool.persisted, committed, 'loading does not replay paper writes')
+  pool.failTrade = true
+  await assert.rejects(restarted.save({ ...recovered, observer: { ...recovered.observer, currentError: 'retry' } }, metadata), /trade write failed/)
+  assert.deepEqual(pool.persisted, committed, 'rollback preserves positions and checkpoint together')
+  const afterFailure = createPostgresPaperStore({ pool })
+  assert.deepEqual(await afterFailure.load(), next)
+})

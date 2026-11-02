@@ -5,6 +5,7 @@ import path from 'node:path'
 
 export const DEFAULT_LOCAL_BACKUP_FILES = [
   { relativePath: 'server/data/paper-trades.json', required: false },
+  { relativePath: 'server/data/paper-trades.json.symbols.json', required: false },
 ]
 
 const EXCLUDED_PATH_PART = /(^|[\\/])(?:node_modules|dist|build|coverage|cache|tmp|temp)(?:[\\/]|$)/i

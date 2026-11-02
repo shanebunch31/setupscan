@@ -118,6 +118,12 @@ const RUN_COLUMNS = `run_id, requested_at, status, fetch_status, symbols, timefr
   effective_date_provenance, effective_experiment_configuration, dataset_id, provider,
   fetch_issues, dataset_metadata, synthesis, persistence_schema_version`
 
+// History/restart discovery needs metadata only. Full records and synthesis have
+// explicit detail/summary endpoints; do not download them on every history read.
+const RUN_LIST_COLUMNS = `run_id, requested_at, status, fetch_status, symbols, timeframe,
+  requested_start, requested_end, requested_experiments, ema_contract_version, adjustment_mode,
+  dataset_id, provider, dataset_metadata, persistence_schema_version`
+
 function required(value, label) {
   if (value === null || value === undefined || value === '') {
     const error = new Error(`Research run is missing ${label}`)
@@ -450,7 +456,7 @@ function buildListQuery(filters = {}) {
   const offsetParameter = `$${values.length}`
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
   return {
-    text: `SELECT ${RUN_COLUMNS} FROM research_runs ${where} ORDER BY requested_at DESC, run_id DESC LIMIT ${limitParameter} OFFSET ${offsetParameter}`,
+    text: `SELECT ${RUN_LIST_COLUMNS} FROM research_runs ${where} ORDER BY requested_at DESC, run_id DESC LIMIT ${limitParameter} OFFSET ${offsetParameter}`,
     values,
   }
 }
