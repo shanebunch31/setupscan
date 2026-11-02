@@ -164,3 +164,27 @@ test('GET retrieves a canonical dataset through its datasetId and returns 404 wh
   assert.deepEqual(found.body, dataset)
   assert.equal(missing.status, 404)
 })
+
+test('summary route reads only the compact snapshot and preserves encoded run IDs', async () => {
+  const ids = []
+  const snapshot = { runId: 'run/with spaces', synthesis: { strategyGroups: [] } }
+  const api = createResearchRunApi({ store: {
+    getResearchRun: async () => { assert.fail('summary must not download full run records') },
+    getResearchRunComparisonSnapshot: async (id) => { ids.push(id); return snapshot },
+  } })
+  const result = await invoke(api, { path: '/api/research-runs/run%2Fwith%20spaces/summary' })
+  assert.equal(result.status, 200)
+  assert.deepEqual(result.body, snapshot)
+  assert.deepEqual(ids, ['run/with spaces'])
+})
+
+test('summary route handles absent, malformed, unavailable and failing storage safely', async () => {
+  assert.equal((await invoke(createResearchRunApi({ store: {} }), { path: '/api/research-runs/x/summary' })).status, 503)
+  const missing = createResearchRunApi({ store: { getResearchRunComparisonSnapshot: async () => null } })
+  assert.equal((await invoke(missing, { path: '/api/research-runs/x/summary' })).status, 404)
+  assert.equal((await invoke(missing, { path: '/api/research-runs/%ZZ/summary' })).status, 400)
+  const failed = createResearchRunApi({ store: { getResearchRunComparisonSnapshot: async () => { throw new Error('private connection details') } } })
+  const response = await invoke(failed, { path: '/api/research-runs/x/summary' })
+  assert.equal(response.status, 500)
+  assert.equal(response.body.error, 'Research Run History storage failed')
+})

@@ -94,3 +94,10 @@ export function listResearchRuns(filters = {}) {
   const query = params.toString()
   return requestJson(`/api/research-runs${query ? `?${query}` : ''}`, { method: 'GET' })
 }
+
+export function getResearchRunSummary(runId) {
+  return requestJson(
+    `/api/research-runs/${encodeURIComponent(runId)}/summary`,
+    { method: 'GET' },
+  )
+}

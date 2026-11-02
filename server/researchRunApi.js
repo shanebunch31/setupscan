@@ -60,6 +60,46 @@ export function createResearchRunApi({ store = null, compareResearchRuns } = {})
         return
       }
 
+      if (
+  url.pathname.startsWith('/api/research-runs/') &&
+  url.pathname.endsWith('/summary') &&
+  request.method === 'GET'
+) {
+  if (typeof store.getResearchRunComparisonSnapshot !== 'function') {
+    sendJson(response, 503, {
+      error: 'Research Run summary is not configured',
+    })
+    return
+  }
+
+  const encodedRunId = url.pathname
+    .slice('/api/research-runs/'.length, -'/summary'.length)
+
+  let runId
+
+  try {
+    runId = decodeURIComponent(encodedRunId)
+  } catch {
+    sendJson(response, 400, {
+      error: 'Invalid runId encoding',
+    })
+    return
+  }
+
+  const summary =
+    await store.getResearchRunComparisonSnapshot(runId)
+
+  if (!summary) {
+    sendJson(response, 404, {
+      error: `Research run not found: ${runId}`,
+    })
+    return
+  }
+
+  sendJson(response, 200, summary)
+  return
+}
+
       if (url.pathname === '/api/research-runs/compare' && request.method === 'GET') {
         const runIdA = url.searchParams.get('runIdA')
         const runIdB = url.searchParams.get('runIdB')

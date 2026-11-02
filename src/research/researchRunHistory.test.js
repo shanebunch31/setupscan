@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { compareResearchRuns, getResearchDataset, getResearchRun, listResearchRuns, projectResearchRunForPersistence, saveResearchRun } from './researchRunHistory.js'
+import { compareResearchRuns, getResearchDataset, getResearchRun, getResearchRunSummary, listResearchRuns, projectResearchRunForPersistence, saveResearchRun } from './researchRunHistory.js'
 import { stringifyResearchJson } from './researchRunSerialization.js'
 
 test('saveResearchRun posts the persistence projection using the research history API', async () => {
@@ -213,4 +213,20 @@ test('getResearchDataset retrieves the canonical calculation series by datasetId
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('summary client requests the compact endpoint once with encoded identity', async () => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), method: options.method })
+    return { ok: true, text: async () => '{"runId":"run/with spaces","synthesis":{"strategyGroups":[]}}' }
+  }
+  try {
+    const snapshot = await getResearchRunSummary('run/with spaces')
+    assert.equal(snapshot.runId, 'run/with spaces')
+    assert.equal(requests.length, 1)
+    assert.ok(requests[0].url.endsWith('/api/research-runs/run%2Fwith%20spaces/summary'))
+    assert.equal(requests[0].method, 'GET')
+  } finally { globalThis.fetch = originalFetch }
 })
