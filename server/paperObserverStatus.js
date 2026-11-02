@@ -42,6 +42,9 @@ export function projectPaperOperationalStatus(journal, probe, now = new Date()) 
   const live = probe?.verified ? probe.observer : null
   const cycle = live ? paperObserverCycleHealth(live, now, true) : null
   const observations = Object.values(live?.symbolResults ?? {})
+  // Baseline requirements are recovered by the worker. A live scheduler or a
+  // closed-market poll does not establish readiness for those symbols.
+  const baselinePendingSymbols = Array.isArray(live?.baselinePendingSymbols) ? [...live.baselinePendingSymbols] : null
   const provider = !live ? 'UNKNOWN' : live.cycleOutcome === 'MARKET_CLOSED' ? 'NOT_REQUESTED'
     : observations.some(row => providerFailures.has(row.dataStatus)) ? 'FAILED'
     : observations.some(row => row.dataStatus === 'PROCESSING_ERROR') ? 'UNKNOWN'
@@ -51,23 +54,26 @@ export function projectPaperOperationalStatus(journal, probe, now = new Date()) 
     : live.schedulerRunning !== true ? 'STOPPED' : cycle.overdue ? 'OVERDUE' : 'ALIVE'
   const processing = live?.failureStage === 'PERSISTENCE' ? 'PERSISTENCE_FAILED'
     : live?.cycleOutcome === 'ERROR' || observations.some(row => row.dataStatus === 'PROCESSING_ERROR') ? 'FAILED' : live ? 'OK' : 'UNKNOWN'
-  const healthy = worker === 'ALIVE' && live.runtimeCycleCompleted === true && processing === 'OK' &&
+  const healthy = worker === 'ALIVE' && live.runtimeCycleCompleted === true && baselinePendingSymbols?.length === 0 && processing === 'OK' &&
     (provider === 'AVAILABLE' || live.cycleOutcome === 'MARKET_CLOSED' || live.cycleOutcome === 'NO_SYMBOLS') && cycle.overdue === false
   const state = worker !== 'ALIVE' ? worker : processing === 'PERSISTENCE_FAILED' ? 'PERSISTENCE_FAILED'
     : processing === 'FAILED' ? 'PROCESSING_FAILED' : provider === 'FAILED' ? 'PROVIDER_FAILED'
-    : !healthy ? 'CHECKING' : live.cycleOutcome === 'MARKET_CLOSED' ? 'MARKET_CLOSED'
+    : live?.runtimeCycleCompleted !== true ? 'CHECKING' : baselinePendingSymbols === null ? 'RECOVERY_UNVERIFIED'
+    : baselinePendingSymbols.length ? 'BASELINE_PENDING' : !healthy ? 'CHECKING' : live.cycleOutcome === 'MARKET_CLOSED' ? 'MARKET_CLOSED'
     : live.cycleOutcome === 'NO_SYMBOLS' ? 'NO_SYMBOLS' : live.cycleOutcome === 'NO_NEW_DATA' ? 'WAITING' : 'HEALTHY'
   const labels = {
     UNAVAILABLE: 'Observer worker unavailable', UNVERIFIED: 'Observer health cannot be verified for this journal',
     STOPPING: 'Observer shutting down', STOPPED: 'Observer scheduler stopped', STARTING: 'Observer not ready; startup pending or failed',
     OVERDUE: 'Observer stale / overdue', PERSISTENCE_FAILED: 'Observer persistence failed or unconfirmed',
     PROCESSING_FAILED: 'Observer processing failed', PROVIDER_FAILED: 'Latest provider cycle failed', CHECKING: 'Observer health not yet confirmed',
+    BASELINE_PENDING: 'Observer alive · symbol baseline pending', RECOVERY_UNVERIFIED: 'Observer recovery status unavailable',
     MARKET_CLOSED: 'Observer alive · outside regular session', NO_SYMBOLS: 'Observer alive · no symbols to manage',
     WAITING: 'Observer healthy · waiting for next completed decision bar', HEALTHY: 'Paper Observer healthy',
   }
   return {
     state, label: labels[state], healthy, worker, provider, processing,
     checkedAt: now.toISOString(), deadlineAt: cycle?.deadlineAt ?? null,
+    runtimeStartedAt: live?.runtimeStartedAt ?? null, cycleOutcome: live?.cycleOutcome ?? null, baselinePendingSymbols,
     pollIntervalMs: live?.config?.pollIntervalMs ?? null,
     journal: journal ? 'AVAILABLE' : 'UNAVAILABLE', journalReadAt: journal?.refreshedAt ?? null,
     persistedCycleHealth: paperObserverCycleHealth(journal?.observer, now),

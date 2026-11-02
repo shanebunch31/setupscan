@@ -6,7 +6,7 @@ import { paperOperationalStatus, paperStatusForSnapshot } from '../src/paper/pap
 
 const now = new Date('2026-10-29T16:30:00Z')
 const worker = overrides => ({ healthVersion: 1, storageIdentity: paperStorageIdentity({}), schedulerRunning: true,
-  runtimeCycleCompleted: true, status: 'RUNNING', cycleOutcome: 'NO_NEW_DATA', cycleActive: false,
+  runtimeCycleCompleted: true, baselinePendingSymbols: [], status: 'RUNNING', cycleOutcome: 'NO_NEW_DATA', cycleActive: false,
   lastCycleCompletedAt: '2026-10-29T16:29:30Z', nextCycleOverdueAt: '2026-10-29T16:40:00Z',
   config: { pollIntervalMs: 60000 }, symbolResults: { XYZ: { dataStatus: 'NO_NEW_DATA' } }, ...overrides })
 const probe = overrides => ({ available: true, verified: true, observer: worker(overrides) })
@@ -37,6 +37,30 @@ test('startup cannot inherit healthy from a prior runtime snapshot', () => {
   const status = projectPaperOperationalStatus(journal, probe({ runtimeCycleCompleted: false }), now)
   assert.equal(status.state, 'CHECKING'); assert.equal(status.healthy, false); assert.equal(status.lastCycleCompletedAt, null)
   assert.equal(projectPaperOperationalStatus(journal, probe({ failureStage: 'STARTUP', schedulerRunning: false }), now).state, 'STARTING')
+})
+
+test('pending or unavailable recovered baselines prevent healthy status without hiding liveness or session outcome', () => {
+  for (const cycleOutcome of ['MARKET_CLOSED', 'NO_NEW_DATA']) {
+    const pending = ['XYZ']
+    const result = projectPaperOperationalStatus(journal, probe({ cycleOutcome, baselinePendingSymbols: pending, runtimeStartedAt: now.toISOString() }), now)
+    assert.equal(result.healthy, false)
+    assert.equal(result.worker, 'ALIVE')
+    assert.equal(result.state, 'BASELINE_PENDING')
+    assert.equal(result.cycleOutcome, cycleOutcome)
+    assert.equal(result.runtimeStartedAt, now.toISOString())
+    assert.deepEqual(result.baselinePendingSymbols, ['XYZ'])
+    result.baselinePendingSymbols.push('not-persisted')
+    assert.deepEqual(pending, ['XYZ'])
+  }
+  for (const baselinePendingSymbols of [undefined, null, 'unknown']) {
+    const unknown = projectPaperOperationalStatus(journal, probe({ baselinePendingSymbols }), now)
+    assert.equal(unknown.state, 'RECOVERY_UNVERIFIED')
+    assert.equal(unknown.healthy, false)
+    assert.equal(unknown.baselinePendingSymbols, null)
+  }
+  const invalidRecovery = projectPaperOperationalStatus(journal, probe({ symbolResults: { XYZ: { dataStatus: 'PROCESSING_ERROR', errorCode: 'PAPER_TRADE_RECOVERY_INVALID' } } }), now)
+  assert.equal(invalidRecovery.state, 'PROCESSING_FAILED')
+  assert.equal(invalidRecovery.healthy, false)
 })
 test('provider, processing and persistence failures keep worker liveness distinct', () => {
   for (const [overrides, state] of [
