@@ -5688,3 +5688,108 @@ tbody tr.selected-row td:first-child {
     text-align: left;
   }
 }
+
+/* =========================================================
+   QUICK BACKTEST — CONTINUE RESEARCH
+   ========================================================= */
+
+.quick-backtest-next-steps {
+  display: grid;
+  grid-template-columns: minmax(220px, .75fr) minmax(0, 1.5fr);
+  gap: 24px;
+  max-width: 1440px;
+  margin: 18px auto;
+  padding: 20px 24px;
+  box-sizing: border-box;
+  border: 1px solid var(--terminal-border);
+  border-radius: var(--radius-card);
+  background: var(--terminal-panel);
+}
+
+.quick-backtest-next-copy .eyebrow {
+  margin-bottom: 8px;
+}
+
+.quick-backtest-next-copy h3 {
+  margin: 0;
+  color: var(--terminal-text);
+  font-size: 17px;
+}
+
+.quick-backtest-next-copy > p:last-child {
+  max-width: 430px;
+  margin: 8px 0 0;
+  color: var(--terminal-muted);
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.quick-backtest-next-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.quick-backtest-next-card {
+  --next-accent: var(--terminal-blue);
+
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 15px 16px;
+  text-align: left;
+  border: 1px solid var(--terminal-border);
+  border-left: 3px solid var(--next-accent);
+  border-radius: var(--radius-card);
+  background: var(--terminal-panel-2);
+}
+
+.quick-backtest-next-card.is-resilience {
+  --next-accent: #cf73ff;
+}
+
+.quick-backtest-next-card.is-signal-quality {
+  --next-accent: #28c7ff;
+}
+
+.quick-backtest-next-card:hover {
+  border-color: var(--next-accent);
+  background: color-mix(
+    in srgb,
+    var(--next-accent) 7%,
+    var(--terminal-panel-2)
+  );
+}
+
+.quick-backtest-next-card > span {
+  color: var(--terminal-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.quick-backtest-next-card small {
+  margin-top: 7px;
+  color: var(--terminal-muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.quick-backtest-next-card strong {
+  margin-top: 12px;
+  color: var(--next-accent);
+  font-size: 10px;
+}
+
+@media (max-width: 750px) {
+  .quick-backtest-next-steps,
+  .quick-backtest-next-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-backtest-next-steps {
+    margin-left: 15px;
+    margin-right: 15px;
+    padding: 16px;
+  }
+}

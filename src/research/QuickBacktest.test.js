@@ -67,8 +67,8 @@ test('advanced navigation buttons open the existing Labs experiments', () => {
   const calls = []
   const browser = { history: { pushState: (state, _, route) => calls.push({ state, route }) } }
   const tree = QuickBacktest({ ...props, onOpenLab: (tab) => navigateAppRoute('research', 'labs', tab, browser) })
-  for (const title of ['Strategy Resilience', 'Signal Quality']) {
-    const button = find(tree, (node) => node.type === 'button' && node.props.children === title)
+  for (const title of ['Strategy Resilience', 'Signal Quality / Expected Value']) {
+    const button = find(tree, (node) => node.type === 'button' && find(node, child => child.type === 'span' && child.props.children === title))
     assert.ok(button)
     button.props.onClick()
   }

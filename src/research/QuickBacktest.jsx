@@ -10,6 +10,16 @@ const BACKTEST_GLOSSARY_DEFINITIONS = [
 ]
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
 const formatR = (value) => `${value === Infinity ? '∞' : value.toFixed(2)}R`
+const formatDurationMinutes = (minutes) => {
+const totalMinutes = Math.round(Number(minutes) || 0)
+const hours = Math.floor(totalMinutes / 60)
+const remainingMinutes = totalMinutes % 60
+
+  if (hours === 0) return `${remainingMinutes}m`
+  if (remainingMinutes === 0) return `${hours}h`
+
+  return `${hours}h ${remainingMinutes}m`
+}
 const formatDate = (value) =>
   value ? new Date(value).toLocaleDateString('en-US', { timeZone: 'UTC' }) : '—'
 
@@ -668,14 +678,48 @@ export function QuickBacktest({
           : 'Historical results describe this sample; they do not predict future performance.'}
       </p>
 
+      <div className="sample-grid">
+  <div>
+    <span>In-sample · Average R per trade</span>
+    <strong
+      className={
+        backtest.inSampleMetrics.averageR > 0
+          ? 'positive'
+          : backtest.inSampleMetrics.averageR < 0
+            ? 'negative'
+            : ''
+      }
+    >
+      {backtest.inSampleMetrics.numberOfTrades} trades ·{' '}
+      {formatR(backtest.inSampleMetrics.averageR)}
+    </strong>
+  </div>
+
+  <div>
+    <span>Out-of-sample · Average R per trade</span>
+    <strong
+      className={
+        backtest.outOfSampleMetrics.averageR > 0
+          ? 'positive'
+          : backtest.outOfSampleMetrics.averageR < 0
+            ? 'negative'
+            : ''
+      }
+    >
+      {backtest.outOfSampleMetrics.numberOfTrades} trades ·{' '}
+      {formatR(backtest.outOfSampleMetrics.averageR)}
+    </strong>
+  </div>
+</div>
+
       <div className="quick-backtest-summary-grid">
         <article className="quick-backtest-summary-card">
-          <span>Win Rate</span>
-          <strong>{formatPercent(backtest.metrics.winRate)}</strong>
-          <small>
-            {backtest.metrics.winningTrades} winning trades
-          </small>
-        </article>
+  <span>Win Rate</span>
+  <strong>{formatPercent(backtest.metrics.winRate)}</strong>
+  <small>
+    {backtest.metrics.winningTrades} winning trades
+  </small>
+</article>
 
         <article className="quick-backtest-summary-card">
           <span>Expectancy</span>
@@ -718,12 +762,12 @@ export function QuickBacktest({
         </article>
 
         <article className="quick-backtest-summary-card">
-          <span>Avg Hold</span>
-          <strong>
-            {backtest.metrics.averageHoldingTime.toFixed(0)}m
-          </strong>
-          <small>Average simulated trade duration</small>
-        </article>
+  <span>Avg Hold</span>
+  <strong>
+    {formatDurationMinutes(backtest.metrics.averageHoldingTime)}
+  </strong>
+  <small>Average simulated trade duration</small>
+</article>
 
         <article className="quick-backtest-summary-card">
           <span>Total Trades</span>
@@ -744,39 +788,7 @@ export function QuickBacktest({
   <MonthlyRChart trades={backtest.trades} />
 </div>
 
-      <div className="sample-grid">
-  <div>
-    <span>In-sample</span>
-    <strong
-      className={
-        backtest.inSampleMetrics.averageR > 0
-          ? 'positive'
-          : backtest.inSampleMetrics.averageR < 0
-            ? 'negative'
-            : ''
-      }
-    >
-      {backtest.inSampleMetrics.numberOfTrades} trades ·{' '}
-      {formatR(backtest.inSampleMetrics.averageR)}
-    </strong>
-  </div>
 
-  <div>
-    <span>Out-of-sample</span>
-    <strong
-      className={
-        backtest.outOfSampleMetrics.averageR > 0
-          ? 'positive'
-          : backtest.outOfSampleMetrics.averageR < 0
-            ? 'negative'
-            : ''
-      }
-    >
-      {backtest.outOfSampleMetrics.numberOfTrades} trades ·{' '}
-      {formatR(backtest.outOfSampleMetrics.averageR)}
-    </strong>
-  </div>
-</div>
             <details className="backtest-recent-details">
               <summary>Recent Backtest Trades</summary>
               <p className="backtest-detail-intro">
@@ -820,22 +832,52 @@ export function QuickBacktest({
           </section>
         </section>
       </section>
-      <nav className="research-subnav" aria-label="Advanced backtest research">
-        <button
-          type="button"
-          className="research-tab"
-          onClick={() => onOpenLab('robustness')}
-        >
-          Strategy Resilience
-        </button>
-        <button
-          type="button"
-          className="research-tab"
-          onClick={() => onOpenLab('signal-quality')}
-        >
-          Signal Quality
-        </button>
-      </nav>
+      <section
+  className="quick-backtest-next-steps"
+  aria-labelledby="quick-backtest-next-heading"
+>
+  <div className="quick-backtest-next-copy">
+    <p className="eyebrow">CONTINUE RESEARCH</p>
+
+    <h3 id="quick-backtest-next-heading">
+      Test this result further
+    </h3>
+
+    <p>
+      A Quick Backtest is a first historical check. Use deeper Labs
+      to test whether the result holds up and whether stronger signals
+      actually correspond with better outcomes.
+    </p>
+  </div>
+
+  <div className="quick-backtest-next-actions">
+    <button
+      type="button"
+      className="quick-backtest-next-card is-resilience"
+      onClick={() => onOpenLab('robustness')}
+    >
+      <span>Strategy Resilience</span>
+      <small>
+        Stress-test the result across thresholds, periods, symbols,
+        and changing conditions.
+      </small>
+      <strong>Open Lab →</strong>
+    </button>
+
+    <button
+      type="button"
+      className="quick-backtest-next-card is-signal-quality"
+      onClick={() => onOpenLab('signal-quality')}
+    >
+      <span>Signal Quality / Expected Value</span>
+      <small>
+        Check whether stronger SetupScan signals correspond with
+        better historical outcomes.
+      </small>
+      <strong>Open Lab →</strong>
+    </button>
+  </div>
+</section>
       <BacktestDiagnostics
         backtest={backtest}
         data={historicalData}
