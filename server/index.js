@@ -6,6 +6,7 @@ import {
 } from './alpacaTrading.js'
 import { handlePaperAccountRequest } from './paperAccountRoute.js'
 import { createPaperDashboardRoute } from './paperDashboardRoute.js'
+import { createPaperObserverStatusReader } from './paperObserverStatus.js'
 import { createPaperUniverseRoute } from './paperUniverseRoute.js'
 import { handlePaperOrderRequest } from './paperOrderRoute.js'
 import { createPaperService } from './paperService.js'
@@ -30,6 +31,7 @@ const shadowRoute = createShadowForwardRoute({
 const paperService = createPaperService()
 const handlePaperDashboardRequest = createPaperDashboardRoute({
   paperService,
+  readWorkerStatus: createPaperObserverStatusReader(),
 })
 
 const handlePaperUniverseRequest =

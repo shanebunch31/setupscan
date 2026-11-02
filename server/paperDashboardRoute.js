@@ -1,7 +1,9 @@
+import { projectPaperOperationalStatus } from './paperObserverStatus.js'
 const DEFAULT_REFRESH_INTERVAL_MS = 60_000
 
 export function createPaperDashboardRoute({
   paperService,
+  readWorkerStatus = null,
   now = () => Date.now(),
   refreshIntervalMs = DEFAULT_REFRESH_INTERVAL_MS,
 }) {
@@ -35,13 +37,18 @@ export function createPaperDashboardRoute({
         })
     }
 
+    // Probe on every request, independently of the read-only journal cache.
+    const workerPromise = readWorkerStatus ? Promise.resolve().then(readWorkerStatus).catch(() => ({ available: false })) : null
     try {
-      sendJson(response, 200, await (refreshInFlight ?? snapshot))
+      const journal = await (refreshInFlight ?? snapshot)
+      const operational = workerPromise ? projectPaperOperationalStatus(journal, await workerPromise, new Date(now())) : null
+      response.setHeader?.('Cache-Control', 'no-store')
+      sendJson(response, 200, operational ? { ...journal, operational, refreshIntervalMs } : journal)
     } catch (error) {
       sendJson(
         response,
         error.code === 'MISSING_ALPACA_ENV' ? 503 : 502,
-        { error: error.message },
+        { error: 'Paper journal unavailable.', ...(workerPromise ? { operational: projectPaperOperationalStatus(null, await workerPromise, new Date(now())), refreshIntervalMs } : {}) },
       )
     }
   }

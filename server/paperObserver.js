@@ -1,5 +1,6 @@
 import dotenv from 'dotenv'
 import http from 'node:http'
+import { paperStorageIdentity } from './paperObserverStatus.js'
 import { createPaperObserver } from './paperObserverCore.js'
 import { describeDatabaseUrl } from './postgresPaperStore.js'
 import { createPaperObserverShutdown, resolvePaperShutdownTimeout } from './paperObserverShutdown.js'
@@ -52,7 +53,7 @@ async function initializeObserver() {
 function observerStatus() {
   if (observer) return observer.status()
   return {
-    status: 'ERROR',
+    status: 'ERROR', healthVersion: 1, schedulerRunning: false, storageIdentity: paperStorageIdentity(), failureStage: 'STARTUP',
     shuttingDown: lifecycle.isStopping(),
     currentError: startupError ?? 'Paper observer has not started.',
     consecutiveFailures: startupFailures,

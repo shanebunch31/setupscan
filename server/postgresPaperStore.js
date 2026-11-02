@@ -130,7 +130,9 @@ export function createPostgresPaperStore({ connectionString = process.env.DATABA
       if (begun && !connectionError && !timeoutError) {
         try { await query('ROLLBACK') } catch (rollbackError) { discardError = rollbackError }
       }
-      throw connectionError ?? timeoutError ?? error
+      const failure = connectionError ?? timeoutError ?? error
+      if (committing) failure.paperCommitUncertain = true
+      throw failure
     } finally {
       clearTimeout(timer)
       // Keep our listener until pg has installed its idle listener or discarded

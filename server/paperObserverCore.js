@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { paperStorageIdentity } from './paperObserverStatus.js'
 import { fetchAlpacaHistoricalBars } from './alpacaProxy.js'
 import { createPaperTradingEngine } from './paperTrading.js'
 import { isRegularSession, nextPollTime } from './marketSession.js'
@@ -84,8 +85,10 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
   const initialState = await selectedStore.load()
   const engine = createPaperTradingEngine({ state: initialState, saveState: () => {}, timeframe: config.timeframe })
   const state = { status: 'IDLE', lastSuccessfulUpdate: null, lastProcessedCandle: null, processedCandles: {}, dataQualityBySymbol: {}, currentError: null, consecutiveFailures: 0, nextExpectedProcessing: null, independent: true, activeSymbols: [], baselinePendingSymbols: [], ...initialState.observer }
+  const runtimeStartedAt = now().toISOString()
   const candleHistoryBySymbol = {}
   let running = false
+  let runtimeCycleCompleted = false
   let timer
   let activeCycle = null
   let stopping = false
@@ -124,6 +127,10 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
     let savingCycle = false
     const previousFailures = state.consecutiveFailures
     const previousSuccess = state.lastSuccessfulUpdate
+    const previousDataSuccess = state.lastSuccessfulMarketDataCycleAt
+    state.failureStage = null
+    state.failureCode = null
+    state.errorRecordingFailureCode = null
     const previousResults = state.symbolResults ?? {}
     const previousSummary = JSON.stringify(state.cycleSummary)
     state.lastPollAt = current.toISOString()
@@ -156,7 +163,7 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
         state.consecutiveFailures = 0
         state.currentError = null
         state.nextExpectedProcessing = nextPollTime(current, config.pollIntervalMs).toISOString()
-        if (shouldPersist) await persist()
+        if (shouldPersist) { savingCycle = true; await persist(); savingCycle = false }
         return { ...state, skipped: 'MARKET_CLOSED' }
       }
       for (const symbol of symbolsToManage) {
@@ -229,6 +236,14 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
             signalDetectedAt: () => now().toISOString(),
             allowNewEntries: activeSet.has(symbol) && !needsBaseline,
           })
+          const history = state.decisionHistoryBySymbol ??= {}
+          history[symbol] = [...(history[symbol] ?? []), {
+            ...engine.getLastDecision(symbol), observedAt: now().toISOString(),
+            enabledForEntries: activeSet.has(symbol), baseline: needsBaseline,
+            previousCheckpoint: previousTimestamp ?? null, adjacent,
+            entryGate: !activeSet.has(symbol) ? 'REMOVED_SYMBOL' : needsBaseline ? 'BASELINE_ONLY' : !adjacent ? 'NO_ADJACENT_CHECKPOINT' : 'ELIGIBLE_PREVIOUS_BAR',
+            timeframe: config.timeframe, indicatorSource: 'ENRICHED_HOURLY_HISTORY',
+          }].slice(-20)
           baselinePending.delete(symbol)
           state.baselinePendingSymbols = [...baselinePending].sort()
           state.processedCandles[symbol] = latest.timestamp
@@ -259,6 +274,7 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
       const shouldPersist = successfulPollChanged || universeChanged || processed > 0 || state.status !== nextStatus || state.currentError !== null || state.consecutiveFailures > 0 || previousSummary !== JSON.stringify(state.cycleSummary)
       state.status = nextStatus
       if (freshSymbols > 0) state.lastSuccessfulUpdate = current.toISOString()
+      if (!failed.length && symbolsToManage.length) state.lastSuccessfulMarketDataCycleAt = current.toISOString()
       state.currentError = failed.length ? failed.map(([symbol, result]) => `${symbol}: ${result.error ?? result.dataStatus}`).join('; ') : null
       state.consecutiveFailures = failed.length ? previousFailures + 1 : 0
       state.nextExpectedProcessing = nextPollTime(current, failed.length ? retryDelay(config, state.consecutiveFailures) : config.pollIntervalMs).toISOString()
@@ -266,6 +282,10 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
       if (failed.length) { try { onError(Object.assign(new Error(state.currentError), { code: failed.length === 1 ? failed[0][1].errorCode ?? 'PAPER_SYMBOL_DATA_FAILURE' : 'PAPER_SYMBOL_DATA_FAILURE' })) } catch {} }
       return { ...state, processed, ...(failed.length ? { error: state.currentError } : {}) }
     } catch (error) {
+      state.failureStage = savingCycle ? 'PERSISTENCE' : 'UNIVERSE_OR_CYCLE'
+      state.failureCode = error.paperCommitUncertain ? 'PAPER_COMMIT_UNCERTAIN' : error.code ?? 'PAPER_CYCLE_FAILED'
+      if (error.paperCommitUncertain) state.lastUncertainCommitAt = now().toISOString()
+      state.lastSuccessfulMarketDataCycleAt = previousDataSuccess
       if (savingCycle && ['PARTIAL', 'DATA_UNAVAILABLE'].includes(state.cycleOutcome) && state.currentError) {
         error = new AggregateError([error], `${state.currentError}; persistence failed: ${error.message}`)
       }
@@ -280,6 +300,11 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
         await persist()
       } catch (persistError) {
         persistenceError = persistError
+        state.errorRecordingFailureCode = persistError.paperCommitUncertain ? 'PAPER_COMMIT_UNCERTAIN' : persistError.code ?? 'PAPER_SAVE_FAILED'
+        if (persistError.paperCommitUncertain) state.lastUncertainCommitAt = now().toISOString()
+        // Retain the primary uncertain-COMMIT evidence if recording it encounters CAS.
+        if (state.failureStage !== 'PERSISTENCE') state.failureCode = state.errorRecordingFailureCode
+        state.failureStage = 'PERSISTENCE'
         state.currentError = `${error.message}; recording the error also failed: ${persistError.message}`
       }
       try { onError(persistenceError ? new AggregateError([error, persistenceError], state.currentError) : error) } catch {}
@@ -296,6 +321,7 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
       new Set(engine.getState().trades.filter((trade) => trade.status === 'open').map((trade) => trade.symbol)).size))
     state.cycleDeadlineAt = new Date(Date.parse(state.cycleStartedAt) + state.cycleBudgetMs).toISOString()
     const finish = () => {
+      runtimeCycleCompleted = true
       state.cycleActive = false
       state.lastCycleCompletedAt = now().toISOString()
       const delay = state.status === 'ERROR' ? retryDelay(config, state.consecutiveFailures) : config.pollIntervalMs
@@ -340,7 +366,7 @@ export async function createPaperObserver({ store, symbolUniverse, fetchBars = f
   }
   function status() {
     const cycleHealth = paperObserverCycleHealth({ ...state, cycleActive: activeCycle !== null }, now(), true)
-    return { ...state, shuttingDown: stopping, cycleActive: activeCycle !== null, cycleHealth,
+    return { ...state, healthVersion: 1, schedulerRunning: running, runtimeCycleCompleted, runtimeStartedAt, storageIdentity: paperStorageIdentity(environment), shuttingDown: stopping, cycleActive: activeCycle !== null, cycleHealth,
       ...(cycleHealth.overdue ? { status: 'ERROR', currentError: 'Paper observer cycle/progress deadline exceeded.', healthErrorCode: 'PAPER_CYCLE_OVERDUE' } : {}),
       config: { ...config, symbols: state.activeSymbols }, mode: 'AUTOMATED PAPER OBSERVER — NO REAL ORDERS', storage: environment.DATABASE_URL ? 'POSTGRES' : 'LOCAL JSON DEVELOPMENT FALLBACK' }
   }

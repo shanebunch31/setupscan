@@ -996,3 +996,54 @@ test('removal at a cycle boundary cancels a pending observer entry before re-add
   assert.equal(observer.getJournal().trades.length, 0)
   assert.deepEqual(observer.status().baselinePendingSymbols, [])
 })
+
+test('observer persists bounded arbitrary-symbol decision evidence with baseline and checkpoint gates', async () => {
+  const saved = store()
+  let current = new Date('2026-09-22T16:15:00Z')
+  let timestamp = '2026-09-22T15:00:00Z'
+  const observer = await createPaperObserver({ store: saved, environment: {}, symbolUniverse: { getSymbols: async () => ['XYZ'] },
+    now: () => current, fetchBars: async () => ({ candles: [freshnessBar(timestamp)] }), onError: () => {} })
+  await observer.processOnce()
+  let evidence = saved.get().observer.decisionHistoryBySymbol.XYZ
+  assert.equal(evidence[0].entryGate, 'BASELINE_ONLY')
+  assert.equal(evidence[0].latestEvaluation.qualifiedSetup, false)
+  assert.deepEqual(saved.get().trades, [])
+  current = new Date('2026-09-22T17:15:00Z'); timestamp = '2026-09-22T16:00:00Z'
+  await observer.processOnce()
+  evidence = saved.get().observer.decisionHistoryBySymbol.XYZ
+  assert.equal(evidence[1].entryGate, 'ELIGIBLE_PREVIOUS_BAR')
+  assert.equal(evidence[1].previousCheckpoint, '2026-09-22T15:00:00Z')
+  assert.equal(evidence[1].completedDecisionBar, timestamp)
+  assert.equal(saved.get().observer.lastSuccessfulMarketDataCycleAt, current.toISOString())
+  assert.equal(observer.status().runtimeCycleCompleted, true)
+  assert.equal(observer.status().schedulerRunning, false)
+  assert.equal(observer.status().healthVersion, 1)
+  // Existing normal persistence bounds history without a separate write or schema.
+  saved.get().observer.decisionHistoryBySymbol.XYZ = Array.from({ length: 25 }, () => evidence[0])
+  current = new Date('2026-09-22T18:15:00Z'); timestamp = '2026-09-22T17:00:00Z'
+  await observer.processOnce()
+  assert.equal(saved.get().observer.decisionHistoryBySymbol.XYZ.length, 20)
+})
+test('persistence conflict and uncertain commit are explicit and do not invent successful data cycles', async () => {
+  for (const failure of [Object.assign(new Error('conflict'), { code: 'PAPER_STATE_CONFLICT' }), Object.assign(new Error('lost reply'), { paperCommitUncertain: true })]) {
+    const observer = await createPaperObserver({ store: { load: () => ({ trades: [] }), save: async () => { throw failure } }, environment: {},
+      symbolUniverse: { getSymbols: async () => ['XYZ'] }, now: () => new Date('2026-09-22T16:15:00Z'), fetchBars: async () => ({ candles: [freshnessBar()] }), onError: () => {} })
+    await observer.processOnce()
+    assert.equal(observer.status().failureStage, 'PERSISTENCE')
+    assert.equal(observer.status().failureCode, failure.code ?? 'PAPER_COMMIT_UNCERTAIN')
+    assert.equal(observer.status().lastSuccessfulMarketDataCycleAt, undefined)
+  }
+})
+
+test('a failed error-recording CAS does not erase the original uncertain commit evidence', async () => {
+  let saves = 0
+  const observer = await createPaperObserver({ environment: {},
+    store: { load: () => ({ trades: [] }), save: async () => { throw ++saves === 1 ? Object.assign(new Error('lost commit reply'), { paperCommitUncertain: true }) : Object.assign(new Error('changed state'), { code: 'PAPER_STATE_CONFLICT' }) } },
+    symbolUniverse: { getSymbols: async () => ['XYZ'] }, now: () => new Date('2026-09-22T16:15:00Z'),
+    fetchBars: async () => ({ candles: [freshnessBar()] }), onError: () => {} })
+  await observer.processOnce()
+  assert.equal(observer.status().failureCode, 'PAPER_COMMIT_UNCERTAIN')
+  assert.equal(observer.status().errorRecordingFailureCode, 'PAPER_STATE_CONFLICT')
+  await observer.processOnce()
+  assert.equal(observer.status().lastUncertainCommitAt, '2026-09-22T16:15:00.000Z')
+})

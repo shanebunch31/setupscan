@@ -7,7 +7,7 @@ import {
   ShieldCheck,
   Target,
 } from "lucide-react";
-import { apiUrl } from "../config/apiBase.js";
+import { usePaperSnapshot } from "../paper/usePaperSnapshot.js";
 import { MarketStatus } from "../MarketStatus.js";
 import { formatMarketTime } from "../marketTime.js";
 import { listResearchRuns } from "../research/researchRunHistory.js";
@@ -32,9 +32,7 @@ export function MorningBrief({
   const [researchLoading, setResearchLoading] = useState(true);
   const [researchError, setResearchError] = useState(null);
 
-  const [paperSnapshot, setPaperSnapshot] = useState(null);
-  const [paperLoading, setPaperLoading] = useState(true);
-  const [paperError, setPaperError] = useState(null);
+  const { snapshot: paperSnapshot, operational: paperOperational, loading: paperLoading, error: paperError } = usePaperSnapshot();
 
   const [previousVisit] = useState(() => {
     if (typeof window === "undefined") {
@@ -52,7 +50,6 @@ export function MorningBrief({
     let active = true;
 
     setResearchLoading(true);
-    setPaperLoading(true);
 
     listResearchRuns({
       limit: 6,
@@ -72,33 +69,6 @@ export function MorningBrief({
       .finally(() => {
         if (active) {
           setResearchLoading(false);
-        }
-      });
-
-    fetch(apiUrl("/api/paper-trading"))
-      .then((response) =>
-        response.json().then((data) => ({
-          response,
-          data,
-        })),
-      )
-      .then(({ response, data }) => {
-        if (!response.ok) {
-          throw new Error(data?.error ?? "Paper journal unavailable");
-        }
-
-        if (!active) return;
-
-        setPaperSnapshot(data);
-        setPaperError(null);
-      })
-      .catch((error) => {
-        if (!active) return;
-        setPaperError(error.message);
-      })
-      .finally(() => {
-        if (active) {
-          setPaperLoading(false);
         }
       });
 
@@ -202,6 +172,10 @@ export function MorningBrief({
     attentionItems.push(`Paper journal: ${paperError}`);
   }
 
+  if (!paperLoading && !paperOperational.healthy) {
+    attentionItems.push(paperOperational.label);
+  }
+
   if (researchError) {
     attentionItems.push(`Research history: ${researchError}`);
   }
@@ -218,6 +192,7 @@ export function MorningBrief({
 
   return (
     <section className="morning-brief">
+      <p className="paper-disclaimer">{paperOperational.label} · Paper journal: {paperError ? "unavailable" : paperSnapshot ? "available" : "checking"}</p>
       <header className="morning-brief-header">
         <div>
           <p className="eyebrow">SETUPSCAN DAILY OPERATIONS</p>

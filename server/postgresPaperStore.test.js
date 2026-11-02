@@ -469,7 +469,11 @@ test('an uncertain commit does not rebase the writer or let it overwrite persist
   const state = await store.load()
   state.trades[0].holdingBars = 1
   pool.loseCommitReply = true
-  await assert.rejects(store.save(state), /commit acknowledgement lost/)
+  await assert.rejects(store.save(state), error => {
+    assert.match(error.message, /commit acknowledgement lost/)
+    assert.equal(error.paperCommitUncertain, true)
+    return true
+  })
   const committed = structuredClone(pool.persisted)
   await assert.rejects(store.save(openSnapshot), { code: 'PAPER_STATE_CONFLICT' })
   assert.deepEqual(pool.persisted, committed)

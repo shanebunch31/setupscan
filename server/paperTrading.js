@@ -294,6 +294,7 @@ export function createPaperTradingEngine({
   // Pending entries are deliberately in-memory only. A restart drops an entry
   // opportunity rather than replaying a price from before the new process saw it.
   const pendingEntries = new Map()
+  const lastDecisions = new Map()
 
   function retainPendingEntrySymbols(symbols) {
     const enabled = new Set(symbols)
@@ -312,29 +313,44 @@ export function createPaperTradingEngine({
       }
     }
     // Paper trading currently supports long, qualified setups only.
-    const signals = scanSetups(sortedCandles).filter((signal) => signal.qualifiedSetup === true)
+    const evaluated = scanSetups(sortedCandles)
+    const signals = evaluated.filter((signal) => signal.qualifiedSetup === true)
     // Callers may provide a clock so detection is timestamped after the scanner has
     // evaluated the fetched bars, rather than before that calculation begins.
     const detectionTimeValue = typeof signalDetectedAt === 'function' ? signalDetectedAt() : signalDetectedAt
+    const beforeIds = new Set(journal.trades.map(trade => trade.id))
+    const pendingBefore = (pendingEntries.get(symbol) ?? []).map(item => ({ ...item }))
+    const pendingOutcomes = []
     const existing = new Set(journal.trades.map((trade) => trade.id))
     const latestIndex = sortedCandles.length - 1
     const candidates = allowNewEntries ? (pendingEntries.get(symbol) ?? []) : []
     const remaining = []
     for (const pending of candidates) {
       const detectionIndex = sortedCandles.findIndex((candle) => candle.timestamp === pending.detectionCandleTimestamp)
-      if (detectionIndex < 0 || detectionIndex < latestIndex - 1) continue
+      if (detectionIndex < 0 || detectionIndex < latestIndex - 1) {
+        pendingOutcomes.push({ signalTimestamp: pending.signalTimestamp, outcome: 'MISSED_ENTRY_WINDOW' })
+        continue
+      }
       if (detectionIndex === latestIndex) {
+        pendingOutcomes.push({ signalTimestamp: pending.signalTimestamp, outcome: 'WAITING_FOR_ENTRY_BAR' })
         remaining.push(pending)
         continue
       }
       const entryCandle = sortedCandles[detectionIndex + 1]
       const detectedAtMs = Date.parse(pending.signalDetectedAt)
       const entryEndMs = historicalCandleEndTime(entryCandle.timestamp, timeframe)
-      if (detectionIndex !== latestIndex - 1 || historicalCandleEndTime(sortedCandles[detectionIndex].timestamp, timeframe) !== Date.parse(entryCandle.timestamp) || entryEndMs === null || entryEndMs <= detectedAtMs) continue
+      if (detectionIndex !== latestIndex - 1 || historicalCandleEndTime(sortedCandles[detectionIndex].timestamp, timeframe) !== Date.parse(entryCandle.timestamp) || entryEndMs === null || entryEndMs <= detectedAtMs) {
+        pendingOutcomes.push({ signalTimestamp: pending.signalTimestamp, outcome: 'NO_ADJACENT_POST_DETECTION_BAR', entryCandleTimestamp: entryCandle.timestamp })
+        continue
+      }
       const signal = signals.find((item) => item.timestamp === pending.signalTimestamp)
       const id = tradeKey(symbol, pending.signalTimestamp)
-      if (!signal || existing.has(id)) continue
+      if (!signal || existing.has(id)) {
+        pendingOutcomes.push({ signalTimestamp: pending.signalTimestamp, outcome: !signal ? 'NO_LONGER_QUALIFIED' : 'DUPLICATE_SIGNAL' })
+        continue
+      }
       const trade = createPaperTradeFromCandle(symbol, signal, entryCandle, pending.signalDetectedAt, timeframe)
+      pendingOutcomes.push({ signalTimestamp: pending.signalTimestamp, outcome: trade ? 'ENTRY_CREATED' : 'ENTRY_NOT_CREATED', entryCandleTimestamp: entryCandle.timestamp })
       if (trade) {
         journal.trades.push(trade)
         existing.add(id)
@@ -382,6 +398,22 @@ export function createPaperTradingEngine({
         timeframe,
       )
     })
+    // Diagnostic projection only: reuse the actual evaluation; never authorize an entry.
+    const describe = timestamp => {
+      const item = evaluated.find(row => row.timestamp === timestamp)
+      return item ? { timestamp: item.timestamp, score: item.score, qualifiedSetup: item.qualifiedSetup,
+        potentialSetup: item.potentialSetup, reasons: item.reasons,
+        inputs: Object.fromEntries(['price', 'vwap', 'ema9', 'ema21', 'rsi', 'relativeVolume', 'breakout', 'trend'].map(key => [key, item[key] ?? null])) } : null
+    }
+    lastDecisions.set(symbol, {
+      completedDecisionBar: sortedCandles.at(-1)?.timestamp ?? null,
+      latestEvaluation: describe(sortedCandles.at(-1)?.timestamp),
+      authorizedSignal: describe(newEntrySignalTimestamp), newEntrySignalTimestamp,
+      signalDetectedAt: Number.isFinite(detectedAt) ? new Date(detectedAt).toISOString() : null,
+      allowNewEntries, duplicateSignal: newEntrySignalTimestamp !== null && beforeIds.has(tradeKey(symbol, newEntrySignalTimestamp)),
+      pendingBefore, pendingOutcomes, pendingAfter: (pendingEntries.get(symbol) ?? []).map(item => ({ ...item })),
+      createdTradeIds: journal.trades.filter(trade => !beforeIds.has(trade.id)).map(trade => trade.id),
+    })
     saveState(journal)
     return journal
   }
@@ -395,7 +427,7 @@ export function createPaperTradingEngine({
     return { mode: 'LIVE PAPER MODE — NO REAL ORDERS', timeframe, account: { startingEquity: STARTING_EQUITY, riskPerTrade: RISK_DOLLARS }, bidAskAvailable: false, limitation: 'New entries use the close of the first adjacent completed OHLC bar whose interval ends after signal detection. This delayed historical approximation is not the exact first available quote or a guaranteed fill; bid/ask data is unavailable.', trades: journal.trades, metrics: calculatePaperMetrics(journal.trades), bySymbol }
   }
 
-  return { processCandles, retainPendingEntrySymbols, getJournal, getState: () => ({ trades: journal.trades.map((trade) => ({ ...trade })) }) }
+  return { processCandles, retainPendingEntrySymbols, getJournal, getLastDecision: symbol => structuredClone(lastDecisions.get(symbol) ?? null), getState: () => ({ trades: journal.trades.map((trade) => ({ ...trade })) }) }
 }
 
 export { calculatePaperMetrics, createPaperTrade, PAPER_ENTRY_PRICE_SOURCE, PAPER_FILL_MODEL_VERSION, STARTING_EQUITY, RISK_DOLLARS }
