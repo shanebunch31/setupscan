@@ -27,7 +27,6 @@ import {
 import { createScannerRange, fetchScannerSnapshot, isSuccessfulScannerRefresh, scannerDataQualityNotices } from './data/scannerSnapshot.js'
 import { scanSetups } from './logic/scanner.js'
 import { runSetupScanBacktest } from './backtest/strategy.js'
-import { getBacktestBreakdown } from './backtest/breakdown.js'
 import { StrategyRobustnessLab } from './backtest/RobustnessLab.jsx'
 import { RelativeValueResearchLab } from './backtest/RelativeValueResearchLab.jsx'
 import { SignalQualityResearchLab } from './backtest/SignalQualityResearchLab.jsx'
@@ -44,9 +43,12 @@ import { MorningBrief } from './home/MorningBrief.jsx'
 import { apiUrl } from './config/apiBase.js'
 import { createRefreshTimestamp, formatLastRefresh, formatMarketTime } from './marketTime.js'
 import { filterScannerResults, ScannerFiltersButton, ScannerThresholdFilter, SCANNER_TERM_EXPLANATIONS } from './scannerFilters.js'
-import { METRIC_DEFINITIONS, MetricsGlossary, TermHelp } from './backtest/MetricsGlossary.jsx'
-import { BACKTEST_EXTRA_DEFINITIONS, BACKTEST_LEARNING_INTRO } from './backtest/backtestLearning.js'
+import { MetricsGlossary, TermHelp } from './backtest/MetricsGlossary.jsx'
+import { QuickBacktest } from './research/QuickBacktest.jsx'
+import { ResearchLabsOverview } from './research/ResearchLabsOverview.jsx'
+import { readAppRoute, navigateAppRoute, subscribeAppRoute, researchLoadingMode } from './research/appRoutes.js'
 import {
+  getResearchRunSummary,
   listResearchRuns,
 } from './research/researchRunHistory.js'
 import { projectResearchComparisonRuns, ResearchWorkspace } from './research/ResearchWorkspace.js'
@@ -96,11 +98,13 @@ const navItems = [
   { id: 'home', label: 'Home' },
   { id: 'scan', label: 'Scan' },
   { id: 'paper', label: 'Paper Trading' },
-  { id: 'backtest', label: 'Backtest' },
   { id: 'research', label: 'Research' },
   { id: 'settings', label: 'Settings' },
 ]
 const researchTabs = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'quick-backtest', label: 'Quick Backtest' },
+  { id: 'strategy-discovery', label: 'Strategy Discovery' },
   { id: 'robustness', label: 'Strategy Resilience' },
   { id: 'relative-value', label: 'Relative Value' },
   { id: 'signal-quality', label: 'Signal Quality / Expected Value' },
@@ -109,7 +113,6 @@ const researchTabs = [
   { id: 'causal-regime', label: 'Causal Market-Regime Analysis' },
   { id: 'walk-forward-regime', label: 'Walk-Forward Regime Validation' },
   { id: 'volatility-aware-variants', label: 'Volatility-Aware Variants' },
-  { id: 'strategy-discovery', label: 'Strategy Discovery Lab' },
 ]
 const formatPrice = (value) => Number.isFinite(value) ? `$${value.toFixed(2)}` : '—'
 const formatPercent = (value) => `${(value * 100).toFixed(1)}%`
@@ -123,75 +126,6 @@ function scannerEmptyMessage(isLoading, evaluatedCount, unavailableCount, thresh
     return `No evaluated symbols meet this minimum score; ${unavailableCount} unavailable.`
   }
   return `No scanner results meet this minimum score of ${threshold}.`
-}
-const APP_ROUTES = {
-  home: '/home',
-  scan: '/scan',
-  paper: '/paper',
-  backtest: '/backtest',
-  research: '/research/workbench',
-  settings: '/settings',
-}
-
-const RESEARCH_ROUTES = {
-  workbench: '/research/workbench',
-  history: '/research/history',
-  shadow: '/research/shadow',
-  comparison: '/research/comparison',
-  labs: '/research/labs',
-}
-
-
-function readAppRoute() {
-  if (typeof window === 'undefined') {
-    return {
-      view: 'home',
-      researchWorkspaceView: 'workbench',
-    }
-  }
-
-  const path = window.location.pathname.replace(/\/+$/, '') || '/'
-
-  if (path === '/research' || path === '/research/workbench') {
-    return {
-      view: 'research',
-      researchWorkspaceView: 'workbench',
-    }
-  }
-
-  for (const [workspace, route] of Object.entries(RESEARCH_ROUTES)) {
-    if (path === route) {
-      return {
-        view: 'research',
-        researchWorkspaceView: workspace,
-      }
-    }
-  }
-
-  for (const [view, route] of Object.entries(APP_ROUTES)) {
-    if (path === route) {
-      return {
-        view,
-        researchWorkspaceView: 'workbench',
-      }
-    }
-  }
-
-  return {
-    view: 'scan',
-    researchWorkspaceView: 'workbench',
-  }
-}
-
-function navigateAppRoute(view, researchWorkspaceView = 'workbench') {
-  if (typeof window === 'undefined') return
-
-  const route =
-    view === 'research'
-      ? RESEARCH_ROUTES[researchWorkspaceView] ?? RESEARCH_ROUTES.workbench
-      : APP_ROUTES[view] ?? APP_ROUTES.home
-
-  window.history.pushState({}, '', route)
 }
 const formatDate = (value) =>
   value ? new Date(value).toLocaleDateString('en-US', { timeZone: 'UTC' }) : '—'
@@ -543,233 +477,6 @@ function CandlestickChart({ candles = [], range = '5D' }) {
     </div>
   )
 }
-const formatBreakdownR = (value) => `${value === Infinity ? '∞' : value.toFixed(2)}R`
-
-function BreakdownTable({ title, groups }) {
-  return (
-    <div className="breakdown-section">
-      <h3>{title}</h3>
-      <div className="breakdown-table-wrap">
-        <table className="breakdown-table">
-          <thead>
-            <tr>
-              <th>Group</th>
-              <th>Trades</th>
-              <th>Win rate</th>
-              <th>Profit factor</th>
-              <th>Expectancy</th>
-              <th>Average R</th>
-              <th>Max drawdown</th>
-            </tr>
-          </thead>
-          <tbody>
-            {groups.map(({ label, metrics }) => (
-              <tr key={label}>
-                <td>{label}</td>
-                <td>{metrics.tradeCount}</td>
-                <td>{formatPercent(metrics.winRate)}</td>
-                <td>{metrics.profitFactor === Infinity ? '∞' : metrics.profitFactor.toFixed(2)}</td>
-                <td>{formatBreakdownR(metrics.expectancy)}</td>
-                <td>{formatBreakdownR(metrics.averageR)}</td>
-                <td>{formatBreakdownR(metrics.maximumDrawdown)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-function BacktestBreakdown({ backtest, symbol }) {
-  const breakdown = useMemo(() => getBacktestBreakdown(backtest), [backtest])
-  const overall = [{ label: 'Overall', metrics: breakdown.overall }]
-  return (
-    <section className="backtest-breakdown panel">
-      <div className="panel-heading compact">
-        <div>
-        <p className="eyebrow">BACKTEST LAB · {symbol} · 1H</p>
-          <h2>Backtest breakdown</h2>
-        </div>
-        <span className="coming-soon">RESEARCH ONLY</span>
-      </div>
-      <div className="breakdown-overall">
-        <strong>Overall results</strong>
-        <span>
-          {breakdown.overall.tradeCount} trades · {formatPercent(breakdown.overall.winRate)} win
-          rate · {formatBreakdownR(breakdown.overall.averageR)} average R
-        </span>
-      </div>
-      <p className="backtest-learning-intro">{BACKTEST_LEARNING_INTRO}</p>
-      <BreakdownTable title="Overall comparison" groups={overall} />
-      <BreakdownTable title="Setup score" groups={breakdown.scoreBuckets} />
-      <BreakdownTable title="Setup type" groups={breakdown.setupTypes} />
-      <BreakdownTable
-        title="Direction · current strategy is long-only"
-        groups={breakdown.directions}
-      />
-      <BreakdownTable title="Sample partition" groups={breakdown.partitions} />
-      <p className="research-note">
-        Descriptive historical analysis of existing trades. Subgroups are not claims of a validated
-        edge.
-      </p>
-    </section>
-  )
-}
-
-const comparisonThresholds = [75, 80, 85, 90, 95]
-const BACKTEST_GLOSSARY_DEFINITIONS = [...METRIC_DEFINITIONS, ...BACKTEST_EXTRA_DEFINITIONS]
-
-function ThresholdComparison({ candles, symbol }) {
-  const comparisons = useMemo(
-    () =>
-      comparisonThresholds.map((minimumScore) => {
-        const result = runSetupScanBacktest(candles, { minimumScore })
-        return {
-          minimumScore,
-          metrics: result.metrics,
-          inSampleMetrics: result.inSampleMetrics,
-          outOfSampleMetrics: result.outOfSampleMetrics,
-        }
-      }),
-    [candles],
-  )
-  return (
-    <section className="threshold-comparison panel">
-      <div className="panel-heading compact">
-        <div>
-          <p className="eyebrow">EXPLORATORY RESEARCH · {symbol} · 1H</p>
-          <h2>Threshold comparison</h2>
-        </div>
-        <span className="coming-soon">NO WINNER SELECTED</span>
-      </div>
-      <p className="comparison-note">
-        The same strategy rules and chronological split are evaluated at each minimum score
-        threshold. This table is descriptive research, not optimization or validation.
-      </p>
-      <div className="breakdown-table-wrap">
-        <table className="breakdown-table threshold-table">
-          <thead>
-            <tr>
-              <th>Threshold</th>
-              <th>Trades</th>
-              <th>Win rate</th>
-              <th>Profit factor</th>
-              <th>Expectancy</th>
-              <th>Average R</th>
-              <th>Max drawdown</th>
-              <th>Average hold (minutes)</th>
-              <th>In-sample</th>
-              <th>Out-of-sample</th>
-            </tr>
-          </thead>
-          <tbody>
-            {comparisons.map(({ minimumScore, metrics, inSampleMetrics, outOfSampleMetrics }) => (
-              <tr key={minimumScore}>
-                <td>{minimumScore}+</td>
-                <td>{metrics.totalTrades}</td>
-                <td>{formatPercent(metrics.winRate)}</td>
-                <td>{metrics.profitFactor === Infinity ? '∞' : metrics.profitFactor.toFixed(2)}</td>
-                <td>{formatBreakdownR(metrics.expectancy)}</td>
-                <td>{formatBreakdownR(metrics.averageR)}</td>
-                <td>{formatBreakdownR(metrics.maximumDrawdown)}</td>
-                <td>{metrics.averageHoldingTime.toFixed(0)}m</td>
-                <td>
-                  {inSampleMetrics.totalTrades} · {formatPercent(inSampleMetrics.winRate)}
-                </td>
-                <td>
-                  {outOfSampleMetrics.totalTrades} · {formatPercent(outOfSampleMetrics.winRate)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  )
-}
-
-function BacktestDiagnostics({ backtest, data, error }) {
-  const { metrics } = backtest
-  const checks = [
-    ['Provider', data?.provider ?? 'LOADING'],
-    ['Symbol', data?.symbol ?? 'SPY'],
-    ['Timeframe', data?.timeframe ?? '1Hour'],
-    ['Start date', formatDate(data?.start)],
-    ['End date', formatDate(data?.end)],
-    ['Candle count', data?.candleCount ?? 0],
-    ['Data status', data?.complete === false ? 'INCOMPLETE' : (data?.provider ?? 'LOADING')],
-    ['Winning trades', metrics.winningTrades],
-    ['Losing trades', metrics.losingTrades],
-    ['Expired trades', metrics.expiredTrades],
-    ['Total positive R', formatR(metrics.totalPositiveR)],
-    ['Total negative R', formatR(metrics.totalNegativeR)],
-    ['Calculated profit factor', formatR(metrics.calculatedProfitFactor)],
-    ['Calculated expectancy', formatR(metrics.calculatedExpectancy)],
-  ]
-  return (
-    <details className="backtest-calculation-details">
-      <summary>How the results are calculated</summary>
-      <p className="backtest-detail-intro">
-        {data?.provider === 'DEMO'
-          ? 'These checks show the demo data and calculations used for the illustrative metrics above.'
-          : 'These checks show the historical data and calculations used to produce the backtest results above.'}
-      </p>
-      <section className="calculation-checks panel">
-      <div className="panel-heading compact">
-        <div>
-          <p className="eyebrow">BACKTEST LAB · CALCULATION CHECKS</p>
-          <h2>{data?.provider === 'DEMO' ? 'Demo calculation data' : 'Historical research data'}</h2>
-          {error && <p className="data-error">{error}</p>}
-        </div>
-        <span className="coming-soon">{data?.provider ?? 'LOADING'}</span>
-      </div>
-      <div className="check-grid">
-        {checks.map(([label, value]) => (
-          <div key={label}>
-            <span>{label}</span>
-            <strong>{value}</strong>
-          </div>
-        ))}
-      </div>
-      </section>
-    </details>
-  )
-}
-
-function BacktestDataSummary({ data, error }) {
-  const provider = data?.provider ?? 'Data loading'
-  const status =
-    data?.complete === false
-      ? 'Incomplete'
-      : data?.complete === true
-        ? 'Complete'
-        : error
-          ? 'Unavailable'
-          : 'Loading'
-
-  return (
-    <div className="backtest-data-context" aria-label="Historical data context">
-      <p>
-        <strong>{provider}</strong>
-        <span>
-          {formatDate(data?.start)} – {formatDate(data?.end)}
-          {' · '}
-          {(data?.candleCount ?? 0).toLocaleString()} candles
-          {' · '}
-          {status}
-        </span>
-      </p>
-      {error ? <p className="data-error" role="alert">{error}</p> : null}
-      {data?.complete === false ? (
-        <p className="data-error" role="alert">
-          Historical data is incomplete; interpret these results with caution.
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
 function TopBar({
   view,
   onNavigate,
@@ -894,7 +601,6 @@ function AppSidebar({
     home: House,
     scan: Activity,
     paper: LineChart,
-    backtest: BarChart3,
     research: CircleHelp,
     settings: Settings2,
   }
@@ -1008,7 +714,7 @@ function AppSidebar({
 }
 
 function App() {
-  const initialRoute = readAppRoute()
+  const [initialRoute] = useState(() => readAppRoute())
 const [view, setView] = useState(initialRoute.view)
 const [navOpen, setNavOpen] = useState(false)
 const [helpOpen, setHelpOpen] = useState(false)
@@ -1018,14 +724,27 @@ const [watchlistLoading, setWatchlistLoading] = useState(true)
 const [watchlistSyncing, setWatchlistSyncing] = useState(false)
 const [watchlistError, setWatchlistError] = useState(null)
 const [watchlistCap, setWatchlistCap] = useState(null)
-const [researchTab, setResearchTab] = useState('robustness')
+const [researchTab, setResearchTab] = useState(initialRoute.researchTab)
 const [researchWorkspaceView, setResearchWorkspaceView] = useState(
   initialRoute.researchWorkspaceView,
 )
+  const loadingMode = researchLoadingMode(view, researchWorkspaceView, researchTab)
   const [selectedResearchRunId, setSelectedResearchRunId] = useState(null)
   const [comparisonRuns, setComparisonRuns] = useState([])
   const [comparisonRunsLoading, setComparisonRunsLoading] = useState(false)
   const [comparisonRunsError, setComparisonRunsError] = useState(null)
+  const [labsOverviewRuns, setLabsOverviewRuns] = useState([])
+  const [labsOverviewRunsLoading, setLabsOverviewRunsLoading] =
+  useState(false)
+  const [labsOverviewRunsError, setLabsOverviewRunsError] =
+  useState(null)
+  const [labsLatestSummary, setLabsLatestSummary] = useState(null)
+  const [labsDiscoverySummary, setLabsDiscoverySummary] =
+  useState(null)
+  const [labsEvidenceLoading, setLabsEvidenceLoading] =
+  useState(false)
+  const [labsEvidenceError, setLabsEvidenceError] =
+  useState(null)
   const [threshold, setThreshold] = useState(65)
   const [scannerFiltersOpen, setScannerFiltersOpen] = useState(false)
   const [selectedSymbol, setSelectedSymbol] = useState('SPY')
@@ -1238,6 +957,113 @@ const potentialSetups = results.filter(
 const visibleResults = scoreQualified
   const selected = visibleResults.find((item) => item.symbol === selectedSymbol) ?? visibleResults[0]
 
+const scannerAlerts = useMemo(() => {
+  const alerts = []
+
+  const positivePriority = [
+    'Breakout / reclaim',
+    'Trend confirmation',
+    'EMA alignment',
+    'Price vs VWAP',
+    'RSI momentum',
+    'Relative volume',
+  ]
+
+  results.forEach((item) => {
+    const evidence = groupScannerEvidence(
+      item.reasons ?? [],
+    )
+
+    if (item.qualifiedSetup) {
+      alerts.push({
+        id: `${item.symbol}-qualified`,
+        symbol: item.symbol,
+        tone: 'qualified',
+        title: 'Qualified setup',
+        detail: `All 6 scanner checks confirmed · Score ${item.score}`,
+        score: item.score,
+      })
+
+      return
+    }
+
+    const blocker =
+      evidence.missing[0] ?? null
+
+    if (blocker) {
+      alerts.push({
+        id: `${item.symbol}-blocker-${blocker.label}`,
+        symbol: item.symbol,
+        tone: 'warning',
+        title:
+  blocker.label === 'Price vs VWAP'
+    ? 'Below VWAP'
+    : blocker.label === 'EMA alignment'
+      ? 'EMA not aligned'
+      : blocker.label === 'RSI momentum'
+        ? 'RSI not confirmed'
+        : blocker.label === 'Relative volume'
+          ? 'RVOL low'
+          : blocker.label === 'Breakout / reclaim'
+            ? 'Breakout missing'
+            : blocker.label === 'Trend confirmation'
+              ? 'Trend not confirmed'
+              : blocker.label,
+        detail: blocker.detail,
+        score: item.score,
+      })
+    }
+
+    const positive =
+      positivePriority
+        .map((label) =>
+          evidence.passed.find(
+            (reason) => reason.label === label,
+          ),
+        )
+        .find(Boolean) ?? null
+
+    if (positive) {
+      alerts.push({
+        id: `${item.symbol}-positive-${positive.label}`,
+        symbol: item.symbol,
+        tone: 'positive',
+        title:
+  positive.label === 'Price vs VWAP'
+    ? 'Above VWAP'
+    : positive.label === 'EMA alignment'
+      ? 'EMA aligned'
+      : positive.label === 'RSI momentum'
+        ? 'RSI confirmed'
+        : positive.label === 'Relative volume'
+          ? 'RVOL confirmed'
+          : positive.label === 'Breakout / reclaim'
+            ? 'Breakout confirmed'
+            : positive.label === 'Trend confirmation'
+              ? 'Trend bullish'
+              : positive.label,
+        detail: positive.detail,
+        score: item.score,
+      })
+    }
+  })
+
+  const tonePriority = {
+    qualified: 3,
+    warning: 2,
+    positive: 1,
+  }
+
+  return alerts
+    .sort(
+      (a, b) =>
+        tonePriority[b.tone] -
+          tonePriority[a.tone] ||
+        b.score - a.score,
+    )
+    .slice(0, 6)
+}, [results])
+
 useEffect(() => {
   if (view !== 'scan' || !selected?.symbol) {
     return undefined
@@ -1285,7 +1111,7 @@ useEffect(() => {
 
 
   useEffect(() => {
-  if (view !== 'backtest') return undefined
+  if (loadingMode !== 'quick-backtest') return undefined
 
   let active = true
 
@@ -1327,11 +1153,11 @@ useEffect(() => {
   return () => {
     active = false
   }
-}, [view, selectedSymbol, historicalRange]) 
+}, [loadingMode, selectedSymbol, historicalRange])
 
 
   useEffect(() => {
-  if (view !== 'research' || researchWorkspaceView !== 'labs') {
+  if (loadingMode !== 'advanced-labs') {
     return undefined
   }
 
@@ -1402,7 +1228,7 @@ useEffect(() => {
   return () => {
     active = false
   }
-}, [view, researchWorkspaceView, frozenScoreRange])
+}, [loadingMode, frozenScoreRange])
 
   useEffect(() => {
     if (view !== 'research' || researchWorkspaceView !== 'comparison') return undefined
@@ -1422,7 +1248,121 @@ useEffect(() => {
     return () => { active = false }
   }, [view, researchWorkspaceView])
 
+  useEffect(() => {
+  if (
+    view !== 'research' ||
+    researchWorkspaceView !== 'labs' ||
+    researchTab !== 'overview'
+  ) {
+    return undefined
+  }
 
+  let active = true
+
+  setLabsOverviewRunsLoading(true)
+  setLabsOverviewRunsError(null)
+
+  listResearchRuns({ limit: 6, offset: 0 })
+    .then((response) => {
+      if (!active) return
+
+      const runs = Array.isArray(response?.runs)
+        ? [...response.runs]
+        : []
+
+      runs.sort((a, b) => {
+        const aTime = Date.parse(a.requestedAt ?? '') || 0
+        const bTime = Date.parse(b.requestedAt ?? '') || 0
+
+        return bTime - aTime
+      })
+
+      setLabsOverviewRuns(runs.slice(0, 6))
+    })
+    .catch((error) => {
+      if (active) {
+        setLabsOverviewRunsError(error.message)
+      }
+    })
+    .finally(() => {
+      if (active) {
+        setLabsOverviewRunsLoading(false)
+      }
+    })
+
+  return () => {
+    active = false
+  }
+}, [view, researchWorkspaceView, researchTab])
+
+useEffect(() => {
+  if (
+    view !== 'research' ||
+    researchWorkspaceView !== 'labs' ||
+    researchTab !== 'overview'
+  ) {
+    return undefined
+  }
+
+  if (!labsOverviewRuns.length) {
+    return undefined
+  }
+
+  let active = true
+
+  setLabsEvidenceLoading(true)
+  setLabsEvidenceError(null)
+
+  const latestRunId = labsOverviewRuns[0]?.runId
+
+  const latestSummaryRequest = latestRunId
+    ? getResearchRunSummary(latestRunId)
+    : Promise.resolve(null)
+
+  const discoverySummaryRequest = listResearchRuns({
+    limit: 1,
+    offset: 0,
+    experimentId: 'strategy-discovery',
+  }).then((response) => {
+    const discoveryRun = Array.isArray(response?.runs)
+      ? response.runs[0]
+      : null
+
+    return discoveryRun?.runId
+      ? getResearchRunSummary(discoveryRun.runId)
+      : null
+  })
+
+  Promise.all([
+    latestSummaryRequest,
+    discoverySummaryRequest,
+  ])
+    .then(([latestSummary, discoverySummary]) => {
+      if (!active) return
+
+      setLabsLatestSummary(latestSummary)
+      setLabsDiscoverySummary(discoverySummary)
+    })
+    .catch((error) => {
+      if (active) {
+        setLabsEvidenceError(error.message)
+      }
+    })
+    .finally(() => {
+      if (active) {
+        setLabsEvidenceLoading(false)
+      }
+    })
+
+  return () => {
+    active = false
+  }
+}, [
+  view,
+  researchWorkspaceView,
+  researchTab,
+  labsOverviewRuns,
+])
 
   const backtestCandles = useMemo(
     () => enrichHistoricalCandles(historicalData?.candles ?? []),
@@ -1461,21 +1401,12 @@ useEffect(() => {
       setScanLoading(false)
     }
   }
-  useEffect(() => {
-  const handlePopState = () => {
-    const nextRoute = readAppRoute()
-
+  useEffect(() => subscribeAppRoute((nextRoute) => {
     setView(nextRoute.view)
     setResearchWorkspaceView(nextRoute.researchWorkspaceView)
+    setResearchTab(nextRoute.researchTab)
     setNavOpen(false)
-  }
-
-  window.addEventListener('popstate', handlePopState)
-
-  return () => {
-    window.removeEventListener('popstate', handlePopState)
-  }
-}, [])
+  }), [])
 
 const handleNavigate = (id) => {
   setView(id)
@@ -1494,8 +1425,16 @@ const handleResearchWorkspaceNavigate = (nextView) => {
   setView('research')
   setResearchWorkspaceView(nextView)
   setNavOpen(false)
-  navigateAppRoute('research', nextView)
+  navigateAppRoute('research', nextView, researchTab)
 }
+
+  const handleResearchLabNavigate = (tab) => {
+    setView('research')
+    setResearchWorkspaceView('labs')
+    setResearchTab(tab)
+    setNavOpen(false)
+    navigateAppRoute('research', 'labs', tab)
+  }
 
   const existingResearchLabs = (
     <>
@@ -1505,12 +1444,34 @@ const handleResearchWorkspaceNavigate = (nextView) => {
             key={tab.id}
             className={`research-tab ${researchTab === tab.id ? 'active' : ''} ${tab.placeholder ? 'is-placeholder' : ''}`}
             aria-current={researchTab === tab.id ? 'page' : undefined}
-            onClick={() => setResearchTab(tab.id)}
+            onClick={() => handleResearchLabNavigate(tab.id)}
           >
             {tab.label}
           </button>
         ))}
       </nav>
+      {researchTab === 'overview' && (
+  <ResearchLabsOverview
+    onOpenLab={handleResearchLabNavigate}
+    runs={labsOverviewRuns}
+    loading={labsOverviewRunsLoading}
+    error={labsOverviewRunsError}
+    onOpenHistory={(runId) => {
+      setSelectedResearchRunId(runId)
+      handleResearchWorkspaceNavigate('history')
+    }}
+    latestSummary={labsLatestSummary}
+    discoverySummary={labsDiscoverySummary}
+    evidenceLoading={labsEvidenceLoading}
+    evidenceError={labsEvidenceError}
+  />
+)}
+      {researchTab === 'quick-backtest' && <QuickBacktest
+        watchlist={watchlist} selectedSymbol={selectedSymbol} setSelectedSymbol={setSelectedSymbol}
+        backtestRangeYears={backtestRangeYears} setBacktestRangeYears={setBacktestRangeYears}
+        backtestLoading={backtestLoading} historicalData={historicalData} historicalError={historicalError}
+        backtest={backtest} onOpenLab={handleResearchLabNavigate}
+      />}
       {researchTab === 'robustness' && <StrategyRobustnessLab datasets={robustnessData} />}
       {researchTab === 'relative-value' && (
         <RelativeValueResearchLab datasets={robustnessData} />
@@ -1566,7 +1527,7 @@ const handleResearchWorkspaceNavigate = (nextView) => {
         onOpenHelp={() => setHelpOpen(true)}
         navOpen={navOpen}
       />
-      <SetupHelpDrawer open={helpOpen} view={view} onClose={() => setHelpOpen(false)} />
+      <SetupHelpDrawer open={helpOpen} view={view} tool={loadingMode === 'quick-backtest' ? 'quick-backtest' : undefined} onClose={() => setHelpOpen(false)} />
 
       <main className="dashboard">
         {view === 'home' && (
@@ -1709,7 +1670,6 @@ const handleResearchWorkspaceNavigate = (nextView) => {
     </div>
   </div>
 </section>
-
             <div className="content-grid">
               <section className="scanner-panel panel">
                 <div className="panel-heading">
@@ -1822,7 +1782,10 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                   ))}
                   {!visibleResults.length ? <p className="empty-state">{scannerEmptyMessage(scanLoading, results.length, scanUnavailable.length, threshold)}</p> : null}
                 </div>
-                {selected ? (
+
+
+
+{selected ? (
 <section className="selected-setup-panel scanner-below-table-detail">
         <div className="selected-setup-header">
           <div>
@@ -2028,6 +1991,60 @@ const handleResearchWorkspaceNavigate = (nextView) => {
                 ) : null}
 
               </section>
+
+<section className="scanner-alert-table-panel">
+  <div className="scanner-alert-table-heading">
+    <div>
+      <p className="eyebrow">SCANNER ACTIVITY</p>
+      <h3>Scanner Alerts</h3>
+    </div>
+
+    <span>{scannerAlerts.length} active</span>
+  </div>
+
+  <div className="scanner-alert-table-wrap">
+    <table className="scanner-alert-table">
+      <thead>
+        <tr>
+  <th>Symbol</th>
+  <th>Condition</th>
+  <th>Score</th>
+</tr>
+      </thead>
+
+      <tbody>
+        {scannerAlerts.length ? (
+          scannerAlerts.map((alert) => (
+            <tr
+              key={alert.id}
+              onClick={() =>
+                selectScannerSymbol(alert.symbol)
+              }
+            >
+              <td>
+                <strong>{alert.symbol}</strong>
+              </td>
+
+              <td>{alert.title}</td>
+
+              <td>{alert.score}</td>
+            </tr>
+          ))
+        ) : (
+          <tr>
+            <td
+              colSpan="3"
+              className="scanner-alert-table-empty"
+            >
+              No scanner evidence is available yet.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</section>
+
               <aside className="side-column">
                 <section className="qualified-panel panel">
                   <div className="panel-heading compact">
@@ -2109,173 +2126,6 @@ const handleResearchWorkspaceNavigate = (nextView) => {
         )}
 
         {view === 'paper' && <PaperTradingPanel />}
-        {view === 'backtest' && (
-          <>
-            <section className="detail-grid single-column">
-              <section className="backtest-panel panel">
-                <div className="panel-heading compact">
-                  <div>
-                    <p className="eyebrow">BACKTEST LAB · {historicalData?.symbol ?? selectedSymbol} · 1H</p>
-                    <h2>Historical backtest</h2>
-                    <select
-  className="backtest-symbol-select"
-  value={selectedSymbol}
-  onChange={(event) => setSelectedSymbol(event.target.value)}
-  aria-label="Backtest symbol"
-  disabled={backtestLoading}
->
-                     {watchlist.map((symbol) => (
-                       <option key={symbol} value={symbol}>
-                         {symbol}
-                       </option>
-                     ))}
-                   </select>
-<select
-  className="backtest-symbol-select"
-  value={backtestRangeYears}
-  onChange={(event) => setBacktestRangeYears(Number(event.target.value))}
-  aria-label="Backtest range"
-  disabled={backtestLoading}
->
-  <option value={1}>1 year</option>
-  <option value={2}>2 years</option>
-  <option value={3}>3 years</option>
-  <option value={5}>5 years</option>
-</select>
-                  </div>
-                  <span className="coming-soon">
-  {backtestLoading ? 'RUNNING BACKTEST' : `${backtest.trades.length} TRADES`}
-</span>
-                </div>
-                {backtestLoading ? (
-  <div className="backtest-loading" role="status" aria-live="polite">
-    <span className="status-dot" />
-    <div>
-      <strong>Running backtest</strong>
-      <small>
-        Loading {backtestRangeYears} {backtestRangeYears === 1 ? 'year' : 'years'} of {selectedSymbol} historical data and recalculating results…
-      </small>
-    </div>
-  </div>
-) : null}
-                <BacktestDataSummary data={historicalData} error={historicalError} />
-                <section
-                  className={`backtest-result-evidence ${historicalData?.provider === 'DEMO' ? 'backtest-demo-results' : ''}`}
-                  aria-label={historicalData?.provider === 'DEMO' ? 'Illustrative demo metrics' : 'Historical backtest results'}
-                >
-                  {historicalData?.provider === 'DEMO' ? (
-                    <div className="backtest-demo-notice" role="note">
-                      <h3>Illustrative demo metrics — not historical research</h3>
-                      <p>The historical-data request failed, so these figures use built-in example candles. They are illustrative only and are not evidence of strategy performance. The original data-fetch error is shown above.</p>
-                    </div>
-                  ) : null}
-                <p className="backtest-learning-intro">
-                  {historicalData?.provider === 'DEMO'
-                    ? 'These example results do not predict or measure future performance.'
-                    : 'Historical results describe this sample; they do not predict future performance.'}
-                </p>
-                <div className="backtest-stats">
-                  <div>
-                    <span>Win rate</span>
-                    <strong>{formatPercent(backtest.metrics.winRate)}</strong>
-                  </div>
-                  <div>
-                    <span>Average R</span>
-                    <strong>{formatR(backtest.metrics.averageR)}</strong>
-                  </div>
-                  <div>
-                    <span>Profit factor</span>
-                    <strong>{formatR(backtest.metrics.profitFactor)}</strong>
-                  </div>
-                  <div>
-                    <span>Max drawdown</span>
-                    <strong>{formatR(backtest.metrics.maximumDrawdown)}</strong>
-                  </div>
-                  <div>
-                    <span>Expectancy</span>
-                    <strong>{formatR(backtest.metrics.expectancy)}</strong>
-                  </div>
-                  <div>
-                    <span>Avg hold</span>
-                    <strong>{backtest.metrics.averageHoldingTime.toFixed(0)}m</strong>
-                  </div>
-                </div>
-                <div className="sample-grid">
-                  <div>
-                    <span>In-sample</span>
-                    <strong>
-                      {backtest.inSampleMetrics.numberOfTrades} trades ·{' '}
-                      {formatR(backtest.inSampleMetrics.averageR)}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Out-of-sample</span>
-                    <strong>
-                      {backtest.outOfSampleMetrics.numberOfTrades} trades ·{' '}
-                      {formatR(backtest.outOfSampleMetrics.averageR)}
-                    </strong>
-                  </div>
-                </div>
-                <details className="backtest-recent-details">
-                  <summary>Recent trades &amp; signals</summary>
-                  <p className="backtest-detail-intro">
-                    See the latest trades generated by this backtest and how each one performed.
-                  </p>
-                  <div className="trade-ledger">
-                  <div className="ledger-heading">
-                    <span>Latest sample trades</span>
-                    <span>Outcome / R</span>
-                  </div>
-                  {backtest.trades
-                    .slice(-4)
-                    .reverse()
-                    .map((trade) => (
-                      <div className="ledger-row" key={`${trade.timestamp}-${trade.symbol}`}>
-                        <span>
-                          <strong>{trade.symbol}</strong>
-                          <small>
-                            {trade.setupType} · {new Date(trade.timestamp).toLocaleDateString()}
-                          </small>
-                        </span>
-                        <strong
-                          className={
-                            trade.outcome === 'Win'
-                              ? 'positive'
-                              : trade.outcome === 'Loss'
-                                ? 'negative'
-                                : ''
-                          }
-                        >
-                          {trade.outcome} · {formatR(trade.rMultiple)}
-                        </strong>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-                </section>
-              </section>
-            </section>
-            <details className="backtest-more-details">
-             <summary>{historicalData?.provider === 'DEMO' ? 'Performance breakdown — demo sample' : 'Performance breakdown'}</summary>
-             <p className="backtest-detail-intro">
-               Compare results across score ranges, setup types, and sample groups.
-            </p>
-            <BacktestBreakdown
-               backtest={backtest}
-               symbol={historicalData?.symbol ?? selectedSymbol}
-            />
-              <ThresholdComparison
-                candles={backtest.candles}
-                symbol={historicalData?.symbol ?? selectedSymbol}
-              />
-            </details>
-            <BacktestDiagnostics backtest={backtest} data={historicalData} error={historicalError} />
-            <details className="backtest-terms-disclosure">
-              <summary>Explain the metrics</summary>
-              <MetricsGlossary title="Backtest terms" intro="Short explanations for the metrics used on this page." definitions={BACKTEST_GLOSSARY_DEFINITIONS} />
-            </details>
-          </>
-        )}
         {view === 'research' && (
           <ResearchWorkspace
             activeView={researchWorkspaceView}

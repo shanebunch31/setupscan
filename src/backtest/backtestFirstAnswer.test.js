@@ -3,55 +3,44 @@ import fs from 'node:fs'
 import { test } from 'node:test'
 
 const mainSource = fs.readFileSync(new URL('../main.jsx', import.meta.url), 'utf8')
-const backtestStart = mainSource.indexOf("{view === 'backtest' && (")
-const researchStart = mainSource.indexOf("{view === 'research' && (", backtestStart)
-const backtestBranch = mainSource.slice(backtestStart, researchStart)
+const quickSource = fs.readFileSync(new URL('../research/QuickBacktest.jsx', import.meta.url), 'utf8')
+const backtestBranch = quickSource.slice(quickSource.indexOf('export function QuickBacktest'))
 
-test('Backtest answer precedes calculation checks and preserves critical visible context', () => {
-  const answerIndex = backtestBranch.indexOf('<h2>Historical backtest</h2>')
+test('Quick Backtest answer precedes calculation checks and preserves critical visible context', () => {
+  const answerIndex = backtestBranch.indexOf('<h2>Quick Backtest</h2>')
   const dataContextIndex = backtestBranch.indexOf('<BacktestDataSummary')
-  const metricsIndex = backtestBranch.indexOf('className="backtest-stats"')
+  const metricsIndex = backtestBranch.indexOf('className="quick-backtest-summary-grid"')
   const sampleIndex = backtestBranch.indexOf('className="sample-grid"')
   const diagnosticsIndex = backtestBranch.indexOf('<BacktestDiagnostics')
-
-  assert.match(
-    mainSource,
-    /data\?\.complete === false[\s\S]*Historical data is incomplete; interpret these results with caution/
-  )
+  assert.ok(answerIndex >= 0 && answerIndex < dataContextIndex)
   assert.ok(dataContextIndex < metricsIndex)
   assert.ok(metricsIndex < sampleIndex)
   assert.ok(sampleIndex < diagnosticsIndex)
   assert.match(backtestBranch, /Historical results describe this sample; they do not predict future performance/)
-  assert.match(
-  mainSource,
-  /data\?\.complete === false[\s\S]*Historical data is incomplete; interpret these results with caution/
-)
+  assert.match(quickSource, /data\?\.complete === false[\s\S]*Historical data is incomplete; interpret these results with caution/)
 })
 
-test('Backtest detailed results, recent signals, calculation checks, and glossary remain reachable', () => {
-  assert.match(backtestBranch, /<summary>\{historicalData\?\.provider === 'DEMO' \? 'Performance breakdown — demo sample' : 'Performance breakdown'\}<\/summary>/)
-  assert.match(
-  backtestBranch,
-  /<BacktestBreakdown\s+backtest=\{backtest\}\s+symbol=\{historicalData\?\.symbol \?\? selectedSymbol\}\s*\/>/
-)
-  assert.match(
-  backtestBranch,
-  /<ThresholdComparison\s+candles=\{backtest\.candles\}\s+symbol=\{historicalData\?\.symbol \?\? selectedSymbol\}\s*\/>/
-)
-  assert.match(backtestBranch, /<summary>Recent trades &amp; signals<\/summary>/)
-  assert.match(mainSource, /<summary>How the results are calculated<\/summary>/)
-  assert.match(backtestBranch, /<summary>Explain the metrics<\/summary>/)
+test('Quick Backtest retains recent trades, calculation checks and glossary, with advanced studies linked separately', () => {
+  assert.doesNotMatch(backtestBranch, /BacktestBreakdown|ThresholdComparison|Performance breakdown/)
+  assert.match(backtestBranch, /onOpenLab\('robustness'\)/)
+  assert.match(backtestBranch, /onOpenLab\('signal-quality'\)/)
+  assert.match(backtestBranch, /<summary>Recent Backtest Trades<\/summary>/)
+  assert.match(quickSource, /<summary>How the results are calculated<\/summary>/)
+  assert.match(mainSource, /tool=\{loadingMode === 'quick-backtest' \? 'quick-backtest' : undefined\}/)
+  const helpSource = fs.readFileSync(new URL('../help/SetupHelpDrawer.jsx', import.meta.url), 'utf8')
+  assert.match(helpSource, /QUICK_BACKTEST_TERMS[\s\S]*METRIC_DEFINITIONS[\s\S]*BACKTEST_EXTRA_DEFINITIONS/)
+  assert.match(helpSource, /tool === 'quick-backtest'\s*\? QUICK_BACKTEST_TERMS/)
 })
 
-test('demo backtest metrics are visibly separated and labeled illustrative while preserving the fetch error', () => {
+test('demo metrics remain conspicuously SPY data with the original fetch error', () => {
   assert.match(mainSource, /setHistoricalError\(error\.message\)[\s\S]*setHistoricalStatus\('DEMO'\)[\s\S]*setHistoricalData\(getDemoHistoricalData\(\)\)/)
-  assert.match(backtestBranch, /historicalData\?\.provider === 'DEMO'[\s\S]*backtest-demo-results/)
-  assert.match(backtestBranch, /Illustrative demo metrics — not historical research/)
-  assert.match(backtestBranch, /not evidence of strategy performance/)
+  assert.match(backtestBranch, /isDemo\s*\? 'SPY'\s*:\s*\(?historicalData\?\.symbol \?\? selectedSymbol/)
+  assert.match(backtestBranch, /backtest-demo-results/)
+  assert.match(backtestBranch, /SPY demo data — illustrative only, not historical research/)
+  assert.match(backtestBranch, /not evidence of strategy\s+performance/)
   assert.match(backtestBranch, /The original data-fetch error is shown above/)
-  assert.match(backtestBranch, /aria-label=\{historicalData\?\.provider === 'DEMO' \? 'Illustrative demo metrics' : 'Historical backtest results'\}/)
-  assert.match(backtestBranch, /Performance breakdown — demo sample/)
-  assert.match(mainSource, /data\?\.provider === 'DEMO' \? 'Demo calculation data' : 'Historical research data'/)
+  assert.match(backtestBranch, /SPY demo metrics/)
+  assert.match(quickSource, /data\?\.provider === 'DEMO'\s*\? 'Demo calculation data'\s*:\s*'Historical research data'/)
 })
 
 test('scanner empty states distinguish loading, unavailable, partial, and successful empty results', () => {
@@ -80,9 +69,9 @@ test('desktop scanner selection has a native keyboard-operable button and visibl
 })
 
 test('Backtest Diagnostics contains one summary and intro with valid paragraph and section nesting', () => {
-  const diagnosticsStart = mainSource.indexOf('function BacktestDiagnostics')
-  const diagnosticsEnd = mainSource.indexOf('function BacktestDataSummary', diagnosticsStart)
-  const diagnostics = mainSource.slice(diagnosticsStart, diagnosticsEnd)
+  const diagnosticsStart = quickSource.indexOf('function BacktestDiagnostics')
+  const diagnosticsEnd = quickSource.indexOf('function BacktestDataSummary', diagnosticsStart)
+  const diagnostics = quickSource.slice(diagnosticsStart, diagnosticsEnd)
   assert.equal((diagnostics.match(/<summary>/g) ?? []).length, 1)
   assert.equal((diagnostics.match(/className="backtest-detail-intro"/g) ?? []).length, 1)
   assert.match(diagnostics, /<p className="backtest-detail-intro">[\s\S]*?<\/p>\s*<section className="calculation-checks panel">/)

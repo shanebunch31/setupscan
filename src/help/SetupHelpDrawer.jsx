@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { CircleHelp, Search, X } from 'lucide-react'
 import { SCANNER_TERM_EXPLANATIONS } from '../scannerFilters.js'
+import { METRIC_DEFINITIONS } from '../backtest/MetricsGlossary.jsx'
+import { BACKTEST_EXTRA_DEFINITIONS } from '../backtest/backtestLearning.js'
 import './setupHelp.css'
 
 const HELP_TERMS = [
@@ -74,6 +76,14 @@ const HOME_TERMS = [
   { term: 'Paper Trading Shortcut', definition: 'Opens the simulated-trading journal. It does not place a live trade.' },
 ]
 
+const QUICK_BACKTEST_TERMS = [
+  ...METRIC_DEFINITIONS,
+  ...BACKTEST_EXTRA_DEFINITIONS,
+].map(({ term, description }) => ({
+  term,
+  definition: description,
+}))
+
 HELP_TERMS.push({ term: 'Bullish / Bearish Trend', definition: 'The current direction of the fast and slow price references. Bearish is a direction label, not a short-selling recommendation.' })
 
 const PAGE_HELP = {
@@ -92,10 +102,10 @@ const PAGE_HELP = {
     body:
       'Paper Trading is for simulated positions and journal review. Paper results do not establish live-trading profitability.',
   },
-  backtest: {
-    title: 'Backtest help',
+  'quick-backtest': {
+    title: 'Quick Backtest help',
     body:
-      'Backtest summarizes historical samples under the current research assumptions. Historical results are descriptive and do not predict future performance.',
+      'Quick Backtest in Research → Labs summarizes historical samples under the current research assumptions. Historical results are descriptive and do not predict future performance.',
   },
   research: {
     title: 'Research help',
@@ -109,10 +119,10 @@ const PAGE_HELP = {
   },
 }
 
-export function SetupHelpDrawer({ open, view, onClose }) {
+export function SetupHelpDrawer({ open, view, tool, onClose }) {
   const [query, setQuery] = useState('')
   const dialogRef = useRef(null)
-  const pageHelp = PAGE_HELP[view] ?? PAGE_HELP.home
+  const pageHelp = PAGE_HELP[tool] ?? PAGE_HELP[view] ?? PAGE_HELP.home
 
   useEffect(() => {
     if (!open || !dialogRef.current) return undefined
@@ -136,15 +146,21 @@ export function SetupHelpDrawer({ open, view, onClose }) {
   }, [open])
 
   const visibleTerms = useMemo(() => {
-    const normalized = query.trim().toLowerCase()
+  const normalized = query.trim().toLowerCase()
 
-    const terms = view === 'home' ? HOME_TERMS : HELP_TERMS
-    if (!normalized) return terms
+  const terms =
+    tool === 'quick-backtest'
+      ? QUICK_BACKTEST_TERMS
+      : view === 'home'
+        ? HOME_TERMS
+        : HELP_TERMS
 
-    return terms.filter(({ term, definition }) =>
-      `${term} ${definition}`.toLowerCase().includes(normalized),
-    )
-  }, [query, view])
+  if (!normalized) return terms
+
+  return terms.filter(({ term, definition }) =>
+    `${term} ${definition}`.toLowerCase().includes(normalized),
+  )
+}, [query, tool, view])
 
   if (!open) return null
 

@@ -59,13 +59,31 @@ export function ResearchWorkspace({
   }
 
   return h(React.Fragment, null,
-    h('nav', { className: 'research-subnav', 'aria-label': 'Research workspace views' }, researchViews.map((item) => h('button', {
-      key: item.id,
-      type: 'button',
-      className: `research-tab ${activeView === item.id ? 'active' : ''}`,
-      'aria-current': activeView === item.id ? 'page' : undefined,
-      onClick: () => onNavigate(item.id),
-    }, item.label))),
+    h(
+  'nav',
+  {
+    className: `research-subnav research-workspace-subnav ${
+      activeView === 'labs' ? 'is-labs' : ''
+    }`,
+    'aria-label': 'Research workspace views',
+  },
+  researchViews.map((item) =>
+    h(
+      'button',
+      {
+        key: item.id,
+        type: 'button',
+        className: `research-tab ${
+          activeView === item.id ? 'active' : ''
+        }`,
+        'aria-current':
+          activeView === item.id ? 'page' : undefined,
+        onClick: () => onNavigate(item.id),
+      },
+      item.label,
+    ),
+  ),
+),
     content,
   )
 }
