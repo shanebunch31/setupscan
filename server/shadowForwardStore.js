@@ -1,4 +1,5 @@
 import { Pool } from 'pg'
+import { readFileSync } from 'node:fs'
 import { isDeepStrictEqual } from 'node:util'
 import { stringifyResearchJson, parseResearchJson } from '../src/research/researchRunSerialization.js'
 
@@ -18,7 +19,7 @@ CREATE TABLE IF NOT EXISTS research_shadow_occurrences (
  theoretical jsonb, outcome jsonb
 );
 CREATE INDEX IF NOT EXISTS research_shadow_pending_idx ON research_shadow_occurrences(tracking_id, state);
-`
+` + readFileSync(new URL('../scripts/migrations/shadow-forward-revision.sql', import.meta.url), 'utf8')
 const encode = stringifyResearchJson
 const decode = parseResearchJson
 export function createShadowStore({ connectionString, pool } = {}) {
@@ -26,6 +27,9 @@ export function createShadowStore({ connectionString, pool } = {}) {
   // Connection policy is explicit; never inherit DATABASE_URL or silently disable remote TLS.
   if (!pool) validateShadowConnection(connectionString)
   const db = pool ?? new Pool({ connectionString, max: 2, connectionTimeoutMillis: 10000, idleTimeoutMillis: 30000 })
+  // Private, committed snapshots only. A stale cache fails closed until an
+  // explicit read/restart reloads authoritative history; polling never reloads it.
+  const cache = new Map()
   db.on?.('error', () => { /* Active operations fail normally; never log credential-bearing driver errors. */ })
   async function transaction(action) {
     const client = await db.connect()
@@ -55,9 +59,10 @@ export function createShadowStore({ connectionString, pool } = {}) {
     }
   }
   async function readFrom(client, id, withCandles = false) {
-    const result = await client.query('SELECT definition, checkpoint FROM research_shadow_tracking WHERE id=$1', [id])
+    const result = await client.query('SELECT definition, checkpoint, revision::text AS revision FROM research_shadow_tracking WHERE id=$1', [id])
     if (!result.rows.length) throw new Error('Shadow tracking is not initialized')
-    const { definition, checkpoint } = result.rows[0]
+    const { definition, checkpoint, revision } = result.rows[0]
+    if (typeof revision !== 'string') throw new Error('Shadow revision migration is required')
     const tracking = decode(definition)
     const rows = await client.query('SELECT snapshot, state, theoretical, outcome FROM research_shadow_occurrences WHERE tracking_id=$1 ORDER BY occurrence_id', [id])
     const occurrences = rows.rows.map((row) => ({ ...decode(row.snapshot), state: row.state, theoretical: decode(row.theoretical), outcome: decode(row.outcome) }))
@@ -69,7 +74,13 @@ export function createShadowStore({ connectionString, pool } = {}) {
       if (!Object.hasOwn(raw, row.symbol)) throw new Error('Stored candle symbol is outside the frozen shadow universe')
       raw[row.symbol].push(decode(row.candle))
     }
-    return { tracking, checkpoint: decode(checkpoint), occurrences, raw }
+    return { tracking, checkpoint: decode(checkpoint), occurrences, raw, revision }
+  }
+  async function load(id, withCandles) {
+    return transaction(async (client) => {
+      await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
+      return readFrom(client, id, withCandles)
+    })
   }
   return {
     // Operator-only explicit initialization; never called by the API or polling cycle.
@@ -82,29 +93,32 @@ export function createShadowStore({ connectionString, pool } = {}) {
         await client.query('INSERT INTO research_shadow_tracking(id, definition) VALUES($1,$2::jsonb)', [definition.id, encode(definition)])
       })
     },
-    async read(id) {
-      return transaction(async (client) => {
-        await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
-        return readFrom(client, id, true)
-      })
+    async read(id, { withCandles = true } = {}) {
+      const loaded = await load(id, withCandles)
+      if (withCandles) cache.set(id, loaded)
+      const { revision: _revision, ...snapshot } = loaded
+      return structuredClone(snapshot)
     },
     async cycle(id, action) {
-      const before = await transaction(async (client) => {
-        await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
-        return readFrom(client, id, true)
-      })
-      // Keep an independent snapshot: callers may mutate the input while preparing work.
-      const expected = structuredClone(before)
-      const update = await action(before)
+      if (!cache.has(id)) cache.set(id, await load(id, true))
+      const expected = cache.get(id)
+      // Neither caller mutation nor failed persistence can change committed history.
+      const { revision: _revision, ...before } = structuredClone(expected)
+      const update = structuredClone(await action(before))
       // Provider fetching and calculation hold neither a connection nor a transaction.
-      return transaction(async (client) => {
+      const committed = await transaction(async (client) => {
         const lock = await client.query('SELECT pg_try_advisory_xact_lock(hashtext($1)) AS locked', [`setupscan-shadow:${id}`])
         if (!lock.rows[0]?.locked) return { status: 'BUSY' }
-        const current = await readFrom(client, id, true)
-        if (!isDeepStrictEqual(current, expected)) return { status: 'BUSY' }
+        // Row lock closes the check/write race even for writers that do not take
+        // our advisory lock. Database triggers version ALL evidence mutations.
+        const current = await client.query('SELECT revision::text AS revision FROM research_shadow_tracking WHERE id=$1 FOR UPDATE', [id])
+        if (current.rows[0]?.revision !== expected.revision) return { status: 'BUSY' }
+        const next = structuredClone(expected)
         const old = new Map(expected.occurrences.map((row) => [row.id, row]))
         for (const { symbol, candle } of update.newCandles) {
+          if (!Object.hasOwn(next.raw, symbol)) throw new Error('Stored candle symbol is outside the frozen shadow universe')
           await client.query('INSERT INTO research_shadow_candles(tracking_id,symbol,timestamp,candle) VALUES($1,$2,$3,$4::jsonb)', [id, symbol, candle.timestamp, encode(candle)])
+          next.raw[symbol].push(candle)
         }
         for (const row of update.occurrences) {
           const { state, theoretical, outcome, ...snapshot } = row
@@ -119,9 +133,21 @@ export function createShadowStore({ connectionString, pool } = {}) {
             if (oldState === 'pending' && !isDeepStrictEqual(row, prior)) await client.query('UPDATE research_shadow_occurrences SET state=$2,theoretical=$3::jsonb,outcome=$4::jsonb WHERE occurrence_id=$1 AND state=\'pending\'', [row.id, state, encode(theoretical), encode(outcome)])
           }
         }
-        await client.query('UPDATE research_shadow_tracking SET checkpoint=$2::jsonb WHERE id=$1', [id, encode(update.checkpoint)])
-        return update.checkpoint
+        const saved = await client.query('UPDATE research_shadow_tracking SET checkpoint=$2::jsonb WHERE id=$1 RETURNING revision::text AS revision', [id, encode(update.checkpoint)])
+        if (typeof saved.rows[0]?.revision !== 'string' || saved.rows[0].revision === expected.revision) throw new Error('Shadow revision did not advance')
+        next.revision = saved.rows[0].revision
+        next.checkpoint = update.checkpoint
+        // SQL leaves omitted occurrences untouched; mirror that behavior in memory.
+        for (const row of update.occurrences) old.set(row.id, row)
+        next.occurrences = [...old.values()].sort((a, b) => a.id.localeCompare(b.id))
+        for (const symbol of new Set(update.newCandles.map((row) => row.symbol))) next.raw[symbol].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+        return { next }
       })
+      if (!committed.next) return committed
+      // COMMIT must succeed before publishing. An uncertain commit leaves the old
+      // revision cached, so the next attempt is rejected rather than duplicating work.
+      cache.set(id, committed.next)
+      return structuredClone(committed.next.checkpoint)
     },
     close: () => db.end(),
   }
