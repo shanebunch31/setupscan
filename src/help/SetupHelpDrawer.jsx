@@ -235,11 +235,15 @@ export function SetupHelpDrawer({ open, view, tool, onClose }) {
           <div className="setup-help-term-list">
             {visibleTerms.length ? (
               visibleTerms.map(({ term, definition }) => (
-                <article key={term} className="setup-help-term">
-                  <strong>{term}</strong>
-                  <p>{definition}</p>
-                </article>
-              ))
+  <details key={term} className="setup-help-term">
+    <summary>
+      <strong>{term}</strong>
+      <span aria-hidden="true">+</span>
+    </summary>
+
+    <p>{definition}</p>
+  </details>
+))
             ) : (
               <p className="setup-help-empty">
                 No glossary terms match that search.

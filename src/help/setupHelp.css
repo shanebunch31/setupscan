@@ -328,4 +328,119 @@ dialog.setup-help-backdrop::backdrop { background: #02080fb8; backdrop-filter: b
 .setup-help-close { display: inline-flex; align-items: center; gap: 5px; width: auto; padding: 0 9px; font: 600 11px var(--sans); }
 .setup-help-close:focus-visible { outline: 2px solid #1687ff; outline-offset: 2px; }
 .setup-help-disclaimer { display: block; }
+/* =========================================================
+   SETUP HELP DRAWER — COMPACT / ACCORDION REFINEMENT
+   ========================================================= */
 
+.setup-help-drawer {
+  width: min(390px, calc(100vw - 18px));
+}
+
+dialog.setup-help-backdrop::backdrop {
+  background: rgba(2, 8, 15, .58);
+  backdrop-filter: blur(1.5px);
+}
+
+/* Search */
+
+.setup-help-search {
+  height: 40px;
+  margin: 0 16px 14px;
+  padding: 0 12px;
+  border-color: #1b3a55;
+  border-radius: 8px;
+  background: #071725;
+}
+
+/* Accordion glossary */
+
+.setup-help-term-list {
+  gap: 6px;
+}
+
+.setup-help-term {
+  padding: 0;
+  overflow: hidden;
+  background: #081a2a;
+  border: 1px solid #142f47;
+  border-radius: 7px;
+}
+
+.setup-help-term > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  padding: 10px 12px;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.setup-help-term > summary::-webkit-details-marker {
+  display: none;
+}
+
+.setup-help-term > summary strong {
+  margin: 0;
+  color: #f0f6fd;
+  font-size: 12px;
+}
+
+.setup-help-term > summary > span {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  color: #65c8ff;
+  font: 700 15px/1 var(--sans);
+  transition: transform .16s ease;
+}
+
+.setup-help-term[open] > summary {
+  background: #0c2235;
+}
+
+.setup-help-term[open] > summary > span {
+  transform: rotate(45deg);
+}
+
+.setup-help-term > p {
+  margin: 0;
+  padding: 0 12px 12px;
+  color: #9aafc0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* Keep the safety reminder visible */
+
+.setup-help-disclaimer {
+  position: sticky;
+  z-index: 3;
+  bottom: 0;
+  margin: 0;
+  padding: 13px 18px 15px;
+  border-top: 1px solid #263442;
+  border-left: 3px solid #ffad3d;
+  background:
+    linear-gradient(
+      90deg,
+      rgba(255, 173, 61, .10),
+      #091725 36%
+    );
+  box-shadow: 0 -10px 22px rgba(2, 8, 15, .72);
+}
+
+/* Prevent sticky Help disclaimer from covering glossary rows */
+
+.setup-help-glossary {
+  padding-bottom: 105px;
+}
+
+.setup-help-disclaimer {
+  background: #091725;
+  box-shadow: 0 -12px 24px rgba(2, 8, 15, .9);
+}

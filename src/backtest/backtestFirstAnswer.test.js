@@ -79,9 +79,24 @@ test('Backtest Diagnostics contains one summary and intro with valid paragraph a
 })
 
 test('primary, mobile, and Labs navigation expose the currently selected destination', () => {
-  assert.equal((mainSource.match(/aria-current=\{view === item\.id \? 'page' : undefined\}/g) ?? []).length, 2)
-  assert.match(mainSource, /aria-current=\{researchTab === tab\.id \? 'page' : undefined\}/)
-  assert.match(mainSource, /<nav className="research-subnav" aria-label="Research labs">/)
+  assert.equal(
+    (
+      mainSource.match(
+        /aria-current=\{view === item\.id \? 'page' : undefined\}/g,
+      ) ?? []
+    ).length,
+    2,
+  )
+
+  assert.match(
+    mainSource,
+    /aria-current=\{\s*researchTab === tab\.id\s*\?\s*'page'\s*:\s*undefined\s*\}/,
+  )
+
+  assert.match(
+    mainSource,
+    /<nav\s+className="research-subnav research-labs-subnav"\s+aria-label="Research labs"\s*>/,
+  )
 })
 
 test('shared design tokens keep the light palette, readable type, and focus states consistent', () => {

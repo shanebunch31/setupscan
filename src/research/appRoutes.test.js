@@ -52,7 +52,7 @@ test('direct Quick Backtest refresh selects Research, Labs and the tool without 
   assert.match(html, /aria-current="page">Labs<\/button>/)
   const main = readFileSync(new URL('../main.jsx', import.meta.url), 'utf8')
   assert.match(main, /aria-current=\{view === item\.id \? 'page' : undefined\}/)
-  assert.match(main, /aria-current=\{researchTab === tab\.id \? 'page' : undefined\}/)
+  assert.match(main, /aria-current=\{\s*researchTab === tab\.id\s*\?\s*'page'\s*:\s*undefined\s*\}/)
   assert.doesNotMatch(main.slice(main.indexOf('const navItems'), main.indexOf('const researchTabs')), /Backtest/)
 })
 

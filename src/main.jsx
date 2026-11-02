@@ -1438,18 +1438,63 @@ const handleResearchWorkspaceNavigate = (nextView) => {
 
   const existingResearchLabs = (
     <>
-      <nav className="research-subnav" aria-label="Research labs">
-        {researchTabs.map((tab) => (
-          <button
-            key={tab.id}
-            className={`research-tab ${researchTab === tab.id ? 'active' : ''} ${tab.placeholder ? 'is-placeholder' : ''}`}
-            aria-current={researchTab === tab.id ? 'page' : undefined}
-            onClick={() => handleResearchLabNavigate(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
+      <nav
+  className="research-subnav research-labs-subnav"
+  aria-label="Research labs"
+>
+  {researchTabs.slice(0, 5).map((tab) => (
+    <button
+      key={tab.id}
+      className={`research-tab is-${tab.id} ${
+      researchTab === tab.id ? 'active' : ''
+    }`}
+      aria-current={
+        researchTab === tab.id ? 'page' : undefined
+      }
+      onClick={() => handleResearchLabNavigate(tab.id)}
+    >
+      {tab.label}
+    </button>
+  ))}
+
+  <details className="research-more-labs">
+    <summary
+     className={`research-tab research-more-labs-trigger ${
+  researchTabs
+    .slice(5)
+    .some((tab) => tab.id === researchTab)
+    ? `active is-${researchTab}`
+    : 'is-more-labs'
+ }`}
+    >
+      More Labs
+      <span aria-hidden="true">⌄</span>
+    </summary>
+
+    <div className="research-more-labs-menu">
+      {researchTabs.slice(5).map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          className={
+            researchTab === tab.id ? 'active' : ''
+          }
+          aria-current={
+            researchTab === tab.id ? 'page' : undefined
+          }
+          onClick={(event) => {
+            handleResearchLabNavigate(tab.id)
+            event.currentTarget
+              .closest('details')
+              ?.removeAttribute('open')
+          }}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  </details>
+</nav>
       {researchTab === 'overview' && (
   <ResearchLabsOverview
     onOpenLab={handleResearchLabNavigate}
