@@ -3,3 +3,6 @@ dist/
 .DS_Store
 .env
 server/data/
+.env.*
+/SUPABASE.txt
+.worktrees/

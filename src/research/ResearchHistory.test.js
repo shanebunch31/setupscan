@@ -126,7 +126,7 @@ test('history renders persisted run rows without ranking or scoring', () => {
     assert.ok(html.includes(text), `expected history row to include ${text}`)
   }
   assert.match(html, /historical market-data set used by the run/)
-  assert.match(html, /View details for run-history-1/)
+  assert.match(html, /View Results for run-history-1/)
   assert.doesNotMatch(html, /rank|score|recommendation/i)
 })
 

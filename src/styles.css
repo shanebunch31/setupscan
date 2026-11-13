@@ -5793,3 +5793,36 @@ tbody tr.selected-row td:first-child {
     padding: 16px;
   }
 }
+
+/* Saved research results use the active theme and retain narrow-screen access. */
+.research-history-select { white-space: nowrap; background: var(--panel); }
+.research-run-detail .research-detail-overview { margin-inline: 0; background: var(--panel); }
+.research-run-detail .research-detail-metadata > div,
+.research-run-detail .research-detail-provenance > div,
+.research-run-detail .research-detail-groups > li,
+.research-run-detail .research-detail-metric-card,
+.research-run-detail .workbench-experiment-list li { background: var(--panel); }
+.saved-strategy-comparison { min-width: 0; }
+.saved-strategy-comparison-table { max-width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+.saved-strategy-comparison-table:focus-visible,
+.research-history-select:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+.saved-strategy-comparison table { width: 100%; min-width: 420px; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.saved-strategy-comparison caption { padding: 12px; text-align: left; color: var(--muted); }
+.saved-strategy-comparison th,
+.saved-strategy-comparison td { padding: 10px 12px; text-align: right; border-top: 1px solid var(--line); }
+.saved-strategy-comparison thead th { background: var(--panel); }
+.saved-strategy-comparison thead span,
+.saved-strategy-comparison thead strong { display: block; }
+.saved-strategy-comparison thead span { margin-bottom: 4px; color: var(--muted); }
+.saved-strategy-comparison th:first-child { text-align: left; }
+.saved-strategy-comparison-dataset { overflow-wrap: anywhere; font-size: 11px; }
+@media (max-width: 560px) {
+  .research-run-detail .research-detail-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.research-run-detail .workbench-status-label { background: var(--panel); color: var(--ink); border: 1px solid var(--line); }
+.research-run-detail .workbench-status-completed { color: var(--green); }
+.saved-strategy-comparison-scroll-hint { display: none; }
+@media (max-width: 560px) {
+  .saved-strategy-comparison-scroll-hint { display: block; }
+}

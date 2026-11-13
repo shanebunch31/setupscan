@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { LoaderCircle, RotateCcw } from 'lucide-react'
 import { getResearchDataset, getResearchRun } from './researchRunHistory.js'
 import {
@@ -14,6 +14,7 @@ import { ExecutionResolutionResult } from './ExecutionResolutionResult.js'
 import { ScannerAblationResult } from './ScannerAblationResult.js'
 import { ScannerScoreStabilityResult } from './ScannerScoreStabilityResult.js'
 import { QualificationStackResult } from './QualificationStackResult.js'
+import { StrategyComparisonResult } from './StrategyComparisonResult.js'
 
 const h = React.createElement
 
@@ -181,6 +182,9 @@ function PersistedRunSummary({ run }) {
         'Historical results describe past data and do not establish future performance.',
       ),
     ),
+
+    ...(run.records ?? []).filter(record => record.id === 'strategy-comparison').map(record =>
+      h(StrategyComparisonResult, { key: record.id, record, dataset })),
 
     h(
       DetailSection,
@@ -964,7 +968,9 @@ export function ResearchRunDetail({
   onSelectRun = null,
   loading: externalLoading = false,
   error: externalError = null,
+  focusOnLoad = false,
 }) {
+  const headingRef = useRef(null)
   const [
     loadedRunState,
     setLoadedRunState,
@@ -1056,6 +1062,10 @@ export function ResearchRunDetail({
     run,
     loadedRunState,
   )
+
+  useEffect(() => {
+    if (focusOnLoad && displayRun) headingRef.current?.focus()
+  }, [focusOnLoad, displayRun])
 
   const displayError =
     externalError ?? error
@@ -1168,6 +1178,8 @@ export function ResearchRunDetail({
           {
             id:
               'research-run-detail-title',
+            ref: headingRef,
+            tabIndex: -1,
           },
           'Run detail',
         ),

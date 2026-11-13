@@ -184,7 +184,7 @@ export function ResearchHistoryTable({
                   type: 'button',
                   className:
                     'research-history-select',
-                  'aria-label': `View details for ${run.runId}`,
+                  'aria-label': `View Results for ${run.runId}`,
                   'aria-pressed':
                     selectedRunId ===
                     run.runId,
@@ -193,7 +193,7 @@ export function ResearchHistoryTable({
                       run.runId,
                     ),
                 },
-                'View',
+                'View Results',
               ),
             ),
           ),
@@ -692,6 +692,7 @@ export function ResearchHistory({
             error:
               detailError,
             getRun,
+            focusOnLoad: true,
             onSelectRun: 
               selectRun,
             replayRun:
