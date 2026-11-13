@@ -112,8 +112,8 @@ function flattenRecord(record) {
   const hasContextScope = ['joined-context', 'candidate-context-robustness', 'candidate-exit-management', 'candidate-execution-resolution', 'scanner-component-ablation', 'scanner-score-redundancy-stability', 'qualification-stack-condition-count'].includes(record.id)
   Object.entries(metrics).forEach(([metricsKey, value]) => {
     if (!value || typeof value !== 'object') return
-    const { strategyId, ruleSetVariant, membershipRule, ...rest } = value
-    entries.push(makeEvidence(
+    const { strategyId, ruleSetVariant, membershipRule, discoveryDetail, ...rest } = value
+    const entry = makeEvidence(
       record,
       metricsKey,
       strategyId,
@@ -124,7 +124,11 @@ function flattenRecord(record) {
       hasContextScope ? value.periodRole : inferOutOfSampleRole(metricsKey, record.outOfSample),
       'explicit',
       hasContextScope && value.symbol !== 'pooled' ? [value.symbol] : null,
-    ))
+    )
+    // These are overlapping views of this same primary sample. Keep them attached
+    // instead of flattening them into additional confirmations or conflict pairs.
+    if (record.id === 'strategy-discovery' && discoveryDetail) entry.discoveryDetail = discoveryDetail
+    entries.push(entry)
   })
 
     // Resilience can provide separate in-sample/out-of-sample partitions for each symbol.

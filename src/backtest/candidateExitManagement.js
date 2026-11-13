@@ -8,7 +8,7 @@ import { synchronizeCandleSeries } from './relativeValue.js'
 import { validateAndOrderHistoricalCandles } from '../data/marketData.js'
 import { candleCompletesBy, historicalCandleEndTime } from '../data/historicalDataContract.js'
 
-export const candidateExitMethodology = 'candidate-exit-management-1'
+export const candidateExitMethodology = 'candidate-exit-management-2'
 export const candidateExitConfiguration = Object.freeze({
   candidateId: 'trend-up-medium-volatility-v1', candidateMethodology: candidateRobustnessMethodology,
   membershipRule: 'research-eligible-75-plus', timeframe: '1Hour',
@@ -18,6 +18,7 @@ export const candidateExitConfiguration = Object.freeze({
   trailDistancePercent: trailingStopBacktestDefaults.trailDistancePercent,
   samplePolicy: 'Paired resolved outcomes: both exits must resolve inside the summary period and original Joined Context decision period.',
   concentrationPolicy: 'Eastern decision dates, ranked separately per exit method by before-cost total R; ties by date; same removals at all costs. Different methods may remove different days.',
+  pairedConcentrationPolicy: 'Eastern decision dates ranked by paired fixed-exit before-cost total R, ties by ascending date; identical top-five or union of top/bottom-five removals for both exits at all costs. Descriptive stress only, not independent validation.',
   drawdownPolicy: 'Sequential R in signal order, not account equity; overlapping positions and capital limits are not modeled.',
 })
 const methods = ['fixed', 'trailing']
@@ -91,6 +92,42 @@ export function summarizeCandidateExitPairs(pairs, symbols, periods) {
   }))
 }
 
+const easternDateFormat = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' })
+const easternDay = timestamp => easternDateFormat.format(new Date(timestamp))
+export function summarizePairedExitConcentration(pairs, symbols, periods) {
+  return periods.flatMap(period => symbols.map(symbol => {
+    const candidates = pairs.filter(pair => pair.symbol === symbol && within(pair.decisionTimestamp, period))
+    const paired = candidates.filter(pair => methods.every(method => !exclusion(pair, method, period)))
+      .slice().sort((a, b) => a.decisionTimestamp.localeCompare(b.decisionTimestamp) || String(a.id).localeCompare(String(b.id)))
+    const days = new Map()
+    for (const pair of paired) {
+      const day = easternDay(pair.decisionTimestamp)
+      days.set(day, (days.get(day) ?? 0) + pair.exits.fixed.trade.rMultiple)
+    }
+    const top = [...days].sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0])).slice(0,5).map(([day]) => day)
+    const bottom = [...days].sort((a,b) => a[1]-b[1] || a[0].localeCompare(b[0])).slice(0,5).map(([day]) => day)
+    return { key: period.key + '::' + symbol, symbol, period, ranking: 'fixed-before-cost-total-r',
+      candidateCount: candidates.length, pairedCount: paired.length, outcomeExcludedCount: candidates.length - paired.length,
+      activeDays: days.size, reconciliationStatus: 'reconciled',
+      checks: [
+        { key: 'baseline', removedDays: [] },
+        { key: 'remove-top-5-days', removedDays: top },
+        { key: 'remove-top-and-bottom-5-days', removedDays: [...new Set([...top,...bottom])].sort() },
+      ].map(check => {
+        const kept = paired.filter(pair => !check.removedDays.includes(easternDay(pair.decisionTimestamp)))
+        const summaries = Object.fromEntries(methods.map(method => [method, summary(kept.map(pair => ({ ...pair, ...pair.exits[method] })))]))
+        const differences = costTierDefinitions.map(([label,costR],index) => {
+          const a=summaries.fixed.costTiers[index].metrics, b=summaries.trailing.costTiers[index].metrics
+          return { label, costR, direction: 'trailing-minus-fixed', ...Object.fromEntries(['averageR','totalR','winRate','profitFactor','maximumDrawdown'].map(metric =>
+            [metric, a && b && Number.isFinite(a[metric]) && Number.isFinite(b[metric]) ? b[metric]-a[metric] : null])) }
+        })
+        return { ...check, removedDayCount: check.removedDays.length, removedObservationCount: paired.length-kept.length,
+          pairedCount: kept.length, activeDays: new Set(kept.map(pair => easternDay(pair.decisionTimestamp))).size,
+          methods: summaries, differences, reconciliationStatus: 'reconciled' }
+      }) }
+  }))
+}
+
 export function runCandidateExitManagement(rawSeriesBySymbol, options = {}) {
   const joined = buildJoinedContextStudyInput(rawSeriesBySymbol, options)
   if (!joined.available) return joined
@@ -115,6 +152,7 @@ export function runCandidateExitManagement(rawSeriesBySymbol, options = {}) {
     symbols: joined.symbols, regimeSourceSymbol: joined.regimeSourceSymbol, periods,
     costTiers: costTierDefinitions.map(([label, costR]) => ({ label, costR })),
     rows: summarizeCandidateExitPairs(pairs, joined.symbols, periods), pairs,
+    pairedConcentration: summarizePairedExitConcentration(pairs, joined.symbols, periods),
     coverage: { actualDateRange: joined.actualDateRange, dataQuality: joined.dataQuality,
       alignmentDroppedCounts: joined.alignmentDroppedCounts, completionExcludedCounts: joined.completionExcludedCounts,
       researchEligibleCount: joined.records.length, candidateCount: pairs.length },
@@ -122,7 +160,7 @@ export function runCandidateExitManagement(rawSeriesBySymbol, options = {}) {
       'Historical repeated exploration, not untouched validation or evidence of future profitability. No exit method is automatically selected.',
       'Under 30 resolved: insufficient; 30–99: exploratory; 100+: stronger descriptive evidence, not statistical significance.',
       'Both exits share the paired resolved sample; a result available for only one exit is excluded from both and counted separately.',
-      candidateExitConfiguration.samplePolicy, candidateExitConfiguration.concentrationPolicy, candidateExitConfiguration.drawdownPolicy,
+      candidateExitConfiguration.samplePolicy, candidateExitConfiguration.concentrationPolicy, candidateExitConfiguration.pairedConcentrationPolicy, candidateExitConfiguration.drawdownPolicy,
       'Costs subtract fixed R per trade, not actual bid/ask or executable fills. Holding bars are observed aligned hourly bars, not elapsed wall-clock hours.',
       'Stop-first when the open is between barriers; adverse stop gaps fill at the open, target gaps at the target. A raised trailing stop applies only to later candles.',
     ],

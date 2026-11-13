@@ -144,6 +144,66 @@ test('execution resolution saves both canonical timeframes and normalized paired
   assert.equal(rejected.payload.code, 'RESEARCH_RUN_INVALID')
 })
 
+test('exit management v2 runs, projects, saves via API and reloads every paired comparison using mock PostgreSQL', async () => {
+  const id = 'candidate-exit-management'
+  const request = { symbols: ['SPY', 'QQQ', 'IWM'], timeframe: '1Hour', requestedStart: '2024-01-01T00:00:00Z', requestedEnd: '2024-03-01T00:00:00Z', requestedExperiments: [id] }
+  const run = await runResearch(request, { fetchHistoricalMarketData: async (symbol, timeframe) => {
+    const candles = Array.from({ length: 1200 }, (_, i) => {
+      const close = 100 + i * .03 + Math.sin(i / 6)
+      return { symbol, timeframe, timestamp: new Date(Date.UTC(2024, 0, 1) + i * 3600000).toISOString(), open: close, high: close + .2, low: close - .2, close, volume: 1000 + i }
+    })
+    return { provider: 'synthetic-test', symbol, timeframe, adjustmentMode: 'split', candles, start: candles[0].timestamp, end: candles.at(-1).timestamp,
+      requestedStart: request.requestedStart, requestedEnd: request.requestedEnd, candleCount: candles.length, complete: true }
+  } })
+  assert.equal(run.status, 'completed')
+  const paired = run.records[0].parameters.candidateExitManagement.pairedConcentration
+  assert.ok(paired.some(row => row.pairedCount > 0 && row.checks[1].pairedCount > 0))
+  const projected = projectResearchRunForPersistence(run)
+  const pool = new MemoryResearchPool()
+  const store = createResearchRunStore({ pool })
+  const api = createResearchRunApi({ store })
+  async function invoke(method, path, body) {
+    let status, payload
+    const req = Readable.from(body ? [Buffer.from(stringifyResearchJson(body))] : [])
+    req.method = method
+    await api(req, { writeHead(code) { status = code }, end(value) { payload = parseResearchJson(value) } }, new URL(path, 'http://fixture.invalid'))
+    return { status, payload }
+  }
+  for (const invalidVersion of ['candidate-exit-management-999', 'candidate-exit-management-1']) {
+    const invalid = structuredClone(projected)
+    invalid.records[0].methodologyVersion = invalidVersion
+    const rejected = await invoke('POST', '/api/research-runs', invalid)
+    assert.equal(rejected.status, 400)
+    assert.equal(rejected.payload.code, 'RESEARCH_RUN_INVALID')
+    assert.equal(pool.schemaQueries, 0)
+  }
+  assert.equal((await invoke('POST', '/api/research-runs', projected)).status, 201)
+  const response = await invoke('GET', `/api/research-runs/${run.runContext.runId}`)
+  assert.equal(response.status, 200)
+  const saved = response.payload
+  assert.equal(saved.records[0].methodologyVersion, 'candidate-exit-management-2')
+  assert.equal(saved.runContext.runId, run.runContext.runId)
+  assert.equal(saved.dataset.datasetId, run.dataset.datasetId)
+  assert.deepEqual(saved.records[0].parameters.candidateExitManagement.pairedConcentration, paired)
+  assert.equal(stringifyResearchJson(saved.records), stringifyResearchJson(projected.records))
+  assert.deepEqual(saved.records[0].provenance, projected.records[0].provenance)
+  assert.deepEqual(saved.records[0].costModel, projected.records[0].costModel)
+  assert.deepEqual(saved.synthesis, projected.synthesis)
+  assert.deepEqual(saved.runContext.effectiveExperimentConfiguration, projected.runContext.effectiveExperimentConfiguration)
+  assert.equal(saved.records[0].nativePayload, undefined)
+  assert.equal(saved.records[0].parameters.candidateExitManagement.pairs, undefined)
+  assert.equal(saved.experimentResults[0].nativeOutput, null)
+  const html = renderToStaticMarkup(React.createElement(ResearchRunDetail, { run: saved }))
+  assert.match(html, /candidate-exit-management-2/)
+  assert.match(html, /paired::remove-top-5-days::fixed/)
+  assert.match(html, /paired::remove-top-5-days::trailing/)
+  const rejected = await invoke('POST', '/api/research-runs', {
+    ...projected, runContext: { ...projected.runContext, requestedExperiments: ['fake-exit-id'] },
+  })
+  assert.equal(rejected.status, 400)
+  assert.equal(rejected.payload.code, 'RESEARCH_RUN_INVALID')
+})
+
 test('four-experiment run including joined-context round-trips through the real store interface with a mock pool', async () => {
   const pool = new MemoryResearchPool()
   const store = createResearchRunStore({ pool })
@@ -230,6 +290,7 @@ test('candidate exit management passes canonical save validation and compact nor
   assert.equal(loaded.runContext.requestedExperiments[0], id)
   assert.equal(loadedRecord.id, id)
   assert.equal(loadedRecord.methodologyVersion, 'candidate-exit-management-1')
+  assert.equal(loadedRecord.parameters.candidateExitManagement.pairedConcentration, undefined)
   assert.equal(loadedRecord.parameters.candidateExitManagement.candidate.id, 'trend-up-medium-volatility-v1')
   assert.equal(loadedRecord.metrics['full::SPY::trailing'].exitComparison.accounting.reconciliationStatus, 'reconciled')
   assert.equal(loadedRecord.provenance.datasetId, datasetId)

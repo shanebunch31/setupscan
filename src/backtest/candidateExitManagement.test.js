@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFile } from 'node:fs/promises'
-import { buildCandidateExitPair, summarizeCandidateExitPairs, runCandidateExitManagement, candidateExitConfiguration } from './candidateExitManagement.js'
+import { buildCandidateExitPair, summarizePairedExitConcentration, summarizeCandidateExitPairs, runCandidateExitManagement, candidateExitConfiguration } from './candidateExitManagement.js'
 import { createTrailingStopTrade } from './candidateTrailingStopTrade.js'
 import { runTrailingStopBacktest } from './strategy.js'
 import { buildJoinedContextStudyInput } from './joinedContextStudy.js'
@@ -220,4 +220,54 @@ test('incomplete hours, invalid inputs and no shared observations fail safely wi
   assert.equal(runCandidateExitManagement({ SPY: [] }).available, false)
   assert.equal(runCandidateExitManagement({ SPY: raw.map((bar) => ({ ...bar, timeframe: '5Min' })) }).available, false)
   assert.equal(runCandidateExitManagement({ SPY: raw }, { requestedEnd: 'bad' }).available, false)
+})
+
+test('paired concentration ranks fixed baseline, preserves independent results and reconciles all costs', () => {
+ const pairs = Array.from({length:12},(_,i)=>{const p=syntheticPair('2024-06-'+String(i+1).padStart(2,'0'),i-3);p.exits.trailing.trade.rMultiple=10-i;return p})
+ const unchanged = structuredClone(pairs)
+ const independent = summarizeCandidateExitPairs(pairs,['SPY'],[period])
+ const [row] = summarizePairedExitConcentration(pairs,['SPY'],[period])
+ const top=row.checks[1],both=row.checks[2]
+ assert.deepEqual(top.removedDays,['2024-06-12','2024-06-11','2024-06-10','2024-06-09','2024-06-08'])
+ assert.notDeepEqual(independent[1].concentration[1].removedDays,top.removedDays)
+ assert.equal(top.pairedCount,7);assert.equal(top.activeDays,7);assert.equal(both.pairedCount,2)
+ assert.equal(top.methods.fixed.metrics.totalR,0)
+ assert.equal(top.methods.trailing.metrics.totalR,49)
+ for(const check of row.checks){
+  assert.equal(check.pairedCount+check.removedObservationCount,row.pairedCount)
+  for(let i=0;i<4;i++){
+   assert.equal(check.methods.fixed.costTiers[i].metrics.tradeCount,check.pairedCount)
+   assert.equal(check.methods.trailing.costTiers[i].metrics.tradeCount,check.pairedCount)
+   close(check.differences[i].totalR,check.methods.trailing.costTiers[i].metrics.totalR-check.methods.fixed.costTiers[i].metrics.totalR)
+  }
+ }
+ assert.deepEqual(summarizeCandidateExitPairs(pairs,['SPY'],[period]),independent)
+ assert.deepEqual(pairs,unchanged)
+ assert.deepEqual(summarizePairedExitConcentration([...pairs].reverse(),['SPY'],[period]),[row])
+})
+test('paired stress handles ties, Eastern days, overlap, small and empty samples without invented metrics', () => {
+ const a=syntheticPair('2024-06-02',1),b=syntheticPair('2024-06-01',1)
+ a.decisionTimestamp='2024-06-02T01:00:00Z'
+ const c=syntheticPair('2024-06-03',2)
+ const [row] = summarizePairedExitConcentration([c,a,b],['SPY'],[period])
+ assert.equal(row.activeDays,2)
+ assert.deepEqual(row.checks[1].removedDays,['2024-06-01','2024-06-03'])
+ assert.equal(row.checks[2].removedDayCount,2)
+ assert.equal(row.checks[1].pairedCount,0)
+ assert.equal(row.checks[1].methods.fixed.metrics,null)
+ assert.equal(row.checks[1].differences[0].averageR,null)
+ assert.equal(row.checks[0].methods.fixed.evidenceStrength,'insufficient-evidence')
+ const [empty]=summarizePairedExitConcentration([],['SPY'],[period])
+ assert.equal(empty.pairedCount,0);assert.equal(empty.activeDays,0)
+ assert.equal(empty.checks[0].methods.trailing.metrics,null)
+})
+test('paired stress excludes boundary-crossing outcomes from both exits and isolates symbols and future periods', () => {
+ const periods=[{key:'year',start:'2024-01-01T00:00:00Z',end:'2024-12-31T23:59:59.999Z'}]
+ const valid=syntheticPair('2024-06-01',1),cross=syntheticPair('2024-12-31',100)
+ cross.exits.trailing.outcomeTimestamp='2025-01-01T01:00:00Z'
+ const [row,other]=summarizePairedExitConcentration([valid,cross,syntheticPair('2024-06-02',50,'QQQ')],['SPY','QQQ'],periods)
+ assert.equal(row.pairedCount,1);assert.equal(row.outcomeExcludedCount,1)
+ assert.equal(row.checks[0].methods.fixed.metrics.totalR,1)
+ assert.equal(other.checks[0].methods.fixed.metrics.totalR,50)
+ assert.deepEqual(summarizePairedExitConcentration([valid,cross,syntheticPair('2025-06-01',900)],['SPY'],periods)[0],row)
 })

@@ -430,3 +430,18 @@ test('commit response loss never publishes tentative cache or duplicates a succe
   assert.equal(f.data().candles.length, 1)
   assert.equal(fullReads(f), 1)
 })
+
+test('v2 persistence failure remains atomic and terminal evidence cannot be rewritten', async () => {
+  const f = fixture(), store = createShadowStore({ pool: f.pool })
+  f.mutate(data => { data.definition.candidate = { ...shadowCandidate, forwardVersion: 'shadow-forward-2' } })
+  const before = f.data()
+  f.fail('UPDATE research_shadow_tracking')
+  await assert.rejects(store.cycle('test', async () => update()), /synthetic/)
+  assert.deepEqual(f.data(), before)
+  f.fail(null)
+  const resolved = { ...occurrence, state: 'resolved', theoretical: { entryPrice: 100 }, outcome: { rawR: -1 } }
+  await store.cycle('test', async () => update([resolved]))
+  const saved = f.data()
+  await assert.rejects(store.cycle('test', async () => ({ ...update([{ ...resolved, outcome: { rawR: 2 } }]), newCandles: [] })), /immutable/)
+  assert.deepEqual(f.data(), saved)
+})

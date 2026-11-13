@@ -145,3 +145,29 @@ Activation remains blocked on approval of the effective historical start, real d
 3. Verify the source fingerprint, read-only API permissions and intended privacy policy. Test the UI on desktop/mobile and with keyboard/screen reader.
 4. Measure bootstrap/poll latency and data volume; confirm provider feed, timestamp conventions and delayed-bar behavior. Five-minute freshness is an observation policy, not a provider guarantee.
 5. Only after explicit deployment approval configure a separate worker. Keep the existing paper worker and records untouched. Monitor failure logs and last-success timestamps; disabling the shadow worker does not require deleting evidence.
+
+## Provider-finalization incident and protocol v2 (local implementation; NOT ACTIVATED)
+
+The November 2 incident was a provider revision, not a TLS/database/authentication failure. The 20:00 UTC QQQ and SPY bars were accepted about 1.7 seconds after completion and later revised. Per the incident record, they generated no occurrences; the one resolved QQQ occurrence ended October 28 and is unaffected. No database inspection or repair was performed for this change.
+
+New explicit initialization now writes `shadow-forward-2` into the frozen candidate definition. Candidate ID, conditions, historical methodology, outcome model and costs stay unchanged. The historical `shadowCandidate` v1 export and v1 timing path remain for compatibility/testing; this source revision changes the fingerprint, so it cannot silently resume an existing frozen v1 tracker.
+
+Timing is fixed by protocol (not a mutable environment setting):
+- v1: completion + 0 minutes; detection through completion + 5 minutes.
+- v2: **10-minute publication grace**, then **5 minutes** for detection. A 20:00–21:00 UTC bar is eligible at 21:10 and may be detected through 21:15 inclusive. Its decision timestamp remains 21:00; `createdAt` records the actual later observation. This is a delayed research observation, not a timely executable entry.
+- Both versions require successful polling continuity within 5 minutes. First bootstrap and an interruption longer than that set a new actual detection boundary and collect no missed detections. A decision must still complete after that boundary, not merely become publication-eligible afterward.
+- Eligibility uses request-start observation time; freshness is checked again after calculation. Future/forming or not-yet-publication-eligible candles are not frozen. Existing stored bars still undergo conflict checks. Pending outcomes retain their existing theoretical model and advance only through accepted data.
+- Ten minutes is a conservative operational buffer, **not a verified Alpaca finality guarantee**. Revisions after acceptance still fail closed. A further timing change requires another reviewed protocol.
+
+Safe runtime diagnostics expose allowlisted codes: PROVIDER_REVISION, LATE_INSERTION, SOURCE_MISMATCH, INCOMPATIBLE_PROTOCOL (manual review); PROVIDER_REQUEST_FAILED; INCOMPATIBLE_DATA; INVALID_CANDLES; INSUFFICIENT_HISTORY; STORAGE_FAILURE; UNEXPECTED_CYCLE_FAILURE. No exception text, credentials or provider bodies are logged. Unknown failures remain unknown. A storage failure does not claim rollback or rule out an uncertain commit.
+
+The in-process `status()` includes current state, last known successful persisted cycle, consecutive failures, failure code/manual-review flag, successful-cycle age and polling-overdue (>5 minutes). Missing success history yields null age/overdue. This is polling health, not a claim of fresh market bars; closed sessions need not produce new decisions. Existing reporting endpoints do not expose this separate process's live health. No failure-only database writes or UI changes were added.
+
+### Future recovery procedure — requires separate approval; do not execute now
+1. Keep the incident tracker stopped and preserve its definition, candles, checkpoint and resolved occurrence exactly as stored. Do not repair in place, overwrite revisions, or reinitialize its identity.
+2. Review the v2 diff, mock tests and source fingerprint. Select a new operator-approved tracking ID (none is chosen in code), unchanged candidate/universe/provider/adjustment and an explicit fixed context-history start. Review historical provider context; grace alone does not certify it will never be revised.
+3. Set a future tracking start and new identity in the operator environment only after approval. Use the existing explicit init command and confirmation procedure for that new identity; it now freezes v2. Never reuse the incident ID.
+4. Separately approve starting the new tracker. Its first successful cycle establishes a fresh boundary from publication-eligible history with zero bootstrap detections. Do not reconstruct outage detections or combine v1/v2 evidence as one uninterrupted protocol.
+5. Observe clean future cycles and provenance. Any subsequent frozen-candle conflict again requires manual review. No automatic promotion is authorized.
+
+No real initialization, provider requests, database access, restart or deployment was performed in this implementation batch.

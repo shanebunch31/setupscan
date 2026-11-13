@@ -1,7 +1,7 @@
 export const INTERPRETATION_SCHEMA_VERSION = 1
 const DISCOVERY = 'strategy-discovery'
 const DISCOVERY_VERSION = 'strategy-discovery-2'
-const DISCOVERY_MIN_EXPLORATORY = 100
+export const DISCOVERY_MIN_EXPLORATORY = 100
 const array = (value) => (Array.isArray(value) ? value : [])
 const text = (value) => (typeof value === 'string' && value.trim() ? value : null)
 const finite = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null)
@@ -124,6 +124,9 @@ function discoveryScope(evidence, ref, provenance) {
     emaContractVersion: evidence.emaContractVersion,
     adjustmentMode: evidence.adjustmentMode,
     membershipRule: evidence.membershipRule,
+    // New detail identifies the actual outcome being summarized. Do not compare
+    // e.g. a VWAP/10-bar primary outcome with a fixed +1R/5-bar outcome.
+    primaryOutcome: text(evidence.discoveryDetail?.primaryOutcome),
     codeRevision: ref.codeRevision,
     actualDateRange: { start: evidence.actualDateRange.start, end: evidence.actualDateRange.end },
     requestedDateRange: { start: evidence.requestedDateRange.start, end: evidence.requestedDateRange.end },
@@ -239,6 +242,111 @@ function combinedDirection(candidates) {
   return states.has('positive') ? 'positive' : states.has('negative') ? 'negative' : 'neutral'
 }
 
+// Interpret saved primary summaries within ONE parent scope. Partitions overlap
+// across dimensions and cost tiers reuse the same occurrences; never pool them.
+function discoveryObservations(evidence, item, scopeBlocked) {
+  const detail = evidence.discoveryDetail
+  const parent = item.sample.size
+  const compatible = !scopeBlocked && item.scope && detail?.schemaVersion === 1 &&
+    detail.strategyId === item.reference.strategyId &&
+    detail.methodologyVersion === item.reference.methodologyVersion && text(detail.primaryOutcome)
+  const base = {
+    reference: item.reference,
+    parentResolvedCount: parent,
+    sampleClassification: item.sample.classification,
+    independentConfirmation: false,
+  }
+  const direction = (value) => value > 0 ? 'positive' : value < 0 ? 'negative' : 'zero'
+  const pointRows = (rows) => array(rows).map((row) => ({
+    label: text(row?.label), resolvedCount: count(row?.metrics?.occurrenceCount),
+    expectancy: finite(row?.metrics?.expectancy), profitFactor: finite(row?.metrics?.profitFactor),
+  }))
+  const validRows = (rows) => rows.length > 0 && new Set(rows.map(row => row.label)).size === rows.length &&
+    rows.every(row => row.label && row.resolvedCount !== null &&
+      (row.resolvedCount === 0 || row.expectancy !== null))
+  const insufficient = item.sample.classification === 'insufficient'
+  const stability = ['year', 'symbol', 'period'].map((dimension) => {
+    const rows = pointRows(detail?.[{ year: 'byYear', symbol: 'bySymbol', period: 'byPeriod' }[dimension]])
+    let metadataKnown = compatible && validRows(rows) &&
+      rows.reduce((sum, row) => sum + row.resolvedCount, 0) === parent
+    let windows = []
+    if (dimension === 'year') metadataKnown &&= detail.yearBasis === 'entry-utc-year' && rows.every(row =>
+      /^\d{4}$/.test(row.label) && Number(row.label) >= new Date(item.scope.actualDateRange.start).getUTCFullYear() &&
+      Number(row.label) <= new Date(item.scope.actualDateRange.end).getUTCFullYear())
+    if (dimension === 'symbol') metadataKnown &&= rows.every(row => item.scope.symbols.includes(row.label))
+    if (dimension === 'period') {
+      windows = array(detail?.researchWindows).map(window => ({
+        role: text(window?.role), label: text(window?.label), start: text(window?.start), end: text(window?.end),
+      }))
+      metadataKnown &&= detail.periodBasis === 'primary-outcome-contained' && windows.length === 3 &&
+        windows.every((window, i) => window.role === ['development', 'outOfSample', 'holdout'][i] &&
+          window.label && Number.isFinite(Date.parse(window.start)) &&
+          (i === 2 && detail.researchWindows[i].end === null || Number.isFinite(Date.parse(window.end)) && Date.parse(window.end) >= Date.parse(window.start)) &&
+          (i === 0 || Date.parse(window.start) > Date.parse(windows[i - 1].end))) &&
+        new Set(windows.map(window => window.label)).size === 3 &&
+        rows.every(row => windows.some(window => window.label === row.label))
+    }
+    const usable = rows.filter(row => row.resolvedCount > 0)
+    const signs = new Set(usable.map(row => direction(row.expectancy)))
+    const status = !metadataKnown ? 'unavailable' : insufficient ? 'insufficient-evidence' :
+      usable.length < (dimension === 'period' ? 3 : 2) ? 'incomplete' : signs.has('positive') && signs.has('negative') ? 'mixed' : 'same-direction'
+    const messages = {
+      year: 'Historical direction was mixed across entry-year cohorts; outcomes can extend beyond a calendar year.',
+      symbol: 'Historical results differed across symbols, including both positive and negative expectancy.',
+      period: 'Development, out-of-sample and holdout results disagreed in historical direction.',
+    }
+    return {
+      ...base, dimension, status,
+      observations: rows.map(row => ({ ...row,
+        expectancy: row.resolvedCount === 0 ? null : row.expectancy,
+        profitFactor: row.resolvedCount === 0 ? null : row.profitFactor,
+        direction: metadataKnown && !insufficient && row.resolvedCount > 0 ? direction(row.expectancy) : null,
+      })),
+      ...(dimension === 'period' ? { researchWindows: windows } : {}),
+      text: status === 'mixed' ? messages[dimension] : status === 'same-direction'
+        ? `Available ${dimension} partitions have no positive-versus-negative reversal; this does not establish stability.`
+        : status === 'insufficient-evidence' ? 'The parent sample remains insufficient; partitions cannot strengthen it.'
+          : `Comparable ${dimension} evidence is missing or incomplete; no stability conclusion was inferred.`,
+      note: 'Overlapping descriptive views, not independent confirmations. Small partitions may be unreliable; repeated exploration weakens test independence.',
+    }
+  })
+  const tiers = array(detail?.costTiers).map(tier => ({
+    ...pointRows([tier])[0], entryBps: finite(tier?.entryBps), exitBps: finite(tier?.exitBps),
+  }))
+  const models = array(item.scope?.costModel?.costTiers)
+  const zero = tiers.find(tier => tier.entryBps === 0 && tier.exitBps === 0)
+  const validCosts = compatible && validRows(tiers) && tiers.length >= 2 &&
+    tiers.length === models.length && new Set(tiers.map(tier => `${tier.entryBps}/${tier.exitBps}`)).size === tiers.length &&
+    tiers.every(tier => tier.resolvedCount === parent && tier.entryBps !== null && tier.exitBps !== null &&
+      tier.entryBps >= 0 && tier.exitBps >= 0 && models.some(model => model.label === tier.label &&
+        model.entryBps === tier.entryBps && model.exitBps === tier.exitBps)) &&
+    zero && zero.expectancy !== null && item.metrics.expectancy !== null &&
+    Math.abs(zero.expectancy - item.metrics.expectancy) < 1e-10
+  const weakened = validCosts && tiers.some(tier => tier.expectancy < zero.expectancy)
+  const signChanged = validCosts && zero.expectancy > 0 && tiers.some(tier => tier.expectancy < 0)
+  const costStatus = !validCosts ? 'unavailable' : insufficient ? 'insufficient-evidence' :
+    weakened ? 'cost-sensitive' : 'no-weakening-observed'
+  return {
+    stability,
+    cost: {
+      ...base, status: costStatus,
+      positiveToNegative: validCosts && !insufficient ? Boolean(signChanged) : null,
+      observations: tiers.map(tier => ({ ...tier,
+        expectancy: tier.resolvedCount === 0 ? null : tier.expectancy,
+        profitFactor: tier.resolvedCount === 0 ? null : tier.profitFactor,
+        differenceFromBeforeCostsR: validCosts && !insufficient ? tier.expectancy - zero.expectancy : null,
+      })),
+      text: costStatus === 'cost-sensitive'
+        ? signChanged ? 'Positive before-cost expectancy turned negative under modeled trading costs.'
+          : 'Historical expectancy weakened under modeled trading costs.'
+        : costStatus === 'insufficient-evidence' ? 'The parent sample remains insufficient, including its modeled-cost comparisons.'
+          : costStatus === 'unavailable' ? 'Comparable cost-tier evidence is unavailable; no cost sensitivity was inferred.'
+            : 'No weakening was observed in the saved modeled-cost tiers; this does not establish execution resilience.',
+      note: 'Costs are research assumptions, not measured execution costs. All tiers reuse the same primary sample.',
+    },
+  }
+}
+
 /**
  * Pure view-model over a compact saved run summary (or schema-v1 synthesis).
  * Does not run experiments, qualify/promote strategies, persist, fetch or read a
@@ -310,6 +418,16 @@ export function interpretResearchSummary(input = {}) {
     'emaContractVersion',
     'adjustmentMode',
   ].filter((key) => known(input?.[key]) && known(source[key]) && input[key] !== source[key])
+  const details = evidence.filter(item => item.experimentId === DISCOVERY).map((entry, i) =>
+    discoveryObservations(entry, candidates[i], metadataConflicts.length > 0 ||
+      candidates.filter(item => JSON.stringify(item.reference) === JSON.stringify(candidates[i].reference)).length !== 1))
+  const stabilityObservations = details.flatMap(detail => detail.stability)
+  const costSensitivityObservations = details.map(detail => detail.cost)
+  for (const observation of [...stabilityObservations, ...costSensitivityObservations]) {
+    if (['mixed', 'cost-sensitive'].includes(observation.status))
+      cautionPoints.push(point(observation.dimension ? `discovery-${observation.dimension}-mixed` : 'discovery-modeled-cost-sensitivity',
+        `${label(observation.reference.strategyId)}: ${observation.text} ${observation.note}`, [observation.reference]))
+  }
   if (metadataConflicts.length)
     cautionPoints.push(
       point(
@@ -493,7 +611,7 @@ export function interpretResearchSummary(input = {}) {
     cautionPoints.push(
       point(
         'discovery-limits',
-        'Discovery summaries are exploratory historical evidence. Period stability and cost-tier resilience cannot be established from overall metrics alone.',
+        'Discovery summaries are exploratory historical evidence. Overall metrics alone cannot establish period stability or cost-tier resilience; saved partitions are overlapping descriptive views, not independent confirmation.',
       ),
     )
   if (evidence.some((item) => item.costModelStatus === 'not-modeled'))
@@ -548,7 +666,7 @@ export function interpretResearchSummary(input = {}) {
     candidates.length === evidence.length &&
     candidates.every((item) => item.scope) &&
     groups.size === 1
-  const status =
+  const overallStatus =
     !supported || coverage.state === 'unavailable' || !evidence.length
       ? coverage.state === 'incomplete'
         ? 'incomplete'
@@ -562,6 +680,9 @@ export function interpretResearchSummary(input = {}) {
             : assessments.length && assessments.every((item) => item.classification === 'insufficient')
               ? 'insufficient-evidence'
               : 'neutral'
+  const status = ['positive', 'negative', 'neutral'].includes(overallStatus) &&
+    (stabilityObservations.some(item => item.status === 'mixed') ||
+      costSensitivityObservations.some(item => item.positiveToNegative === true)) ? 'mixed' : overallStatus
   const headlines = {
     positive: 'Positive historical Discovery expectancy',
     negative: 'Negative historical Discovery expectancy',
@@ -587,6 +708,8 @@ export function interpretResearchSummary(input = {}) {
     cautionPoints,
     unresolvedQuestions,
     discoveryCandidates: candidates,
+    stabilityObservations,
+    costSensitivityObservations,
     comparisonScope: {
       crossExperimentRanking: false,
       comparisons,

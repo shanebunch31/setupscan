@@ -1,3 +1,4 @@
+import { shadowTiming } from './shadowTiming.js'
 // Research only: no paper engine, brokerage, storage or network dependency.
 import { buildAlignedSeries, buildCatalogueBySymbol, buildTradeFromIndex, computeMetrics, signalQualityDefaults, costTierDefinitions } from '../backtest/signalQualityBacktest.js'
 import { computeCausalRegimeSeries, causalRegimeDefaults, causalRegimeReferenceSymbol } from '../backtest/causalRegimeBacktest.js'
@@ -28,7 +29,9 @@ export function evaluateShadowDecision(raw, tracking, observedAt) {
   const latest = aligned.timestamps[index]
   const decisionTimestamp = new Date(end({ timestamp: latest })).toISOString()
   const decisionMs = Date.parse(decisionTimestamp), now = Date.parse(observedAt)
-  if (decisionMs < Date.parse(tracking.startedAt) || decisionMs > now || now - decisionMs > shadowFreshnessMs) return { aligned, occurrences: [], latest }
+  const timing = shadowTiming(tracking.candidate.forwardVersion)
+  const publicationMs = decisionMs + timing.publicationGraceMs
+  if (decisionMs < Date.parse(tracking.startedAt) || publicationMs > now || now - publicationMs > timing.detectionWindowMs) return { aligned, occurrences: [], latest }
   const catalogue = buildCatalogueBySymbol(aligned, shadowOptions)
   const regime = computeCausalRegimeSeries(aligned.raw, causalRegimeDefaults)[index]
   const contexts = { trend: regime.trend.classification, volatility: regime.volatility.classification }
@@ -39,7 +42,7 @@ export function evaluateShadowDecision(raw, tracking, observedAt) {
       candidateId: shadowCandidate.id, candidateVersion: shadowCandidate.version, symbol, timeframe: '1Hour',
       signalTimestamp: latest, decisionTimestamp, decisionDay: easternDecisionDay(decisionTimestamp), createdAt: observedAt,
       qualification: { score: signal.score, classification: signal.status, researchEligible: signal.researchEligible, ...contexts },
-      provenance: { methodologyVersion: shadowCandidate.methodologyVersion, contextVersion: shadowCandidate.contextVersion,
+      provenance: { ...(tracking.candidate.forwardVersion === 'shadow-forward-2' ? { forwardVersion: 'shadow-forward-2', timingPolicy: timing } : {}), methodologyVersion: shadowCandidate.methodologyVersion, contextVersion: shadowCandidate.contextVersion,
         tradeVersion: shadowCandidate.tradeVersion, sourceFingerprint: tracking.sourceFingerprint,
         provider: tracking.provider, adjustmentMode: tracking.adjustmentMode, historyStart: tracking.historyStart,
         regimeSourceSymbol: causalRegimeReferenceSymbol(aligned.raw), universe: [...tracking.symbols] },

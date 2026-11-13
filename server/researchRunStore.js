@@ -322,6 +322,18 @@ function validateResearchRunResult(result) {
   result.records.forEach((record) => {
     required(record?.id, 'records[].id')
     assertRegistered(record.id)
+    if (record.id === 'candidate-exit-management') {
+      const supported = getResearchExperiment(record.id).supportedMethodologyVersions
+      const paired = record.parameters?.candidateExitManagement?.pairedConcentration
+      // Keep historical records with absent version metadata readable; never
+      // accept new paired evidence under a legacy or unknown methodology.
+      if ((record.methodologyVersion != null && !supported.includes(record.methodologyVersion)) ||
+          (paired !== undefined && (record.methodologyVersion !== 'candidate-exit-management-2' || !Array.isArray(paired)))) {
+        const error = new Error('Unsupported Candidate Exit Management methodology or paired result contract')
+        error.code = 'RESEARCH_RUN_INVALID'
+        throw error
+      }
+    }
     if (recordsByExperiment.has(record.id)) {
       const error = new Error(`Research run contains duplicate record id: ${record.id}`)
       error.name = 'ResearchRunValidationError'

@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { shadowCandidate, shadowOptions, evaluateShadowDecision, resolveShadowOccurrence, summarizeShadow, shadowMilestone } from '../src/research/shadowForward.js'
 import { candidateDefinition } from '../src/backtest/candidateContextRobustness.js'
 import { buildTradeFromIndex, computeMetrics } from '../src/backtest/signalQualityBacktest.js'
-import { createShadowObserver, prepareShadowCycle } from './shadowForwardObserver.js'
+import { createShadowObserver, prepareShadowCycle, safeShadowFailure } from './shadowForwardObserver.js'
 import { shadowConfiguration, runShadowCommand, shadowSourceFingerprint, validateShadowConnection } from './shadowForwardCommand.js'
 import { createShadowForwardRoute } from './shadowForwardRoute.js'
 import { ShadowForwardEvidence } from '../src/research/ShadowForwardPanel.js'
@@ -257,4 +257,68 @@ test('shadow modules have no paper engine, order calls or paper store dependenci
   }
   const worker = await readFile(new URL('paperObserver.js', import.meta.url), 'utf8')
   assert.doesNotMatch(worker, /shadowForward/)
+})
+
+const v2Tracking = () => ({ ...tracking, candidate: { ...shadowCandidate, forwardVersion: 'shadow-forward-2' } })
+const v2Before = () => ({ ...empty(), tracking: v2Tracking(), raw: { AAPL: bars().slice(0, -1) }, checkpoint: { lastSuccessfulCycle: at(338, 9 * 60000), latestDecisionBar: at(336, 0), detectionBoundary: at(330) } })
+test('v2 waits ten minutes before freezing the bar, then detects within its explicit window', async () => {
+ const before = v2Before(), saved = structuredClone(before)
+ const early = await prepareShadowCycle(before, { ...params(), observedAt: at(338, 1700) })
+ assert.ok(!early.newCandles.some(x => x.candle.timestamp === bars().at(-1).timestamp))
+ assert.equal(early.occurrences.length, 0)
+ const ready = await prepareShadowCycle(before, { ...params(), observedAt: at(338, 600000) })
+ assert.equal(ready.newCandles.length, 1)
+ assert.equal(ready.occurrences.length, 1)
+ assert.equal(ready.occurrences[0].decisionTimestamp, at(338, 0))
+ assert.equal(ready.occurrences[0].createdAt, at(338, 600000))
+ assert.equal(ready.occurrences[0].provenance.forwardVersion, 'shadow-forward-2')
+ assert.equal(ready.checkpoint.timingPolicy.publicationGraceMs, 600000)
+ assert.deepEqual(before, saved)
+})
+test('v2 late completion and downtime never turn delayed publication into backfilled evidence', async () => {
+ const before = v2Before()
+ const slow = await prepareShadowCycle(before, { ...params(), observedAt: at(338, 600000), clock: () => at(338, 900001) })
+ assert.equal(slow.occurrences.length, 0)
+ const down = await prepareShadowCycle({ ...before, checkpoint: { ...before.checkpoint, lastSuccessfulCycle: at(337) } }, { ...params(), observedAt: at(338, 600000) })
+ assert.equal(down.occurrences.length, 0)
+ assert.equal(down.checkpoint.detectionBoundary, at(338, 600000))
+ const restart = { ...before, raw: raw(), checkpoint: down.checkpoint, occurrences: down.occurrences }
+ assert.deepEqual(await prepareShadowCycle(restart, { ...params(), observedAt: at(338, 660000) }), await prepareShadowCycle(structuredClone(restart), { ...params(), observedAt: at(338, 660000) }))
+ assert.equal((await prepareShadowCycle(restart, { ...params(), observedAt: at(338, 660000) })).occurrences.length, 0)
+})
+test('v2 accepted revisions still reject without altering checkpoint or terminal evidence', async () => {
+ const terminal = { ...occurrence(), state: 'resolved', outcome: { fixture: true } }
+ const before = { ...v2Before(), raw: raw(), occurrences: [terminal] }, saved = structuredClone(before)
+ const revised = bars(); revised.at(-1).volume += 1
+ await assert.rejects(prepareShadowCycle(before, { ...params(revised), observedAt: at(338, 600000) }), error => error.shadowCode === 'PROVIDER_REVISION')
+ assert.deepEqual(before, saved)
+})
+test('safe diagnostics distinguish revision, provider and storage failures without secrets', async () => {
+ assert.deepEqual(safeShadowFailure(Object.assign(new Error('secret connection response'), { shadowCode: 'PROVIDER_REVISION' })), { code: 'PROVIDER_REVISION', manualReviewRequired: true })
+ const before = v2Before()
+ let error
+ try { await prepareShadowCycle(before, { ...params(), fetchBars: async () => { throw new Error('secret provider key') } }) } catch(e) { error=e }
+ assert.equal(safeShadowFailure(error).code, 'PROVIDER_REQUEST_FAILED')
+ assert.equal(safeShadowFailure(error).manualReviewRequired, false)
+ const worker = createShadowObserver({ store: { cycle: async () => { throw new Error('secret database URL') } } })
+ const status = await worker.processOnce()
+ assert.equal(status.failure.code, 'STORAGE_FAILURE')
+ assert.equal(worker.status().successfulCycleAgeMs, null)
+ assert.equal(worker.status().pollingOverdue, null)
+ assert.doesNotMatch(JSON.stringify(status), /secret|URL/)
+})
+test('new definitions select v2 while the v1 candidate and timing remain unchanged', () => {
+ const def = shadowConfiguration({ SHADOW_SYMBOLS: 'SPY,QQQ', SHADOW_TRACKING_ID: 'synthetic-next', SHADOW_START_AT: at(400), SHADOW_HISTORY_START: at(0) }, new Date(at(350)), 'fixture')
+ assert.equal(def.candidate.forwardVersion, 'shadow-forward-2')
+ assert.equal(shadowCandidate.forwardVersion, 'shadow-forward-1')
+ assert.deepEqual(def.candidate.conditions, shadowCandidate.conditions)
+ assert.equal(evaluateShadowDecision(raw(), tracking, at(338, 1700)).occurrences.length, 1)
+ assert.equal(evaluateShadowDecision(raw(), v2Tracking(), at(338, 1700)).occurrences.length, 0)
+})
+
+test('old frozen source cannot resume under v2 code and no provider request is made', async () => {
+ let calls = 0
+ const before = { ...empty(), tracking: { ...tracking, sourceFingerprint: '6241eacd477f3e6fb6138203f711296991cf6c8db2493c36d79648b504bcd26b' } }
+ await assert.rejects(prepareShadowCycle(before, { ...params(), sourceFingerprint: await shadowSourceFingerprint(), fetchBars: async () => { calls++; return payload() } }), error => error.shadowCode === 'SOURCE_MISMATCH')
+ assert.equal(calls, 0)
 })

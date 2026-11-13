@@ -221,6 +221,7 @@ test('Workbench and saved detail render the normalized paired report with real z
   assert.ok(renderToStaticMarkup(React.createElement(ExecutionResolutionResult, { record: unavailable })).includes('No performance is inferred'))
 })
 
-test('frozen Shadow source fingerprint remains unchanged', async () => {
-  assert.equal(await shadowSourceFingerprint(), '6241eacd477f3e6fb6138203f711296991cf6c8db2493c36d79648b504bcd26b')
+test('Shadow v2 source fingerprint is pinned separately from the preserved v1 tracker', async () => {
+  assert.notEqual(await shadowSourceFingerprint(), '6241eacd477f3e6fb6138203f711296991cf6c8db2493c36d79648b504bcd26b')
+  assert.equal(await shadowSourceFingerprint(), 'dff67fc8c795efe9d89c867c60f58dc9207382b2b2a3124ebad8c84b539f7f03')
 })

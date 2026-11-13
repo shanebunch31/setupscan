@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createResearchRecordForExperiment, getResearchExperiment } from './registry.js'
+import { createResearchRecordForExperiment, getResearchExperiment, listResearchExperiments } from './registry.js'
 import { executeResearchExperiment } from './experimentExecutors.js'
-import { synthesizeResearch, EVIDENCE_FAMILIES } from './synthesis.js'
+import { synthesizeResearch, compareEvidence, EVIDENCE_FAMILIES } from './synthesis.js'
 import { projectResearchRunForPersistence } from './researchRunHistory.js'
 import { stringifyResearchJson, parseResearchJson } from './researchRunSerialization.js'
 import { createEffectiveExperimentConfiguration, resolveCurrentEffectiveExperimentConfiguration } from './effectiveExperimentConfiguration.js'
@@ -17,7 +17,7 @@ const raw = Object.fromEntries(options.symbols.map((symbol) => [symbol, Array.fr
 })]))
 
 test('registry and executor support all requested symbols and reject silently dropped inputs', () => {
-  assert.equal(getResearchExperiment(id).methodologyVersion, 'candidate-exit-management-1')
+  assert.equal(getResearchExperiment(id).methodologyVersion, 'candidate-exit-management-2')
   assert.deepEqual(getResearchExperiment(id).requiredSymbols, [])
   const executed = executeResearchExperiment(id, raw, options)
   assert.equal(executed.status, 'succeeded')
@@ -31,7 +31,7 @@ test('registry and executor support all requested symbols and reject silently dr
 test('normalized records preserve candidate, exit method, symbol, period, costs, evidence and provenance', () => {
   const output = runCandidateExitManagement(raw, options)
   const record = createResearchRecordForExperiment(id, output, { ...options, provenance: { datasetId: 'fixture-dataset', codeRevision: 'fixture-revision' } })
-  assert.equal(record.methodologyVersion, 'candidate-exit-management-1')
+  assert.equal(record.methodologyVersion, 'candidate-exit-management-2')
   assert.equal(record.parameters.candidateExitManagement.candidate.id, 'trend-up-medium-volatility-v1')
   assert.equal(record.parameters.candidateExitManagement.candidate.methodologyVersion, 'candidate-context-robustness-2')
   assert.equal(record.provenance.datasetId, 'fixture-dataset')
@@ -78,6 +78,24 @@ test('unavailable results have no fabricated metrics and missing legacy metadata
   assert.doesNotThrow(() => synthesizeResearch([{ ...record, methodologyVersion: null, parameters: {} }]))
 })
 
-test('active Shadow Forward static dependency fingerprint remains unchanged', async () => {
-  assert.equal(await shadowSourceFingerprint(), '6241eacd477f3e6fb6138203f711296991cf6c8db2493c36d79648b504bcd26b')
+test('one Workbench option supports explicit v1/v2 without reinterpreting historical evidence', () => {
+  assert.equal(listResearchExperiments().filter(entry => entry.id === id).length, 1)
+  const payload = runCandidateExitManagement(raw, options)
+  const current = createResearchRecordForExperiment(id, payload, options)
+  const legacyPayload = { ...payload, methodologyVersion: 'candidate-exit-management-1' }
+  delete legacyPayload.pairedConcentration
+  const legacy = createResearchRecordForExperiment(id, legacyPayload, options)
+  assert.equal(legacy.methodologyVersion, 'candidate-exit-management-1')
+  assert.equal(legacy.parameters.candidateExitManagement.pairedConcentration, undefined)
+  assert.equal(Object.keys(legacy.metrics).some(key => key.includes('::paired::')), false)
+  assert.doesNotMatch(legacy.methodology, /Additional paired concentration/)
+  const first = record => synthesizeResearch([record]).strategyGroups.flatMap(group => group.evidence)
+    .find(evidence => evidence.metricsKey === 'full::SPY::fixed')
+  assert.ok(compareEvidence(first(current), first(legacy)).hardConflicts.some(conflict => conflict.field === 'methodologyVersion'))
+  assert.throws(() => createResearchRecordForExperiment(id, { ...payload, methodologyVersion: 'candidate-exit-management-999' }, options), /Unsupported/)
+})
+
+test('Shadow v2 source fingerprint is pinned separately from the preserved v1 tracker', async () => {
+  assert.notEqual(await shadowSourceFingerprint(), '6241eacd477f3e6fb6138203f711296991cf6c8db2493c36d79648b504bcd26b')
+  assert.equal(await shadowSourceFingerprint(), 'dff67fc8c795efe9d89c867c60f58dc9207382b2b2a3124ebad8c84b539f7f03')
 })

@@ -1,3 +1,4 @@
+import { safeShadowFailure } from '../server/shadowForwardObserver.js'
 import { runShadowCommand } from '../server/shadowForwardCommand.js'
 
 // Explicit standalone entry point; never imported by API or paper worker.
@@ -9,7 +10,8 @@ try {
     process.once('SIGINT', stop)
     process.once('SIGTERM', stop)
   }
-} catch {
-  console.error('Shadow command failed. Check required configuration, initialization, source compatibility and database access. No credentials are logged.')
+} catch (error) {
+  const failure = safeShadowFailure(error)
+  console.error(`Shadow command failed; code=${failure.code}; manualReview=${failure.manualReviewRequired}. No credentials are logged.`)
   process.exitCode = 1
 }

@@ -31,7 +31,7 @@ export function shadowConfiguration(environment, now, sourceFingerprint) {
   const history = Date.parse(environment.SHADOW_HISTORY_START)
   if (!Number.isFinite(started) || started < now.getTime() || !Number.isFinite(history) || history >= started) throw new Error('Choose a future tracking start and an explicit earlier context-history start')
   if (!/^[a-z0-9-]{1,80}$/.test(environment.SHADOW_TRACKING_ID ?? '')) throw new Error('SHADOW_TRACKING_ID requires a stable lowercase identifier')
-  return { id: environment.SHADOW_TRACKING_ID, candidate: shadowCandidate, symbols, startedAt: new Date(started).toISOString(), frozenAt: now.toISOString(),
+  return { id: environment.SHADOW_TRACKING_ID, candidate: { ...shadowCandidate, forwardVersion: 'shadow-forward-2' }, symbols, startedAt: new Date(started).toISOString(), frozenAt: now.toISOString(),
     historyStart: new Date(history).toISOString(), sourceFingerprint, provider: 'ALPACA HISTORICAL', adjustmentMode: 'split',
     contextHistoryPolicy: 'Fixed start, shared timestamps, expanding causal history; never rolling warm-up',
   }
@@ -52,10 +52,10 @@ export async function runShadowCommand(args, { environment = process.env, now = 
       return null
     }
     const snapshot = await store.read(environment.SHADOW_TRACKING_ID)
-    if (snapshot.tracking.sourceFingerprint !== sourceFingerprint) throw new Error('Frozen source differs; review before starting')
+    if (snapshot.tracking.sourceFingerprint !== sourceFingerprint) throw Object.assign(new Error('Frozen source differs; review before starting'), { shadowCode: 'SOURCE_MISMATCH' })
     // Existing provider helper returns only after exhausting all pages or throwing.
     const boundedFetch = async (request) => ({ ...await fetchBars({ ...request, signal: AbortSignal.timeout(120_000) }), paginationComplete: true })
-    const observer = createShadowObserver({ store, trackingId: snapshot.tracking.id, sourceFingerprint, fetchBars: boundedFetch, now, onStatus: (s) => log(`Shadow observer: ${s.status}${s.consecutiveFailures ? `; failures=${s.consecutiveFailures}` : ''}`) })
+    const observer = createShadowObserver({ store, trackingId: snapshot.tracking.id, sourceFingerprint, fetchBars: boundedFetch, now, onStatus: (s) => log(`Shadow observer: ${s.status}${s.consecutiveFailures ? `; failures=${s.consecutiveFailures}` : ''}${s.failure ? `; code=${s.failure.code}; manualReview=${s.failure.manualReviewRequired}` : ''}`) })
     observer.start()
     return { close: async () => { await observer.stop(); await store.close() } }
   } catch (error) { await store.close(); throw error }

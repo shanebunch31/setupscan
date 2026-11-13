@@ -67,6 +67,10 @@ export function adaptExecutionResolutionOutput(definition, payload, context = {}
 }
 
 export function adaptCandidateExitManagementOutput(definition, payload, context = {}) {
+  const version = payload?.methodologyVersion ?? definition.methodologyVersion
+  if (!definition.supportedMethodologyVersions.includes(version)) throw new Error('Unsupported Candidate Exit Management methodology')
+  definition = { ...definition, methodologyVersion: version, methodology: definition.methodology + (version === 'candidate-exit-management-2' ? ' Additional paired concentration ranks fixed-exit before-cost Eastern decision-day totals and applies the same top-five or union of top/bottom-five removals to both methods at all costs. Descriptive stress only; independent concentration remains separate.' : '') }
+
   const metrics = Object.fromEntries((payload?.rows ?? []).map((row) => [row.key, {
     ...normalizeMetrics(row.metrics ?? { tradeCount: 0 }),
     strategyId: 'setup-scan-baseline', membershipRule: 'research-eligible-75-plus',
@@ -74,10 +78,25 @@ export function adaptCandidateExitManagementOutput(definition, payload, context 
     symbol: row.symbol, periodRole: row.period.type, evidenceStrength: row.evidenceStrength,
     exitComparison: row,
   }]))
+  // Scalar summaries use the existing evidence table; all dates/cost detail live once in parameters.
+  if (version === 'candidate-exit-management-2') for (const row of payload?.pairedConcentration ?? []) {
+    for (const check of row.checks) for (const method of ['fixed', 'trailing']) {
+      metrics[row.key + '::paired::' + check.key + '::' + method] = {
+        ...normalizeMetrics(check.methods[method].metrics ?? { tradeCount: 0 }),
+        strategyId: 'setup-scan-baseline', membershipRule: 'research-eligible-75-plus',
+        ruleSetVariant: 'context-trend-up+medium-volatility::exit-' + method + '::paired-' + check.key,
+        symbol: row.symbol, periodRole: row.period.type,
+        pairedConcentrationKey: row.key, concentrationCheck: check.key, exitMethod: method,
+        evidenceStrength: check.methods[method].evidenceStrength,
+        pairedCount: check.pairedCount, activeDays: check.activeDays, removedDayCount: check.removedDayCount,
+      }
+    }
+  }
   const parameters = { ...context.parameters, candidateExitManagement: {
     candidate: payload?.candidate, options: payload?.options, coverage: payload?.coverage,
     symbols: payload?.symbols, regimeSourceSymbol: payload?.regimeSourceSymbol,
     periods: payload?.periods, limitations: payload?.limitations,
+    ...(version === 'candidate-exit-management-2' ? { pairedConcentration: payload?.pairedConcentration ?? [] } : {}),
   } }
   return createAdaptedRecord(definition, payload, { ...context, parameters, costModel: context.costModel ?? withCostStatus('modeled', payload) }, metrics)
 }
@@ -562,6 +581,36 @@ export function adaptStrategyComparisonOutput(definition, payload, context = {})
   return createAdaptedRecord(definition, payload, { ...context, outOfSample, costModel }, metrics)
 }
 
+// Compact primary-outcome partitions belong to their parent, not independent evidence rows.
+// Copy saved metrics only; no occurrences, secondary outcomes, or recalculation.
+function discoveryDetail(definition, payload, experiment) {
+  const summary = experiment.summary ?? {}
+  const rows = (value) => Array.isArray(value) ? value.map((row) => ({
+    label: typeof row?.label === 'string' ? row.label : null,
+    metrics: normalizeMetrics(row ?? {}),
+  })).sort((a, b) => String(a.label).localeCompare(String(b.label))) : null
+  const windows = payload?.researchWindows
+  return {
+    schemaVersion: 1,
+    strategyId: experiment.experimentId,
+    methodologyVersion: definition.methodologyVersion ?? null,
+    primaryOutcome: experiment.parameters?.primaryOutcome ?? null,
+    yearBasis: definition.methodologyVersion === 'strategy-discovery-2' ? 'entry-utc-year' : null,
+    periodBasis: definition.methodologyVersion === 'strategy-discovery-2' ? 'primary-outcome-contained' : null,
+    byYear: rows(summary.byYear),
+    bySymbol: rows(summary.bySymbol),
+    byPeriod: rows(summary.byPeriod),
+    researchWindows: windows ? ['development', 'outOfSample', 'holdout'].map((role) => ({
+      role, label: windows[role]?.label ?? null,
+      start: windows[role]?.start ?? null, end: windows[role]?.end ?? null,
+    })) : null,
+    costTiers: Array.isArray(summary.costTiers) ? summary.costTiers.map((tier) => ({
+      label: tier?.label ?? null, entryBps: tier?.entryBps ?? null, exitBps: tier?.exitBps ?? null,
+      metrics: normalizeMetrics(tier?.metrics ?? {}),
+    })).sort((a, b) => (a.entryBps - b.entryBps) || (a.exitBps - b.exitBps) || String(a.label).localeCompare(String(b.label))) : null,
+  }
+}
+
 export function adaptStrategyDiscoveryOutput(definition, payload, context = {}) {
   const experiments = Array.isArray(payload?.experiments) ? payload.experiments : []
   const metrics = Object.fromEntries(experiments.map((experiment) => {
@@ -571,6 +620,7 @@ export function adaptStrategyDiscoveryOutput(definition, payload, context = {}) 
       experiment.experimentId,
       withStrategy({
         ...normalizeMetrics(firstObject(experiment.summary?.overall, experiment.summary)),
+        discoveryDetail: discoveryDetail(definition, payload, experiment),
         ambiguousCount: excluded.ambiguousCount ?? null,
         ambiguousInResearchWindowCount: excluded.ambiguousInResearchWindowCount ?? null,
         classifiableInResearchWindowCount: excluded.classifiableInResearchWindowCount ?? null,
