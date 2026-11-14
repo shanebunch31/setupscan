@@ -6,6 +6,7 @@ const APP_ROUTES = {
   paper: '/paper',
   research: '/research/workbench',
   settings: '/settings',
+  about: '/about',
 }
 
 const RESEARCH_ROUTES = {

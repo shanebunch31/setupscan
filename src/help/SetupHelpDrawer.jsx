@@ -1,3 +1,4 @@
+import { DISCOVERY_HELP_TERMS } from './discoveryHelp.js'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { CircleHelp, Search, X } from 'lucide-react'
 import { SCANNER_TERM_EXPLANATIONS } from '../scannerFilters.js'
@@ -117,6 +118,10 @@ const PAGE_HELP = {
     body:
       'Settings will hold application preferences and provider-related controls as those features are added.',
   },
+  about: {
+    title: 'About SetupScan help',
+    body: 'Research Evidence is a curated history of findings and production decisions, not a live results feed. Expand a study for limitations and methodology. Run History keeps the technical audit trail; the Research terms disclosure explains unfamiliar concepts.',
+  },
 }
 
 export function SetupHelpDrawer({ open, view, tool, onClose }) {
@@ -153,7 +158,9 @@ export function SetupHelpDrawer({ open, view, tool, onClose }) {
       ? QUICK_BACKTEST_TERMS
       : view === 'home'
         ? HOME_TERMS
-        : HELP_TERMS
+        : view === 'research'
+          ? [...QUICK_BACKTEST_TERMS, ...DISCOVERY_HELP_TERMS]
+          : HELP_TERMS
 
   if (!normalized) return terms
 

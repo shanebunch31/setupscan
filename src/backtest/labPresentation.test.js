@@ -194,7 +194,7 @@ test('Strategy Discovery marks empty resolved metrics unavailable in Batch C and
   assert.match(contents, /row\.batchC && \(!gateEmptyObservations \|\| row\.batchC\.occurrenceCount > 0\) \? formatR\(row\.batchC\.expectancy\)/)
   assert.match(contents, /row\.batchA && \(!gateEmptyObservations \|\| row\.batchA\.occurrenceCount > 0\) \? formatPercent\(row\.batchA\.winRate\)/)
   assert.match(contents, /row\.batchC && \(!gateEmptyObservations \|\| row\.batchC\.occurrenceCount > 0\) \? formatPercent\(row\.batchC\.winRate\)/)
-  assert.match(contents, /title="Batch A vs\. Batch C \\u2014 cost sensitivity"[\s\S]*?gateEmptyObservations/)
+  assert.match(contents, /title="Batch A vs\. Batch C \u2014 cost sensitivity"[\s\S]*?gateEmptyObservations/)
 })
 
 test('Frozen Score Holdout is described as a retrospective older window, not a forward test', () => {

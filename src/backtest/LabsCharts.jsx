@@ -5,6 +5,20 @@ const isAvailable = (point) => point?.tradeCount > 0 && Number.isFinite(point.va
 const hasSmallSample = (point, threshold) => [point?.tradeCount, point?.comparisonTradeCount]
   .some((count) => Number.isFinite(count) && count > 0 && count < threshold)
 
+// Optional controlled selection lets an evidence table share the inspector's
+// state. Existing chart callers retain their independent local selection.
+function useChartSelection(rowCount, controlledIndex, onSelectionChange) {
+  const [localIndex, setLocalIndex] = useState(0)
+  const requested = controlledIndex ?? localIndex
+  const selectedIndex = Math.min(Math.max(Number.isInteger(requested) ? requested : 0, 0), Math.max(rowCount - 1, 0))
+  const select = index => {
+    if (!Number.isInteger(index) || index < 0 || index >= rowCount) return
+    if (controlledIndex === undefined) setLocalIndex(index)
+    onSelectionChange?.(index)
+  }
+  return [selectedIndex, select]
+}
+
 function observationCount(point, unit) {
   if (point?.comparisonTradeCount !== undefined) {
     const variant = point.tradeCount ?? '—'
@@ -55,9 +69,11 @@ export function InspectableLineChart({
   xAxisLabel = 'Period',
   sampleThreshold,
   formatValue = (value) => String(value),
+  selectedIndex: controlledIndex,
+  onSelectionChange,
 }) {
-  const [selectedIndex, setSelectedIndex] = useState(0)
   const rows = observations ?? []
+  const [selectedIndex, setSelectedIndex] = useChartSelection(rows.length, controlledIndex, onSelectionChange)
   const hasValues = rows.some((row) => row.series?.some(isAvailable))
   const selectedRow = rows[Math.min(selectedIndex, Math.max(rows.length - 1, 0))]
   const width = 760
@@ -96,7 +112,7 @@ export function InspectableLineChart({
               {rows.map((row, index) => {
                 const point = row.series?.[seriesIndex]
                 if (!isAvailable(point)) return null
-                return <circle key={`${row.label}-${entry.key}`} className={`lab-chart-point${index === selectedIndex ? ' is-selected' : ''}`} cx={xForIndex(index)} cy={yForValue(point.value)} r={index === selectedIndex ? 5 : 3.5} />
+                return <circle key={`${row.label}-${entry.key}`} onClick={onSelectionChange ? () => setSelectedIndex(index) : undefined} className={`lab-chart-point${index === selectedIndex ? ' is-selected' : ''}`} cx={xForIndex(index)} cy={yForValue(point.value)} r={index === selectedIndex ? 5 : 3.5} />
               })}
             </g>
           ))}
@@ -194,9 +210,14 @@ export function InspectableBarChart({
   sampleThreshold,
   formatValue = (value) => String(value),
   layout = 'grouped',
+  selectedIndex: controlledIndex,
+  onSelectionChange,
+  categoryLabel = 'Period',
+  showInspector = true,
+  showDetailColumn = true,
 }) {
-  const [selectedIndex, setSelectedIndex] = useState(0)
   const rows = observations ?? []
+  const [selectedIndex, setSelectedIndex] = useChartSelection(rows.length, controlledIndex, onSelectionChange)
   const hasValues = rows.some((row) => row.series?.some(isAvailable))
   const selectedRow = rows[Math.min(selectedIndex, Math.max(rows.length - 1, 0))]
   const selectedValues = selectedRow?.series ?? []
@@ -247,8 +268,8 @@ export function InspectableBarChart({
                 const groupHeight = (plot.bottom - plot.top) / Math.max(rows.length, 1)
                 const barHeight = Math.min(18, groupHeight * 0.65 / seriesCount)
                 const centerY = plot.top + (rowIndex + 0.5) * groupHeight
-                return <g key={row.label} className={rowIndex === selectedIndex ? 'lab-bar-group is-selected' : 'lab-bar-group'}>
-                  <text className="lab-chart-axis-label" x={plot.left - 10} y={centerY + 4} textAnchor="end">{row.label}</text>
+                return <g key={row.label} onClick={onSelectionChange ? () => setSelectedIndex(rowIndex) : undefined} className={rowIndex === selectedIndex ? 'lab-bar-group is-selected' : 'lab-bar-group'}>
+                  <text className="lab-chart-axis-label" x={plot.left - 10} y={centerY + 4} textAnchor="end">{row.axisLabel ?? row.label}</text>
                   {series.map((entry, seriesIndex) => {
                     const point = row.series?.[seriesIndex]
                     if (!isAvailable(point)) return null
@@ -262,8 +283,8 @@ export function InspectableBarChart({
               const groupWidth = (plot.right - plot.left) / Math.max(rows.length, 1)
               const barWidth = Math.min(30, groupWidth * 0.72 / seriesCount)
               const centerX = plot.left + (rowIndex + 0.5) * groupWidth
-              return <g key={row.label} className={rowIndex === selectedIndex ? 'lab-bar-group is-selected' : 'lab-bar-group'}>
-                <text className="lab-chart-axis-label" x={centerX} y={plot.bottom + 19} textAnchor="middle">{row.label}</text>
+              return <g key={row.label} onClick={onSelectionChange ? () => setSelectedIndex(rowIndex) : undefined} className={rowIndex === selectedIndex ? 'lab-bar-group is-selected' : 'lab-bar-group'}>
+                <text className="lab-chart-axis-label" x={centerX} y={plot.bottom + 19} textAnchor="middle">{row.axisLabel ?? row.label}</text>
                 {series.map((entry, seriesIndex) => {
                   const point = row.series?.[seriesIndex]
                   if (!isAvailable(point)) return null
@@ -287,29 +308,164 @@ export function InspectableBarChart({
           </svg>
         </div>
       ) : <p className="lab-chart-empty" role="status">No populated observations are available to plot. Expectancy is unavailable, not a measured zero. Counts and missing values are shown in the data table.</p>}
-      <div className="lab-chart-count-strip" aria-label="Observation counts by period">
-        {rows.map((row) => <p key={row.label}><strong>{row.label}</strong>{row.detail ? <span>{row.detail}</span> : null}{row.series.map((point) => <span key={point.label}>{point.label}: {observationCount(point, sampleUnit)}{sampleThreshold && hasSmallSample(point, sampleThreshold) ? ' · small sample' : ''}{point.tradeCount === 0 || point.comparisonTradeCount === 0 ? emptyObservationLabel(point) : ''}</span>)}</p>)}
-      </div>
-      <div className="lab-chart-legend" role="group" aria-label="Chart series">
-        {series.map((entry, index) => <span key={entry.key} className={PALETTE[index % PALETTE.length]}>{entry.label}</span>)}
-      </div>
-      <label className="lab-chart-inspector-label" htmlFor={`${id}-inspector`}>Inspect a period (use arrow keys)</label>
-      <input id={`${id}-inspector`} className="lab-chart-inspector" type="range" min="0" max={Math.max(rows.length - 1, 0)} value={Math.min(selectedIndex, Math.max(rows.length - 1, 0))} step="1" disabled={!rows.length} onChange={(event) => setSelectedIndex(Number(event.target.value))}
-        aria-valuetext={selectedRow ? `${selectedRow.label}: ${selectedValues.map(detail).join('; ')}` : 'No periods available'} />
-      <output className="lab-chart-selected-detail" aria-live="polite">
-        {selectedRow ? <><strong>{selectedRow.label}</strong>{selectedRow.detail ? <span>{selectedRow.detail}</span> : null}{selectedValues.map((point) => <span key={point.label}>{detail(point)}</span>)}</> : <span>No periods available.</span>}
-      </output>
+      <div
+  className="lab-chart-count-strip"
+  aria-label={`Observation counts by ${categoryLabel.toLowerCase()}`}
+>
+  {rows.map((row) => (
+    <p key={row.label}>
+      <strong>{row.label}</strong>
+
+      {row.detail ? <span>{row.detail}</span> : null}
+
+      {row.series.map((point) => (
+  <span key={point.label}>
+    {point.label === 'Average R' && isAvailable(point)
+      ? `${observationCount(point, sampleUnit)} · ${formatValue(point.value)} average`
+      : `${point.label}: ${observationCount(point, sampleUnit)}`}
+    {sampleThreshold && hasSmallSample(point, sampleThreshold)
+      ? ' · small sample'
+      : ''}
+    {point.tradeCount === 0 || point.comparisonTradeCount === 0
+      ? emptyObservationLabel(point)
+      : ''}
+  </span>
+))}
+    </p>
+  ))}
+</div>
+
+<div
+  className="lab-chart-legend"
+  role="group"
+  aria-label="Chart series"
+>
+  {series.map((entry, index) => (
+    <span
+      key={entry.key}
+      className={PALETTE[index % PALETTE.length]}
+    >
+      {entry.label}
+    </span>
+  ))}
+</div>
+
+{showInspector && (
+  <>
+    <label
+      className="lab-chart-inspector-label"
+      htmlFor={`${id}-inspector`}
+    >
+      Inspect a {categoryLabel.toLowerCase()} (use arrow keys)
+    </label>
+
+    <input
+      id={`${id}-inspector`}
+      className="lab-chart-inspector"
+      type="range"
+      min="0"
+      max={Math.max(rows.length - 1, 0)}
+      value={Math.min(selectedIndex, Math.max(rows.length - 1, 0))}
+      step="1"
+      disabled={!rows.length}
+      onChange={(event) =>
+        setSelectedIndex(Number(event.target.value))
+      }
+      aria-valuetext={
+        selectedRow
+          ? `${selectedRow.label}: ${selectedValues
+              .map(detail)
+              .join('; ')}`
+          : `No ${categoryLabel.toLowerCase()} available`
+      }
+    />
+
+    <output
+      className="lab-chart-selected-detail"
+      aria-live="polite"
+    >
+      {selectedRow ? (
+        <>
+          <strong>{selectedRow.label}</strong>
+
+          {selectedRow.detail ? (
+            <span>{selectedRow.detail}</span>
+          ) : null}
+
+          {selectedValues.map((point) => (
+            <span key={point.label}>{detail(point)}</span>
+          ))}
+        </>
+      ) : (
+        <span>
+          No {categoryLabel.toLowerCase()} available.
+        </span>
+      )}
+    </output>
+  </>
+)}
       <details className="lab-chart-table-details">
         <summary>View chart data table</summary>
         <div className="lab-chart-table-wrap">
           <table className="lab-chart-data-table">
-            <caption>{title}; the table uses the same period observations as the chart. A dash means the metric or count is unavailable.</caption>
-            <thead><tr><th scope="col">Period</th><th scope="col">Date range (UTC)</th>{series.map((entry) => <th key={entry.key} scope="col">{entry.label} — {entry.metricLabel ?? 'Expectancy (R/trade)'} / {entry.countLabel ?? 'Trades'}</th>)}</tr></thead>
-            <tbody>{rows.map((row, index) => <tr key={row.label} aria-current={index === selectedIndex ? 'true' : undefined}>
-              <th scope="row">{row.label}</th><td>{row.detail ?? 'Unavailable'}</td>
-              {(row.series ?? []).map((point) => <td key={point.label}>{isAvailable(point) ? formatValue(point.value) : '—'}; {observationCount(point, sampleUnit)}{sampleThreshold && hasSmallSample(point, sampleThreshold) ? ' · small sample' : ''}{point.tradeCount === 0 || point.comparisonTradeCount === 0 ? emptyObservationLabel(point) : ''}</td>)}
-            </tr>)}</tbody>
-          </table>
+  <caption>
+    {title}; the table uses the same{' '}
+    {categoryLabel.toLowerCase()} observations as the chart.
+    A dash means the metric or count is unavailable.
+  </caption>
+
+  <thead>
+    <tr>
+      <th scope="col">{categoryLabel}</th>
+
+      {showDetailColumn && (
+        <th scope="col">Date range (UTC)</th>
+      )}
+
+      {series.map((entry) => (
+        <th key={entry.key} scope="col">
+          {entry.label} —{' '}
+          {entry.metricLabel ?? 'Expectancy (R/trade)'} /{' '}
+          {entry.countLabel ?? 'Trades'}
+        </th>
+      ))}
+    </tr>
+  </thead>
+
+  <tbody>
+    {rows.map((row, index) => (
+      <tr
+        key={row.label}
+        aria-current={
+          index === selectedIndex ? 'true' : undefined
+        }
+      >
+        <th scope="row">{row.label}</th>
+
+        {showDetailColumn && (
+          <td>{row.detail ?? 'Unavailable'}</td>
+        )}
+
+        {(row.series ?? []).map((point) => (
+          <td key={point.label}>
+            {isAvailable(point)
+              ? formatValue(point.value)
+              : '—'}
+            ; {observationCount(point, sampleUnit)}
+            {sampleThreshold &&
+            hasSmallSample(point, sampleThreshold)
+              ? ' · small sample'
+              : ''}
+            {point.tradeCount === 0 ||
+            point.comparisonTradeCount === 0
+              ? emptyObservationLabel(point)
+              : ''}
+          </td>
+        ))}
+      </tr>
+    ))}
+  </tbody>
+</table>
         </div>
       </details>
     </section>

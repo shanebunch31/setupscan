@@ -1,5 +1,6 @@
 import React from 'react'
 import { getResearchExperiment } from './registry.js'
+import { interpretResearchSummary } from './interpretation.js'
 import {
   FlaskConical,
   Search,
@@ -18,16 +19,16 @@ const PRIMARY_LABS = [
     description:
       'Run a fast historical test, review expectancy, drawdown, trade distribution, and sample stability.',
   },
-   {
-    id: 'strategy-discovery',
-    tone: 'green',
-    icon: Search,
-    eyebrow: 'DISCOVERY',
-    title: 'Strategy Discovery',
-    question: 'Which tested strategies look most promising?',
-    description:
-      'Compare registered strategy ideas and surface the strongest historical candidates for deeper research.',
-  },
+    {
+  id: 'strategy-discovery',
+  tone: 'green',
+  icon: Search,
+  eyebrow: 'DISCOVERY',
+  title: 'Strategy Discovery',
+  question: 'What does the historical evidence say about each strategy idea?',
+  description:
+    'Compare implemented strategy ideas, sample strength, and historical outcomes to decide what deserves deeper research.',
+},
    {
     id: 'robustness',
     tone: 'violet',
@@ -197,6 +198,19 @@ export function ResearchLabsOverview({
 }) {
       const strategyRanking =
     buildDiscoveryRanking(discoverySummary)
+
+    const discoveryInterpretation =
+  interpretResearchSummary(discoverySummary ?? {})
+
+const discoveryEvidenceByStrategy =
+  new Map(
+    (discoveryInterpretation.discoveryCandidates ?? []).map(
+      (candidate) => [
+        candidate.reference?.strategyId,
+        candidate,
+      ],
+    ),
+  )
 
   const topStrategy =
     strategyRanking[0] ?? null
@@ -456,11 +470,38 @@ export function ResearchLabsOverview({
     <header className="labs-overview-insight-heading">
       <div>
         <p className="eyebrow">STRATEGY DISCOVERY</p>
-        <h2>Best Performing Strategies</h2>
+        <h2>Discovery Evidence</h2>
         <p>
-          Comparable Strategy Discovery candidates ranked
-          by historical expectancy.
-        </p>
+         Historical observations from implemented Strategy Discovery
+         candidates. Performance direction and evidence strength should
+         be evaluated separately.
+       </p>
+       <div className="labs-evidence-guide">
+  <span className="labs-evidence-guide-label">
+    Evidence strength guide
+  </span>
+
+  <div className="labs-evidence-guide-items">
+    <div>
+      <span className="labs-strategy-evidence-badge is-exploratory">
+        Exploratory
+      </span>
+      <small>
+        Enough historical sample to investigate further, but not
+        confirmed or forward-validated.
+      </small>
+    </div>
+
+    <div>
+      <span className="labs-strategy-evidence-badge is-insufficient">
+        Insufficient
+      </span>
+      <small>
+        Too little usable sample to draw a reliable conclusion.
+      </small>
+    </div>
+  </div>
+</div>
       </div>
 
       <button
@@ -496,7 +537,19 @@ export function ResearchLabsOverview({
     !evidenceError &&
     strategyRanking.length ? (
       <div className="labs-overview-ranking-list">
-        {strategyRanking.map((strategy, index) => {
+        {strategyRanking.map((strategy) => {
+  const interpretedCandidate =
+  discoveryEvidenceByStrategy.get(strategy.strategyId)
+
+  const evidenceClassification =
+  interpretedCandidate?.sample?.classification ?? 'unavailable'
+
+  const evidenceTone =
+  ['exploratory', 'descriptive', 'insufficient'].includes(
+    evidenceClassification,
+  )
+    ? evidenceClassification
+    : 'unavailable'
   const position =
     Math.max(
       -48,
@@ -523,19 +576,16 @@ export function ResearchLabsOverview({
       key={strategy.strategyId}
       className={`labs-strategy-row is-${tone}`}
     >
-      <div className="labs-strategy-rank">
-        {index + 1}
-      </div>
 
       <div className="labs-strategy-main">
         <div className="labs-strategy-title-row">
           <strong>{strategy.label}</strong>
 
-          {index === 0 ? (
-            <span className="labs-strategy-leader">
-              LEADER
-            </span>
-          ) : null}
+          <span
+           className={`labs-strategy-evidence-badge is-${evidenceTone}`}
+          >
+           {evidenceClassification}
+          </span>
         </div>
 
         <div
@@ -619,96 +669,115 @@ export function ResearchLabsOverview({
     ) : null}
   </article>
 
-  <article className="labs-overview-takeaways-panel">
-    <header className="labs-overview-insight-heading">
+<article className="labs-overview-takeaways-panel">
+  <header className="labs-overview-insight-heading">
+    <div>
+      <p className="eyebrow">NEXT QUESTIONS</p>
+      <h2>What should we investigate next?</h2>
+      <p>
+        Use the current evidence to choose the next question,
+        not to declare a winner.
+      </p>
+    </div>
+  </header>
+
+  <div className="labs-takeaway-list">
+    <div className="labs-takeaway is-info">
+      <span className="labs-takeaway-number">01</span>
+
       <div>
-        <p className="eyebrow">RESEARCH READOUT</p>
-        <h2>Key Takeaways</h2>
+        <strong>
+          Do these results survive changing conditions?
+        </strong>
+
         <p>
-          Plain-English highlights from the latest saved
-          evidence.
+          Test whether the historical behavior holds across
+          different periods, symbols, thresholds, and market
+          environments.
         </p>
-      </div>
-    </header>
 
-    <div className="labs-takeaway-list">
-      <div
-        className={`labs-takeaway ${
-          topStrategy?.expectancy > 0
-            ? 'is-positive'
-            : 'is-caution'
-        }`}
-      >
-        <span className="labs-takeaway-number">01</span>
-
-        <div>
-          <strong>Leading discovery candidate</strong>
-
-          <p>
-            {topStrategy
-              ? `${topStrategy.label} currently leads the comparable candidates with ${formatSignedR(topStrategy.expectancy)} historical expectancy.`
-              : 'No comparable discovery candidate is available yet.'}
-          </p>
-        </div>
-      </div>
-
-      <div
-        className={`labs-takeaway ${
-          positiveStrategyCount > 1
-            ? 'is-positive'
-            : 'is-caution'
-        }`}
-      >
-        <span className="labs-takeaway-number">02</span>
-
-        <div>
-          <strong>Positive-edge breadth</strong>
-
-          <p>
-            {strategyRanking.length
-              ? `${positiveStrategyCount} of ${strategyRanking.length} directly comparable Strategy Discovery candidates currently have positive expectancy.`
-              : 'Strategy breadth cannot be evaluated yet.'}
-          </p>
-        </div>
-      </div>
-
-      <div
-        className={`labs-takeaway ${
-          latestResearchClean
-            ? 'is-positive'
-            : 'is-caution'
-        }`}
-      >
-        <span className="labs-takeaway-number">03</span>
-
-        <div>
-          <strong>Latest research health</strong>
-
-          <p>
-            {latestResearchClean
-              ? `The latest saved research completed cleanly: ${evaluatedCount}/${requestedCount} requested experiments evaluated, with no conflicts or unresolved questions.`
-              : `Latest research shows ${incompleteCount} incomplete, ${unavailableCount} unavailable, ${conflictCount} conflicts, and ${unresolvedCount} unresolved questions.`}
-          </p>
-        </div>
-      </div>
-
-      <div className="labs-takeaway is-info">
-        <span className="labs-takeaway-number">04</span>
-
-        <div>
-          <strong>Comparison guardrail</strong>
-
-          <p>
-            This ranking includes only the four directly
-            comparable Strategy Discovery candidates.
-            Relative-value, baseline, volatility, and other
-            experiment families are not mixed into the
-            leaderboard.
-          </p>
-        </div>
+        <button
+          type="button"
+          className="labs-overview-view-all"
+          onClick={() => onOpenLab('robustness')}
+        >
+          Open Strategy Resilience →
+        </button>
       </div>
     </div>
-  </article>
+
+    <div className="labs-takeaway is-info">
+      <span className="labs-takeaway-number">02</span>
+
+      <div>
+        <strong>
+          Do stronger SetupScan signals actually lead to better outcomes?
+        </strong>
+
+        <p>
+          A higher score should not automatically be treated
+          as a better trade. Test whether signal strength
+          corresponds with historical expected value.
+        </p>
+
+        <button
+          type="button"
+          className="labs-overview-view-all"
+          onClick={() => onOpenLab('signal-quality')}
+        >
+          Open Signal Quality →
+        </button>
+      </div>
+    </div>
+
+    <div className="labs-takeaway is-info">
+      <span className="labs-takeaway-number">03</span>
+
+      <div>
+        <strong>
+          Is the apparent result broad, or concentrated somewhere?
+        </strong>
+
+        <p>
+          Compare matched symbols, strategies, or opportunity
+          groups to see where the historical behavior differs.
+        </p>
+
+        <button
+          type="button"
+          className="labs-overview-view-all"
+          onClick={() => onOpenLab('relative-value')}
+        >
+          Open Relative Value →
+        </button>
+      </div>
+    </div>
+
+    <div className="labs-takeaway is-caution">
+      <span className="labs-takeaway-number">04</span>
+
+      <div>
+        <strong>
+          Is Mean Reversion weak, or simply under-sampled?
+        </strong>
+
+        <p>
+          Its current sample is only 7 observations. That is
+          not enough to give it the same evidentiary weight as
+          candidates with hundreds of observations.
+        </p>
+
+        <button
+          type="button"
+          className="labs-overview-view-all"
+          onClick={() => onOpenLab('strategy-discovery')}
+        >
+          Review Strategy Discovery →
+        </button>
+      </div>
+    </div>
+  </div>
+</article>
 </section>
 
       <section className="labs-overview-advanced">

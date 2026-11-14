@@ -200,3 +200,2682 @@
   .lab-timeline-svg { min-width: 700px; }
   .lab-chart-selected-detail { display: grid; gap: 3px; }
 }
+
+/* =========================================================
+   STRATEGY DISCOVERY — BATCH A EVIDENCE SNAPSHOT
+   ========================================================= */
+
+.discovery-evidence-snapshot {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid rgba(50, 126, 166, 0.28);
+  border-radius: 12px;
+  background: rgba(7, 28, 43, 0.55);
+}
+
+.discovery-evidence-heading h3 {
+  margin: 3px 0 5px;
+}
+
+.discovery-evidence-heading p:last-child {
+  margin: 0;
+  color: #7f9aac;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.discovery-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.discovery-evidence-card {
+  padding: 14px;
+  border: 1px solid rgba(50, 126, 166, 0.22);
+  border-radius: 10px;
+  background: rgba(5, 24, 38, 0.72);
+}
+
+.discovery-evidence-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.discovery-evidence-card-heading strong {
+  font-size: 13px;
+}
+
+.discovery-evidence-badge {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font: 700 8px var(--mono);
+  letter-spacing: .05em;
+}
+
+.discovery-evidence-badge.is-exploratory {
+  color: #18e6a5;
+  background: rgba(24, 230, 165, 0.08);
+}
+
+.discovery-evidence-badge.is-insufficient {
+  color: #ffac34;
+  background: rgba(255, 172, 52, 0.08);
+}
+
+.discovery-evidence-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.discovery-evidence-metrics > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.discovery-evidence-metrics span {
+  color: #647f92;
+  font: 700 8px var(--mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.discovery-evidence-metrics strong {
+  font-size: 12px;
+}
+
+.discovery-evidence-note {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid rgba(50, 126, 166, 0.18);
+  color: #7f9aac;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .discovery-evidence-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .discovery-evidence-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* =========================================================
+   STRATEGY DISCOVERY — COLLAPSIBLE FAMILY EVIDENCE
+   ========================================================= */
+
+.discovery-family-details {
+  margin-top: 10px;
+  border: 1px solid rgba(50, 126, 166, 0.22);
+  border-radius: 10px;
+  background: rgba(5, 24, 38, 0.5);
+  overflow: hidden;
+}
+
+.discovery-family-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 20px;
+  align-items: center;
+  gap: 16px;
+  padding: 13px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.discovery-family-summary::-webkit-details-marker {
+  display: none;
+}
+
+.discovery-family-summary span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.discovery-family-summary strong {
+  color: #7f9aac;
+  font: 700 8px var(--mono);
+  letter-spacing: 0.05em;
+  text-align: center;
+}
+
+.discovery-family-summary::after {
+  content: '+';
+  color: #7f9aac;
+  font: 700 14px var(--mono);
+  text-align: right;
+}
+
+.discovery-family-details[open] > .discovery-family-summary::after {
+  content: '−';
+}
+
+.discovery-family-details[open] > .discovery-family-summary {
+  border-bottom: 1px solid rgba(50, 126, 166, 0.18);
+}
+
+.discovery-family-details > .strategy-family-card {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.discovery-setup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+  margin-bottom: 18px;
+}
+
+.discovery-setup-item {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(50, 126, 166, 0.18);
+  border-radius: 9px;
+  background: rgba(7, 28, 43, 0.5);
+}
+
+.discovery-setup-item span {
+  display: block;
+  margin-bottom: 6px;
+  color: #7f9aac;
+  font: 700 8px var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.discovery-setup-item p {
+  margin: 0;
+  color: #a9bdca;
+  font-size: 10px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .discovery-setup-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =========================================================
+   STRATEGY DISCOVERY — INTERPRETATION READOUT
+   ========================================================= */
+
+.discovery-research-readout {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid rgba(50, 126, 166, 0.28);
+  border-radius: 12px;
+  background: rgba(5, 24, 38, 0.68);
+}
+
+.discovery-readout-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(50, 126, 166, 0.18);
+}
+
+.discovery-readout-heading h3 {
+  margin: 3px 0 0;
+}
+
+.discovery-readout-status {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 172, 52, 0.5);
+  border-radius: 999px;
+  color: #ffac34;
+  background: rgba(255, 172, 52, 0.08);
+  font: 700 8px var(--mono);
+  letter-spacing: 0.06em;
+}
+
+.discovery-readout-section {
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(50, 126, 166, 0.14);
+}
+
+.discovery-readout-section:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.discovery-readout-section > strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 11px;
+}
+
+.discovery-readout-section p {
+  margin: 6px 0 0;
+  color: #8ea6b7;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.discovery-readout-points {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.discovery-readout-points p {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(50, 126, 166, 0.16);
+  border-radius: 8px;
+  background: rgba(7, 28, 43, 0.55);
+}
+
+@media (max-width: 760px) {
+  .discovery-readout-heading {
+    flex-direction: column;
+  }
+
+  .discovery-readout-points {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =========================================================
+   STRATEGY DISCOVERY — FOLLOW-UP RESEARCH
+   ========================================================= */
+
+.discovery-followup-details {
+  margin-top: 12px;
+  border: 1px solid rgba(50, 126, 166, 0.22);
+  border-radius: 12px;
+  background: rgba(5, 24, 38, 0.5);
+  overflow: hidden;
+}
+
+.discovery-followup-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 20px;
+  align-items: center;
+  gap: 18px;
+  padding: 15px 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.discovery-followup-summary::-webkit-details-marker {
+  display: none;
+}
+
+.discovery-followup-summary > div {
+  min-width: 0;
+}
+
+.discovery-followup-summary > div > span {
+  display: block;
+  margin-bottom: 4px;
+  color: #5f8299;
+  font: 700 8px var(--mono);
+  letter-spacing: 0.06em;
+}
+
+.discovery-followup-summary strong {
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.discovery-followup-summary p {
+  margin: 4px 0 0;
+  color: #7f9aac;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.discovery-followup-summary > span {
+  color: #7f9aac;
+  font: 700 8px var(--mono);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.discovery-followup-summary::after {
+  content: '+';
+  color: #7f9aac;
+  font: 700 14px var(--mono);
+  text-align: right;
+}
+
+.discovery-followup-details[open] > .discovery-followup-summary::after {
+  content: '−';
+}
+
+.discovery-followup-details[open] > .discovery-followup-summary {
+  border-bottom: 1px solid rgba(50, 126, 166, 0.18);
+}
+
+@media (max-width: 700px) {
+  .discovery-followup-summary {
+    grid-template-columns: minmax(0, 1fr) 20px;
+  }
+
+  .discovery-followup-summary > span {
+    display: none;
+  }
+}
+
+/* =========================================================
+   STRATEGY DISCOVERY — CONTINUE RESEARCH
+   ========================================================= */
+
+.discovery-continue-research {
+  margin-top: 14px;
+  padding: 18px;
+  border: 1px solid rgba(50, 126, 166, 0.22);
+  border-radius: 12px;
+  background: rgba(5, 24, 38, 0.5);
+}
+
+.discovery-continue-heading {
+  margin-bottom: 14px;
+}
+
+.discovery-continue-heading .eyebrow {
+  margin: 0 0 5px;
+}
+
+.discovery-continue-heading strong {
+  display: block;
+  font-size: 13px;
+}
+
+.discovery-continue-heading p:last-child {
+  margin: 5px 0 0;
+  color: #7f9aac;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.discovery-continue-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.discovery-continue-actions button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid rgba(50, 126, 166, 0.22);
+  border-radius: 10px;
+  background: rgba(7, 28, 43, 0.72);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    transform 140ms ease;
+}
+
+.discovery-continue-actions button:hover {
+  border-color: rgba(24, 230, 165, 0.45);
+  background: rgba(8, 35, 51, 0.92);
+  transform: translateY(-1px);
+}
+
+.discovery-continue-actions button:focus-visible {
+  outline: 2px solid rgba(24, 230, 165, 0.7);
+  outline-offset: 2px;
+}
+
+.discovery-continue-actions strong {
+  font-size: 11px;
+}
+
+.discovery-continue-actions span {
+  color: #7f9aac;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+@media (max-width: 760px) {
+  .discovery-continue-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =========================================================
+   STRATEGY DISCOVERY — EXPANDED EVIDENCE EXPERIENCE
+   ========================================================= */
+
+/* ---------- Interpretation Layer ---------- */
+
+.discovery-family-readout {
+  margin: 16px 0 18px;
+  padding: 16px;
+  border: 1px solid rgba(69, 151, 194, 0.3);
+  border-left: 3px solid #d7a94b;
+  border-radius: 12px;
+  background:
+    linear-gradient(
+      135deg,
+      rgba(13, 45, 65, 0.78),
+      rgba(5, 24, 38, 0.82)
+    );
+}
+
+.discovery-family-readout-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid rgba(82, 151, 187, 0.18);
+}
+
+.discovery-family-readout-heading .eyebrow {
+  margin: 0 0 3px;
+  color: #7f9aac;
+  font: 700 8px var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.discovery-family-readout-heading strong {
+  color: #dbe7ee;
+  font-size: 13px;
+}
+
+.discovery-family-readout-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.discovery-family-readout-item {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(70, 139, 175, 0.18);
+  border-radius: 9px;
+  background: rgba(5, 24, 38, 0.52);
+}
+
+.discovery-family-readout-item > span {
+  display: block;
+  margin-bottom: 7px;
+  color: #7893a5;
+  font: 700 8px var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.discovery-family-readout-item > strong {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-bottom: 7px;
+  padding: 4px 7px;
+  border: 1px solid rgba(215, 169, 75, 0.34);
+  border-radius: 999px;
+  background: rgba(215, 169, 75, 0.08);
+  color: #e4ba65;
+  font: 700 8px var(--mono);
+  letter-spacing: 0.055em;
+}
+
+.discovery-family-readout-item p {
+  margin: 0;
+  color: #9fb3c0;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+
+/* ---------- Strategy Discovery chart containers ---------- */
+
+.discovery-family-details .research-primary-visual {
+  display: block;
+  margin: 14px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.discovery-family-details .lab-chart-card,
+.discovery-context-dimension .lab-chart-card {
+  padding: 16px;
+  border: 1px solid rgba(69, 151, 194, 0.24);
+  border-left: 3px solid rgba(77, 174, 142, 0.8);
+  border-radius: 11px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(8, 31, 47, 0.86),
+      rgba(5, 24, 38, 0.72)
+    );
+}
+
+.discovery-family-details .lab-chart-card h4,
+.discovery-context-dimension .lab-chart-card h4 {
+  margin: 0 0 5px;
+  color: #dce8ee;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.discovery-family-details .lab-chart-question,
+.discovery-context-dimension .lab-chart-question {
+  max-width: 84ch;
+  margin: 0 0 10px;
+  color: #829cab;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.discovery-context-dimension .lab-bar-chart-scroll {
+  overflow-x: hidden;
+}
+
+.discovery-context-dimension .lab-bar-chart-svg {
+  min-width: 0;
+  width: 100%;
+}
+
+.discovery-context-dimension .lab-chart-data-table tr[aria-current="true"] {
+  background: rgba(29, 211, 176, 0.10);
+}
+
+.discovery-context-dimension .lab-chart-data-table tr[aria-current="true"] th,
+.discovery-context-dimension .lab-chart-data-table tr[aria-current="true"] td {
+  color: #dce8ee;
+}
+
+.discovery-context-dimension .lab-chart-data-table tr[aria-current="true"] th {
+  color: #5ee6cc;
+}
+
+/* Batch B evidence tables: keep row labels readable without excessive width. */
+.discovery-context-dimension .robustness-table {
+  min-width: 720px;
+}
+
+.discovery-context-dimension .robustness-table th:first-child,
+.discovery-context-dimension .robustness-table td:first-child {
+  min-width: 170px;
+  max-width: 240px;
+  white-space: normal;
+}
+
+/* ---------- Chart itself ---------- */
+
+.discovery-family-details .lab-chart-svg,
+.discovery-family-details .lab-bar-chart-svg {
+  margin: 6px 0 4px;
+}
+
+.discovery-family-details .lab-bar-chart-svg {
+  min-width: 0;
+}
+
+.discovery-family-details .lab-chart-axis-tick line {
+  stroke: rgba(111, 145, 164, 0.17);
+}
+
+.discovery-family-details .lab-chart-axis-line {
+  stroke: rgba(132, 160, 176, 0.38);
+}
+
+.discovery-family-details .lab-chart-zero-line {
+  stroke: rgba(208, 222, 230, 0.72);
+}
+
+.discovery-family-details .lab-chart-axis-tick text,
+.discovery-family-details .lab-chart-axis-label {
+  fill: #7893a5;
+  font-size: 10px;
+}
+
+.discovery-family-details .lab-chart-axis-title {
+  fill: #8fa8b7;
+  font-size: 10px;
+}
+
+.discovery-family-details .lab-chart-series-0 .lab-chart-line,
+.discovery-family-details .lab-chart-series-0 .lab-chart-point {
+  stroke: #4daf8e;
+}
+
+.discovery-family-details .lab-bar.lab-chart-series-0,
+.discovery-family-details .lab-bar-zero.lab-chart-series-0 {
+  fill: #4daf8e;
+  stroke: #4daf8e;
+}
+
+
+/* ---------- Observation counts ---------- */
+
+.discovery-family-details .lab-chart-count-strip {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 6px;
+  margin: 8px 0 10px;
+}
+
+.discovery-family-details .lab-chart-count-strip p {
+  padding: 7px 9px;
+  border: 1px solid rgba(69, 151, 194, 0.14);
+  border-left: 2px solid rgba(77, 174, 142, 0.54);
+  border-radius: 6px;
+  background: rgba(6, 27, 42, 0.46);
+  color: #7f99aa;
+  font-size: 9px;
+}
+
+.discovery-family-details .lab-chart-count-strip strong {
+  color: #b9cad4;
+  font-size: 10px;
+}
+
+
+/* ---------- Single-series legend ---------- */
+
+.discovery-family-details .lab-chart-legend {
+  margin: 5px 0 0;
+  color: #849dad;
+  font-size: 9px;
+}
+
+.discovery-family-details .lab-chart-legend span::before {
+  width: 10px;
+  height: 2px;
+}
+
+
+/* ---------- Inspector ---------- */
+
+.discovery-family-details .lab-chart-inspector-label {
+  margin: 8px 0 3px;
+  color: #8ca5b4;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.discovery-family-details .lab-chart-inspector {
+  min-height: 20px;
+  accent-color: #4daf8e;
+}
+
+.discovery-family-details .lab-chart-selected-detail {
+  gap: 3px 12px;
+  margin-top: 5px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: rgba(4, 20, 32, 0.4);
+  color: #849dab;
+  font-size: 9px;
+}
+
+.discovery-family-details .lab-chart-selected-detail strong {
+  color: #c5d4dc;
+}
+
+
+/* ---------- Collapsed chart data ---------- */
+
+.discovery-family-details .lab-chart-table-details {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(69, 151, 194, 0.12);
+}
+
+.discovery-family-details .lab-chart-table-details > summary {
+  color: #6fa8c5;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.discovery-family-details .lab-chart-table-wrap {
+  border-color: rgba(69, 151, 194, 0.18);
+  background: rgba(5, 24, 38, 0.72);
+}
+
+.discovery-family-details .lab-chart-data-table {
+  color: #9fb3bf;
+  font-size: 9px;
+}
+
+.discovery-family-details .lab-chart-data-table caption {
+  color: #7893a5;
+}
+
+.discovery-family-details .lab-chart-data-table th,
+.discovery-family-details .lab-chart-data-table td {
+  border-color: rgba(69, 151, 194, 0.13);
+}
+
+.discovery-family-details
+  .lab-chart-data-table
+  tbody
+  tr[aria-current="true"] {
+  background: rgba(77, 174, 142, 0.08);
+}
+
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 760px) {
+  .discovery-family-readout-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .discovery-family-readout {
+    padding: 13px;
+  }
+
+  .discovery-family-details .lab-chart-card,
+  .discovery-context-dimension .lab-chart-card {
+    padding: 12px;
+  }
+
+  .discovery-family-details .lab-bar-chart-scroll {
+    overflow-x: auto;
+  }
+}
+
+/* Strategy Discovery — historical result summary */
+
+.discovery-historical-summary {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid rgba(69, 151, 194, 0.24);
+  border-radius: 11px;
+  background: rgba(5, 24, 38, 0.58);
+}
+
+.discovery-historical-summary-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 13px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid rgba(69, 151, 194, 0.14);
+}
+
+.discovery-historical-summary-heading .eyebrow {
+  margin: 0 0 3px;
+}
+
+.discovery-historical-summary-heading strong {
+  color: #d8e5ec;
+  font-size: 13px;
+}
+
+.discovery-historical-summary-heading > span {
+  max-width: 260px;
+  color: #708b9c;
+  font-size: 9px;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.discovery-historical-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.discovery-historical-metrics > div {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid rgba(69, 151, 194, 0.14);
+  border-radius: 7px;
+  background: rgba(7, 29, 44, 0.46);
+}
+
+.discovery-historical-metrics span {
+  display: block;
+  margin-bottom: 5px;
+  color: #7893a5;
+  font: 700 8px var(--mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.discovery-historical-metrics strong {
+  color: #d7e3ea;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.discovery-historical-expectancy {
+  margin: 10px 0 0;
+  color: #829cab;
+  font-size: 10px;
+}
+
+.discovery-historical-expectancy strong {
+  color: #b8cad4;
+}
+
+@media (max-width: 760px) {
+  .discovery-historical-summary-heading {
+    flex-direction: column;
+  }
+
+  .discovery-historical-summary-heading > span {
+    max-width: none;
+    text-align: left;
+  }
+
+  .discovery-historical-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.discovery-page {
+  --discovery-header-offset: 54px;
+  --discovery-scroll-offset: 120px;
+  min-width: 0;
+  max-width: 100%;
+}
+.discovery-page [id] { scroll-margin-top: var(--discovery-scroll-offset); }
+.discovery-section-nav {
+  position: sticky;
+  top: var(--discovery-header-offset);
+  z-index: 90;
+  display: flex;
+  gap: 6px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 10px 4px;
+  background: var(--terminal-bg, #06111f);
+  border-bottom: 1px solid var(--terminal-border, #173247);
+}
+.discovery-page .discovery-section-nav a,
+.discovery-page .discovery-section-nav a:visited,
+.discovery-page .discovery-section-nav a:active {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--terminal-text);
+  font: 600 12px var(--sans);
+  text-decoration: none;
+}
+.discovery-page .discovery-section-nav a[aria-current="location"] {
+  color: var(--terminal-text);
+  background: color-mix(in srgb, var(--terminal-green) 7%, var(--terminal-bg));
+  border-bottom-color: var(--terminal-green);
+  text-decoration: underline;
+  text-decoration-color: var(--terminal-green);
+  text-underline-offset: 5px;
+}
+.discovery-page .discovery-evidence-card { display: block; color: var(--terminal-text); text-decoration: none; cursor: pointer; }
+.discovery-page .discovery-evidence-card:hover { background: #102c40; border-color: #4897c2; }
+.discovery-page .discovery-section-nav a:hover {
+  color: var(--terminal-text);
+  background: var(--terminal-panel-2);
+  border-bottom-color: var(--terminal-green);
+}
+.discovery-page .discovery-evidence-card:active { background: #173b52; }
+.discovery-page a:focus-visible,
+.discovery-page button:focus-visible,
+.discovery-page summary:focus-visible,
+.discovery-page [tabindex]:focus-visible { outline: 2px solid var(--terminal-green); outline-offset: 3px; }
+.discovery-page .discovery-arrival { box-shadow: inset 0 0 0 2px var(--terminal-green); }
+.discovery-card-action { display: block; margin-top: 14px; color: #a9d7ee; font-size: 12px; }
+.discovery-page .discovery-overview-counts { display: block; padding: 16px 20px; }
+.discovery-overview-counts h3 { margin: 0 0 8px; font-size: 17px; color: var(--terminal-text); }
+.discovery-overview-counts p { margin: 0; color: #b8cad4; font-size: 13px; }
+.discovery-page .discovery-evidence-grid { gap: 16px; }
+.discovery-page .discovery-evidence-card { padding: 18px; min-width: 0; }
+.discovery-page .discovery-evidence-card-heading { flex-wrap: wrap; gap: 10px; }
+.discovery-page .discovery-evidence-card-heading strong { font-size: 14px; }
+.discovery-page .discovery-evidence-metrics span,
+.discovery-page .discovery-evidence-note { color: #b0c4d2; font-size: 12px; }
+.discovery-page #discovery-overview > .panel-heading h2,
+.discovery-page .discovery-evidence-heading h3 { color: var(--terminal-text); }
+.discovery-page .discovery-research-readout {
+  margin: 24px 20px;
+  padding: clamp(16px, 2vw, 24px);
+  border: 1px solid color-mix(in srgb, var(--terminal-green) 30%, var(--terminal-border));
+  border-top: 3px solid color-mix(in srgb, var(--terminal-green) 65%, var(--terminal-border));
+  background: var(--terminal-panel);
+}
+.discovery-page .discovery-readout-heading {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px 20px;
+  padding-bottom: 20px;
+  border-bottom-color: var(--terminal-border);
+}
+.discovery-page .discovery-readout-heading .eyebrow {
+  margin-bottom: 6px;
+  color: var(--terminal-muted);
+}
+.discovery-page .discovery-readout-heading h3 {
+  color: var(--terminal-text);
+  font-size: 20px;
+  line-height: 1.3;
+}
+.discovery-page .discovery-readout-status {
+  color: var(--terminal-text);
+  background: var(--terminal-panel-2);
+  border-color: var(--terminal-border-light);
+  font-size: 10px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.discovery-page .discovery-readout-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 20px;
+}
+.discovery-page .discovery-readout-section {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--terminal-border);
+  border-radius: var(--radius-card);
+  background: var(--terminal-bg);
+}
+.discovery-page .discovery-readout-section h4 {
+  margin: 0 0 10px;
+  color: var(--terminal-text);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.discovery-page .discovery-readout-section p {
+  color: var(--terminal-muted);
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.discovery-page .discovery-readout-section.is-conclusion {
+  grid-column: 1 / -1;
+  background: var(--terminal-panel-2);
+}
+.discovery-page .discovery-readout-section.is-conclusion h4 { font-size: 16px; }
+.discovery-page .discovery-readout-section.is-conclusion p:first-of-type { color: var(--terminal-text); font-size: 15px; }
+.discovery-page .discovery-readout-section.is-next { border-left: 2px solid color-mix(in srgb, var(--terminal-green) 55%, var(--terminal-border)); }
+.discovery-readout-label { max-width: 440px; min-width: 0; }
+.discovery-readout-label .discovery-readout-status { display: inline-block; }
+.discovery-page .discovery-overall-explanation { margin-top: 8px; }
+.discovery-overall-explanation > summary { font-weight: 700; }
+.discovery-overall-explanation p { margin: 10px 0 0; color: var(--terminal-text); font-size: 13px; line-height: 1.6; }
+.discovery-page .discovery-readout-section .discovery-next-question { margin-top: 14px; color: var(--terminal-text); font-weight: 600; }
+.discovery-label-explanation { margin-top: 10px; }
+.discovery-label-explanation > summary { width: fit-content; color: var(--terminal-green); font-size: 12px; cursor: pointer; }
+.discovery-family-readout-item .discovery-label-explanation p { margin-top: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.discovery-research-journey { margin: 16px 0; padding: 14px; border: 1px solid var(--terminal-border); border-radius: 9px; background: var(--terminal-panel); }
+.discovery-research-journey h4 { margin: 0; color: var(--terminal-text); font-size: 14px; }
+.discovery-research-journey > p { margin: 6px 0 12px; color: var(--terminal-muted); font-size: 12px; }
+.discovery-research-journey ol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0; padding-left: 20px; }
+.discovery-research-journey li { padding-right: 12px; color: var(--terminal-muted); font-size: 12px; overflow-wrap: anywhere; }
+.discovery-research-journey li strong { display: block; margin-bottom: 6px; color: var(--terminal-text); }
+.discovery-page .discovery-historical-metrics .term-help { display: inline-flex; margin: 0 0 0 4px; }
+.discovery-period-help { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.discovery-evidence-explorer { margin: 24px 0; min-width: 0; }
+.discovery-evidence-explorer > h4 { color: var(--terminal-text); font-size: 16px; margin: 0 0 8px; }
+.discovery-evidence-table-wrap { max-width: 100%; max-height: 340px; overflow: auto; margin: 12px 0; border: 1px solid var(--terminal-border); }
+.discovery-detail-evidence-table { min-width: 720px; width: 100%; }
+.discovery-detail-evidence-table tbody tr { scroll-margin-top: var(--discovery-scroll-offset); }
+.discovery-detail-evidence-table caption { padding: 10px; text-align: left; color: var(--terminal-muted); font-size: 12px; }
+.discovery-evidence-explorer .discovery-detail-evidence-table th,
+.discovery-evidence-explorer .discovery-detail-evidence-table td { padding: 9px 12px; font-size: 12px; white-space: nowrap; text-align: right; color: var(--terminal-text); font-variant-numeric: tabular-nums; }
+.discovery-detail-evidence-table th:first-child { text-align: left; }
+.discovery-detail-evidence-table button { padding: 5px 7px; color: var(--terminal-text); border: 1px solid transparent; border-radius: 4px; background: transparent; font: inherit; cursor: pointer; }
+.discovery-evidence-explorer .discovery-detail-evidence-table tr[data-selected="true"] > * { background: color-mix(in srgb, var(--terminal-green) 9%, var(--terminal-panel)); }
+.discovery-detail-evidence-table button[aria-pressed="true"] { border-color: var(--terminal-green); }
+.discovery-selected-marker { color: var(--terminal-green); font-size: 11px; }
+.discovery-evidence-explorer .discovery-detail-evidence-table td[data-direction="positive"] { color: #9dc9b2; }
+.discovery-evidence-explorer .discovery-detail-evidence-table td[data-direction="negative"] { color: #e7a7a7; }
+.discovery-evidence-caution { color: var(--terminal-amber); font-size: 12px; line-height: 1.55; }
+.discovery-evidence-explorer .lab-chart-point,
+.discovery-evidence-explorer .lab-bar-group { cursor: pointer; }
+.discovery-evidence-explorer .lab-chart-point.is-selected,
+.discovery-evidence-explorer .lab-bar-group.is-selected .lab-bar,
+.discovery-evidence-explorer .lab-bar-group.is-selected .lab-bar-zero { fill: var(--terminal-green); stroke: var(--terminal-text); stroke-width: 3; opacity: 1; }
+.discovery-evidence-research-note { margin-top: 12px; padding: 14px; border-left: 3px solid var(--terminal-green); background: var(--terminal-panel); }
+.discovery-evidence-research-note h5 { margin: 5px 0 8px; color: var(--terminal-text); font-size: 14px; }
+.discovery-evidence-research-note p { margin: 0; color: var(--terminal-muted); font-size: 12px; line-height: 1.6; }
+.discovery-evidence-table-wrap:focus-visible { outline: 2px solid var(--terminal-green); outline-offset: 3px; }
+@media (max-width: 900px) { .discovery-research-journey ol { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .discovery-research-journey ol { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1200px) {
+  .discovery-page .discovery-readout-content { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.discovery-strategy-sections { border-top: 1px solid var(--terminal-border, #173247); padding-bottom: 20px; }
+.discovery-expansion-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0 18px; }
+.discovery-expansion-controls button { padding: 9px 14px; background: #12324a; color: #e1edf4; border: 1px solid #42627a; border-radius: 6px; }
+.discovery-expansion-controls button:hover:not(:disabled) { background: #1b435b; }
+.discovery-expansion-controls button:disabled { opacity: .5; cursor: default; }
+.discovery-expansion-controls span { color: #b0c4d2; font-size: 12px; }
+.discovery-page .discovery-family-details { margin: 12px 20px; }
+.discovery-page #discovery-provenance { padding-bottom: 18px; }
+@media (max-width: 760px) {
+  .discovery-page .discovery-section-nav a { padding: 9px; }
+  .discovery-page .discovery-research-readout { margin-inline: 10px; }
+  .discovery-page .discovery-evidence-grid { grid-template-columns: minmax(0, 1fr); }
+  .discovery-page .discovery-family-details { margin-inline: 10px; }
+}
+
+.discovery-context-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 18px 0 20px;
+}
+
+.discovery-context-controls button {
+  border: 1px solid rgba(69, 139, 180, 0.42);
+  border-radius: 8px;
+  background: #0b2940;
+  color: #e7f1f7;
+  padding: 10px 16px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.discovery-context-controls button:hover:not(:disabled) {
+  border-color: rgba(29, 211, 176, 0.72);
+}
+
+.discovery-context-controls button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.discovery-context-controls span {
+  color: #8eafc3;
+  font-size: 0.9rem;
+}
+
+/* =========================================================
+   STRATEGY DISCOVERY — BATCH C COMPARISON CHARTS
+   ========================================================= */
+
+.discovery-batch-c-chart {
+  --surface: #061b2a;
+  --ink: #dce8ee;
+  --muted: #829cab;
+  --line: rgba(69, 151, 194, 0.24);
+
+  border-color: rgba(69, 151, 194, 0.24);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(8, 31, 47, 0.86),
+      rgba(5, 24, 38, 0.72)
+    );
+}
+
+.discovery-batch-c-chart .lab-chart-card {
+  border-color: rgba(69, 151, 194, 0.24);
+  border-left-color: rgba(77, 174, 142, 0.8);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(8, 31, 47, 0.86),
+      rgba(5, 24, 38, 0.72)
+    );
+}
+
+.discovery-batch-c-chart .lab-chart-count-strip p {
+  border-color: rgba(69, 151, 194, 0.14);
+  border-left-color: rgba(77, 174, 142, 0.54);
+  border-radius: 6px;
+  background: rgba(6, 27, 42, 0.46);
+}
+
+.discovery-batch-c-chart .lab-chart-table-wrap {
+  border-color: rgba(69, 151, 194, 0.18);
+  background: rgba(5, 24, 38, 0.72);
+}
+
+.discovery-batch-c-chart
+  .lab-chart-data-table
+  tbody
+  tr[aria-current="true"] {
+  background: rgba(69, 151, 194, 0.12);
+}
+
+.discovery-batch-c-chart .lab-chart-empty {
+  background: rgba(6, 27, 42, 0.46);
+}
+
+/* =========================================================
+   STRATEGY DISCOVERY — A/B/C RESEARCH OVERVIEW
+   ========================================================= */
+
+.discovery-overview-dashboard {
+  margin: 18px 20px 24px;
+  padding: 18px;
+  border: 1px solid rgba(69, 151, 194, 0.24);
+  border-radius: 12px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(8, 31, 47, 0.82),
+      rgba(5, 24, 38, 0.68)
+    );
+}
+
+.discovery-overview-dashboard-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: end;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(69, 151, 194, 0.18);
+}
+
+.discovery-overview-dashboard-heading h3 {
+  margin: 3px 0 0;
+  color: #dce8ee;
+  font-size: 15px;
+}
+
+.discovery-overview-dashboard-heading > p {
+  max-width: 50ch;
+  margin: 0;
+  color: #829cab;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.discovery-overview-dashboard-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.discovery-overview-panel {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(69, 151, 194, 0.2);
+  border-left: 3px solid rgba(77, 174, 142, 0.76);
+  border-radius: 10px;
+  background: rgba(5, 24, 38, 0.74);
+}
+
+.discovery-overview-panel-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: start;
+}
+
+.discovery-overview-panel-heading span {
+  color: #6fa8c5;
+  font: 700 9px var(--mono);
+  letter-spacing: .08em;
+}
+
+.discovery-overview-panel-heading h4 {
+  margin: 3px 0 0;
+  color: #dce8ee;
+  font-size: 14px;
+}
+
+.discovery-overview-panel-heading > strong {
+  color: #9fb3bf;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.discovery-overview-panel-copy {
+  max-width: 82ch;
+  margin: 8px 0 14px;
+  color: #829cab;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.discovery-overview-panel-note {
+  margin: 14px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid rgba(69, 151, 194, 0.12);
+  color: #718b9c;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+
+/* Batch A — evidence matrix */
+
+.discovery-overview-matrix {
+  overflow-x: auto;
+  border: 1px solid rgba(69, 151, 194, 0.14);
+  border-radius: 8px;
+}
+
+.discovery-overview-matrix-head,
+.discovery-overview-matrix-row {
+  display: grid;
+  grid-template-columns:
+    minmax(170px, 1.5fr)
+    minmax(90px, .7fr)
+    minmax(70px, .55fr)
+    minmax(90px, .7fr)
+    minmax(100px, .8fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 620px;
+  padding: 9px 11px;
+}
+
+.discovery-overview-matrix-head {
+  background: rgba(69, 151, 194, 0.08);
+  color: #7893a5;
+  font: 700 8px var(--mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.discovery-overview-matrix-row {
+  border-top: 1px solid rgba(69, 151, 194, 0.1);
+  color: #b9cad4;
+  font-size: 9px;
+}
+
+.discovery-overview-matrix-row > strong {
+  color: #dce8ee;
+  font-size: 10px;
+}
+
+.discovery-overview-matrix-row span {
+  display: grid;
+  gap: 2px;
+}
+
+.discovery-overview-matrix-row span > small {
+  color: #718b9c;
+  font-size: 8px;
+}
+
+.overview-status {
+  width: fit-content;
+  padding: 3px 6px;
+  border: 1px solid rgba(69, 151, 194, 0.2);
+  border-radius: 999px;
+  white-space: nowrap;
+  font: 700 7px var(--mono) !important;
+  letter-spacing: .04em;
+}
+
+.overview-status.is-caution {
+  border-color: rgba(213, 166, 60, 0.42);
+  color: #d5a63c !important;
+}
+
+.overview-status.is-neutral {
+  color: #8fb8ca !important;
+}
+
+.overview-status.is-muted {
+  color: #718b9c !important;
+}
+
+
+/* Batch B — context heatmap */
+
+.discovery-overview-heatmap {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.discovery-overview-heat-tile {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(69, 151, 194, 0.14);
+  border-radius: 8px;
+}
+
+.discovery-overview-heat-tile.is-strong {
+  border-color: rgba(69, 151, 194, 0.78);
+  background: rgba(69, 151, 194, 0.38);
+}
+
+.discovery-overview-heat-tile.is-moderate {
+  border-color: rgba(69, 151, 194, 0.48);
+  background: rgba(69, 151, 194, 0.19);
+}
+
+.discovery-overview-heat-tile.is-low {
+  border-color: rgba(69, 151, 194, 0.2);
+  background: rgba(69, 151, 194, 0.065);
+}
+
+.discovery-overview-heat-tile.is-unavailable {
+  border-color: rgba(113, 139, 156, 0.22);
+  border-style: dashed;
+  background: rgba(113, 139, 156, 0.025);
+}
+
+.discovery-overview-heat-tile > span {
+  display: block;
+  color: #9fb3bf;
+  font-size: 9px;
+}
+
+.discovery-overview-heat-tile > strong {
+  display: block;
+  margin: 7px 0 4px;
+  color: #dce8ee;
+  font: 700 18px var(--mono);
+}
+
+.discovery-overview-heat-tile > small {
+  color: #77b99f;
+  font: 700 7px var(--mono);
+  letter-spacing: .04em;
+}
+
+.discovery-overview-heat-tile.is-strong > small {
+  color: #c2e5f2;
+}
+
+.discovery-overview-heat-tile.is-moderate > small {
+  color: #9fc8d9;
+}
+
+.discovery-overview-heat-tile.is-low > small,
+.discovery-overview-heat-tile.is-unavailable > small {
+  color: #7893a5;
+}
+
+.discovery-overview-heat-tile > p {
+  margin: 5px 0 0;
+  color: #718b9c;
+  font-size: 8px;
+}
+
+
+/* Batch C — controlled comparison */
+
+.discovery-overview-open-link {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 12px;
+  padding: 6px 9px;
+  border: 1px solid rgba(69, 151, 194, 0.24);
+  border-radius: 6px;
+  color: #8fb8ca;
+  background: rgba(69, 151, 194, 0.05);
+  font: 700 8px var(--mono);
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+
+.discovery-overview-open-link:hover {
+  border-color: rgba(69, 151, 194, 0.48);
+  background: rgba(69, 151, 194, 0.1);
+}
+
+.discovery-overview-open-link:focus-visible {
+  outline: 2px solid var(--terminal-green);
+  outline-offset: 2px;
+}
+
+.discovery-overview-versus {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.discovery-overview-versus > div:not(.discovery-overview-versus-divider) {
+  padding: 13px;
+  border: 1px solid rgba(69, 151, 194, 0.16);
+  border-radius: 8px;
+  background: rgba(6, 27, 42, 0.46);
+}
+
+.discovery-overview-versus > div > span {
+  color: #6fa8c5;
+  font: 700 8px var(--mono);
+  letter-spacing: .06em;
+}
+
+.discovery-overview-versus > div > strong {
+  display: block;
+  margin: 3px 0 11px;
+  color: #dce8ee;
+  font-size: 12px;
+}
+
+.discovery-overview-versus dl {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.discovery-overview-versus dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.discovery-overview-versus dt {
+  color: #7893a5;
+  font-size: 9px;
+}
+
+.discovery-overview-versus dd {
+  margin: 0;
+  color: #dce8ee;
+  font: 700 9px var(--mono);
+}
+
+.discovery-overview-versus-divider {
+  align-self: center;
+  color: #718b9c;
+  font: 700 9px var(--mono);
+}
+
+.discovery-overview-delta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-left: 2px solid rgba(213, 166, 60, 0.72);
+  background: rgba(213, 166, 60, 0.06);
+}
+
+.discovery-overview-delta span {
+  color: #9fb3bf;
+  font-size: 9px;
+}
+
+.discovery-overview-delta strong {
+  color: #dce8ee;
+  font: 700 10px var(--mono);
+}
+
+.discovery-overview-unavailable {
+  margin: 0;
+  padding: 12px;
+  border: 1px dashed rgba(69, 151, 194, 0.2);
+  border-radius: 8px;
+  color: #829cab;
+  font-size: 10px;
+}
+
+
+@media (max-width: 900px) {
+  .discovery-overview-dashboard-heading {
+    display: grid;
+    align-items: start;
+  }
+
+  .discovery-overview-heatmap {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .discovery-overview-heatmap {
+    grid-template-columns: 1fr;
+  }
+
+  .discovery-overview-versus {
+    grid-template-columns: 1fr;
+  }
+
+  .discovery-overview-versus-divider {
+    justify-self: center;
+  }
+}/* Batch B/C use Batch A's existing cards; scope adjustments to follow-ups only. */
+#discovery-batch-b .discovery-evidence-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+#discovery-batch-b .discovery-evidence-card,
+#discovery-batch-c .robustness-section { min-width: 0; }
+#discovery-batch-b .discovery-evidence-card-heading { flex-wrap: wrap; align-items: flex-start; }
+#discovery-batch-b .discovery-evidence-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+#discovery-batch-b .discovery-evidence-metrics > div { min-width: 0; }
+#discovery-batch-b .discovery-evidence-metrics strong { overflow-wrap: anywhere; line-height: 1.5; }
+#discovery-batch-b .discovery-evidence-metrics span { font-size: 10px; line-height: 1.5; }
+#discovery-batch-b .discovery-evidence-badge { white-space: normal; font-size: 10px; line-height: 1.4; }
+#discovery-batch-b [data-context-status="CONTEXT VARIATION"] { color: var(--terminal-green, #16ddb0); }
+#discovery-batch-b [data-context-status="LIMITED VARIATION"] { color: var(--terminal-cyan, #28b7f5); }
+#discovery-batch-b [data-context-status="LIMITED DATA"] { color: var(--terminal-muted, #8fa4ba); }
+#discovery-batch-c .robustness-section { margin-block: 18px; padding: 18px; border: 1px solid var(--terminal-border); border-radius: 12px; }
+#discovery-batch-c .robustness-section h3 { color: var(--terminal-text); font-size: 1rem; line-height: 1.4; }
+#discovery-batch-c .research-primary-visual { margin-block: 18px; min-width: 0; }
+#discovery-batch-c .research-note,
+#discovery-batch-b .research-note { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+#discovery-batch-c .discovery-research-readout p,
+#discovery-batch-b .discovery-research-readout p { line-height: 1.6; }
+#discovery-batch-c summary:focus-visible,
+#discovery-batch-b summary:focus-visible { outline: 2px solid var(--terminal-green); outline-offset: 3px; }
+@media (max-width: 480px) {
+  #discovery-batch-b .discovery-evidence-metrics { grid-template-columns: minmax(0, 1fr); }
+  #discovery-batch-c .robustness-section { padding: 12px; }
+}
+/* Question-first Overview. Scoped to preserve every deeper batch and sticky nav. */
+.discovery-question-overview {
+  margin-inline: clamp(12px, 2vw, 24px);
+  --question-ink: var(--terminal-text, var(--ink));
+  --question-muted: var(--terminal-muted, var(--muted));
+  --question-line: var(--terminal-border, var(--line));
+  --question-surface: var(--terminal-panel, var(--panel));
+  --question-accent: var(--terminal-green, var(--green));
+  color: var(--question-ink);
+  font-size: var(--font-size-body);
+  line-height: 1.65;
+}
+.discovery-question-overview .discovery-question-intro { max-width: 76ch; padding: 18px 0 28px; }
+.discovery-question-overview .discovery-question-intro h2 { font-size: clamp(1.7rem, 3vw, 2.65rem); line-height: 1.18; letter-spacing: -.035em; color: var(--question-ink); margin: 12px 0 18px; }
+.discovery-question-overview .eyebrow { color: var(--question-accent); }
+.discovery-question-overview p { margin: 8px 0 16px; }
+.discovery-question-overview small { color: var(--question-muted); font-size: .8rem; }
+.discovery-question-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.discovery-question-overview .discovery-question-cards button { display: flex; flex-direction: column; gap: 14px; text-align: left; padding: 20px; min-width: 0; border: 1px solid var(--question-line); border-radius: 12px; background: var(--question-surface); color: var(--question-ink); cursor: pointer; line-height: 1.5; white-space: normal; }
+.discovery-question-cards button span { color: var(--question-muted); font-size: .8rem; }
+.discovery-question-cards button strong { font-size: 1.12rem; font-weight: 700; color: var(--question-ink); }
+.discovery-question-cards button small { margin-top: auto; }
+.discovery-question-overview .discovery-question-cards button[aria-pressed="true"] { border-color: var(--question-accent); box-shadow: inset 0 3px var(--question-accent); background: color-mix(in srgb, var(--question-accent) 7%, var(--question-surface)); }
+.discovery-question-overview .discovery-question-cards button:hover { border-color: var(--question-accent); }
+.discovery-question-selection { color: var(--question-muted); font-size: .8rem; }
+.discovery-question-overview #discovery-question-answer { border: 1px solid var(--question-line); border-radius: 14px; padding: clamp(16px, 3vw, 28px); background: var(--question-surface); }
+.discovery-question-overview h3 { color: var(--question-ink); font-size: 1.3rem; margin: 6px 0 20px; }
+.discovery-question-overview h4 { color: var(--question-ink); font-size: .95rem; margin: 20px 0 8px; }
+.discovery-question-results, .discovery-question-takeaways { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.discovery-question-results article, .discovery-question-conditions article { min-width: 0; border: 1px solid var(--question-line); border-radius: 8px; padding: 16px; }
+.discovery-question-results article h4, .discovery-question-conditions article h4 { margin-top: 0; }
+.discovery-question-results dl { margin: 12px 0; }
+.discovery-question-results dl > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 6px 0; }
+.discovery-question-results dt { color: var(--question-muted); }
+.discovery-question-results dd { margin: 0; color: var(--question-ink); font-variant-numeric: tabular-nums; }
+.discovery-question-results p { font-size: .82rem; color: var(--question-muted); }
+.discovery-question-conditions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.discovery-question-conditions strong { color: var(--question-ink); font: 500 1.25rem var(--mono); }
+.discovery-question-conditions p { font-size: .75rem; color: var(--question-muted); }
+.discovery-question-takeaways { border-top: 1px solid var(--question-line); margin-top: 24px; }
+.discovery-question-overview .discovery-question-next { display: inline-block; padding: 12px 18px; border: 1px solid var(--question-accent); border-radius: 8px; color: var(--question-ink); background: color-mix(in srgb, var(--question-accent) 8%, var(--question-surface)); font-weight: 700; text-decoration: none; }
+.discovery-question-overview .discovery-question-next:hover { text-decoration: underline; }
+.discovery-question-learning { margin-top: 28px; }
+.discovery-question-learning > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+.discovery-question-learning details { border-top: 1px solid var(--question-line); padding: 12px 0; }
+.discovery-question-overview summary { cursor: pointer; padding: 6px 0; color: var(--question-ink); }
+.discovery-question-overview :is(button, a, summary):focus-visible { outline: 3px solid var(--question-accent); outline-offset: 4px; }
+.discovery-overview-technical > summary { cursor: pointer; margin-inline: clamp(12px, 2vw, 24px); padding: 18px 0; color: var(--terminal-text, var(--ink)); font-weight: 700; }
+.discovery-overview-technical > summary:focus-visible { outline: 3px solid var(--terminal-green, var(--green)); outline-offset: 3px; }
+.discovery-question-unavailable { border-left: 3px solid var(--question-muted); padding: 12px 16px; }
+@media (max-width: 1000px) { .discovery-question-conditions { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .discovery-question-cards, .discovery-question-results, .discovery-question-takeaways, .discovery-question-learning > div, .discovery-question-conditions { grid-template-columns: minmax(0, 1fr); }
+  .discovery-question-overview { overflow-wrap: anywhere; }
+}
+
+
+/* Strategy Discovery Overview — compact learning cards */
+
+.discovery-question-overview .discovery-question-results {
+  gap: 12px;
+}
+
+.discovery-question-overview .discovery-question-results article {
+  padding: 12px 14px;
+  border-radius: 12px;
+}
+
+.discovery-question-overview .discovery-question-results article h4 {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 0 8px;
+  font-size: 0.96rem;
+  line-height: 1.4;
+}
+
+.discovery-question-overview .discovery-question-results dl {
+  margin: 8px 0;
+}
+
+.discovery-question-overview .discovery-question-results dl > div {
+  padding: 4px 0;
+}
+
+.discovery-question-overview .discovery-question-results article > p {
+  margin: 8px 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.discovery-question-overview .discovery-question-results article > details {
+  margin-top: 8px;
+}
+
+.discovery-question-overview .discovery-question-results article > details > summary {
+  padding: 6px 0;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* Small decorative symbols for the four setup families */
+
+.discovery-question-overview .discovery-question-results article h4::before {
+  content: "↗";
+  flex-shrink: 0;
+  color: var(--question-accent);
+  font-size: 1.15rem;
+}
+
+.discovery-question-overview .discovery-question-results article:nth-child(2) h4::before {
+  content: "↺";
+}
+
+.discovery-question-overview .discovery-question-results article:nth-child(3) h4::before {
+  content: "⬡";
+}
+
+.discovery-question-overview .discovery-question-results article:nth-child(4) h4::before {
+  content: "≋";
+}
+
+/* Beginner shortcut to the Quick Glossary */
+
+.discovery-glossary-shortcut {
+  margin: 12px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--question-line);
+  border-left: 3px solid var(--question-accent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--question-accent) 7%, transparent);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.discovery-glossary-shortcut::before {
+  content: "💡";
+  display: inline-block;
+  margin-right: 9px;
+  font-size: 1.1rem;
+}
+
+.discovery-glossary-link {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--question-ink);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.discovery-glossary-link:hover {
+  color: var(--question-accent);
+}
+
+.discovery-glossary-link:focus-visible {
+  outline: 2px solid var(--question-accent);
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+
+/* Book icon and anchor positioning */
+
+.discovery-question-learning h3::before {
+  content: "📖";
+  display: inline-block;
+  margin-right: 10px;
+  font-size: 0.95em;
+}
+
+#discovery-quick-glossary {
+  scroll-margin-top: 130px;
+}
+
+
+/* Strategy Discovery — educational color hierarchy */
+
+.discovery-question-overview #discovery-question-answer > h4,
+.discovery-question-overview .discovery-question-takeaways h4 {
+  color: var(--question-accent);
+}
+
+.discovery-question-overview #discovery-question-answer > p:not(.eyebrow),
+.discovery-question-overview .discovery-question-takeaways p {
+  color: #b8cce0;
+  line-height: 1.7;
+}
+
+.discovery-question-overview .discovery-question-results article {
+  border-top: 2px solid color-mix(
+    in srgb,
+    var(--question-accent) 65%,
+    transparent
+  );
+}
+
+.discovery-question-overview .discovery-question-results article h4 {
+  color: #f2f7ff;
+}
+
+.discovery-question-overview .discovery-cost-explorer > summary {
+  color: #78bfff;
+}
+
+.discovery-question-overview .discovery-cost-explorer > summary:hover {
+  color: var(--question-accent);
+}
+
+
+/* Strategy Discovery — distinct research question accents */
+
+.discovery-question-overview .discovery-question-cards button:nth-child(1) {
+  --discovery-card-accent: #15d4bc;
+}
+
+.discovery-question-overview .discovery-question-cards button:nth-child(2) {
+  --discovery-card-accent: #58b8ff;
+}
+
+.discovery-question-overview .discovery-question-cards button:nth-child(3) {
+  --discovery-card-accent: #b996ff;
+}
+
+.discovery-question-overview .discovery-question-cards button {
+  border-top: 3px solid var(--discovery-card-accent);
+}
+
+.discovery-question-overview .discovery-question-cards button > span {
+  color: var(--discovery-card-accent);
+}
+
+.discovery-question-overview .discovery-question-cards button[aria-pressed="true"] {
+  border-color: var(--discovery-card-accent);
+  box-shadow: inset 0 3px var(--discovery-card-accent);
+  background: color-mix(
+    in srgb,
+    var(--discovery-card-accent) 8%,
+    var(--question-surface)
+  );
+}
+
+.discovery-question-overview .discovery-question-cards button:hover {
+  border-color: var(--discovery-card-accent);
+}
+
+
+/* Strategy Discovery — research question icons */
+
+.discovery-question-overview
+.discovery-question-cards button .discovery-question-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  color: var(--discovery-card-accent);
+  background: color-mix(
+    in srgb,
+    var(--discovery-card-accent) 12%,
+    transparent
+  );
+}
+
+.discovery-question-overview
+.discovery-question-cards button .discovery-question-icon svg {
+  width: 25px;
+  height: 25px;
+}
+
+
+/* Strategy Discovery — Batch B identity */
+
+.robustness-lab.discovery-batch-b > .panel-heading .eyebrow,
+.robustness-lab.discovery-batch-b > .panel-heading h2 {
+  color: #58b8ff;
+}
+
+.robustness-lab.discovery-batch-b > .panel-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.discovery-batch-b .discovery-batch-heading-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+
+/* Strategy Discovery — Batch A identity */
+
+#discovery-batch-a .discovery-evidence-heading .eyebrow,
+#discovery-batch-a .discovery-batch-a-title {
+  color: #15d4bc;
+}
+
+#discovery-batch-a .discovery-batch-a-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#discovery-batch-a .discovery-batch-a-title .discovery-batch-heading-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+
+/* Strategy Discovery — Batch C identity */
+
+.robustness-lab.discovery-batch-c > .panel-heading .eyebrow,
+.robustness-lab.discovery-batch-c > .panel-heading h2 {
+  color: #b996ff;
+}
+
+.robustness-lab.discovery-batch-c > .panel-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.discovery-batch-c .discovery-batch-heading-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+
+/* Strategy Discovery — batch-colored Evidence Readouts */
+
+/* Batch A — teal */
+#discovery-batch-a .discovery-family-readout {
+  --batch-readout-accent: #15d4bc;
+}
+
+/* Batch B — blue */
+.discovery-batch-b .discovery-family-readout {
+  --batch-readout-accent: #58b8ff;
+}
+
+/* Batch C — purple */
+.discovery-batch-c .discovery-family-readout {
+  --batch-readout-accent: #b996ff;
+}
+
+/* Match the outer accent border to the batch */
+#discovery-batch-a .discovery-family-readout,
+.discovery-batch-b .discovery-family-readout,
+.discovery-batch-c .discovery-family-readout {
+  border-left: 3px solid var(--batch-readout-accent);
+}
+
+/* Match the section label and heading */
+#discovery-batch-a .discovery-family-readout-heading .eyebrow,
+#discovery-batch-a .discovery-family-readout-heading strong,
+.discovery-batch-b .discovery-family-readout-heading .eyebrow,
+.discovery-batch-b .discovery-family-readout-heading strong,
+.discovery-batch-c .discovery-family-readout-heading .eyebrow,
+.discovery-batch-c .discovery-family-readout-heading strong {
+  color: var(--batch-readout-accent);
+}
+
+
+/* ==================================================
+   STRATEGY DISCOVERY — BATCH C PURPLE THEME
+   ================================================== */
+
+/* Main Batch C research section */
+.robustness-lab.discovery-batch-c {
+  background: linear-gradient(
+    145deg,
+    #1b1832 0%,
+    #11182a 55%,
+    #151529 100%
+  );
+  border-color: #524273;
+}
+
+/* Evidence Readout and Research Readout */
+.discovery-batch-c .discovery-family-readout,
+.discovery-batch-c .discovery-research-readout {
+  background: linear-gradient(
+    135deg,
+    #231c3c 0%,
+    #17192e 65%,
+    #14182a 100%
+  );
+  border-color: #66518e;
+  border-left: 3px solid #b996ff;
+  border-top: 2px solid #8060be;
+}
+
+/* Readout headings */
+.discovery-batch-c .discovery-family-readout-heading .eyebrow,
+.discovery-batch-c .discovery-family-readout-heading strong,
+.discovery-batch-c .discovery-readout-heading .eyebrow,
+.discovery-batch-c .discovery-readout-heading h3 {
+  color: #c9aaff;
+}
+
+/* Inner evidence cards and explanation panels */
+.discovery-batch-c .discovery-family-readout-item,
+.discovery-batch-c .discovery-readout-section {
+  background: rgba(185, 150, 255, 0.055);
+  border-color: rgba(185, 150, 255, 0.22);
+}
+
+/* Keep important findings readable */
+.discovery-batch-c .discovery-readout-section h4 {
+  color: #f0eaff;
+}
+
+/* Don't recolor evidence-status badges or their meanings */
+
+
+/* Batch C selected in Strategy Discovery Overview */
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(3)[aria-pressed="true"]
+) #discovery-question-answer {
+  background: linear-gradient(
+    145deg,
+    #211a38 0%,
+    #14182a 65%,
+    #19162b 100%
+  );
+  border-color: #66518e;
+}
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(3)[aria-pressed="true"]
+) #discovery-question-answer > .eyebrow,
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(3)[aria-pressed="true"]
+) #discovery-question-answer > h4,
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(3)[aria-pressed="true"]
+) .discovery-question-takeaways h4 {
+  color: #c9aaff;
+}
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(3)[aria-pressed="true"]
+) #discovery-question-answer article {
+  background: rgba(185, 150, 255, 0.055);
+  border-color: rgba(185, 150, 255, 0.25);
+}
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(3)[aria-pressed="true"]
+) .discovery-question-next {
+  border-color: #b996ff;
+  color: #e2d6ff;
+  background: rgba(185, 150, 255, 0.1);
+}
+
+
+/* Batch C Overview — complete purple learning experience */
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(3)[aria-pressed="true"]
+) {
+  --question-accent: #b996ff;
+}
+
+/* Match the glossary shortcut to Batch C */
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(3)[aria-pressed="true"]
+) .discovery-glossary-shortcut {
+  border-color: #66518e;
+  border-left: 3px solid #b996ff;
+  background: rgba(185, 150, 255, 0.08);
+}
+
+/* Match the shared learning section to the selected theme */
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(3)[aria-pressed="true"]
+) .discovery-question-learning {
+  padding: 20px;
+  border: 1px solid #66518e;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #211a38, #151729);
+}
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(3)[aria-pressed="true"]
+) .discovery-question-learning h3 {
+  color: #c9aaff;
+}
+
+/* Session comparisons are not the four setup families */
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(3)[aria-pressed="true"]
+) .discovery-question-results article h4::before {
+  content: none;
+}
+
+
+/* ==========================================
+   BATCH C — PURPLE SUMMARY COMPARISON
+   ========================================== */
+
+/* Entire summary panel */
+.discovery-overview-panel.discovery-batch-c-summary {
+  background: linear-gradient(
+    145deg,
+    #201a38 0%,
+    #15182c 65%,
+    #19162e 100%
+  );
+  border: 1px solid #66518e;
+  border-left: 3px solid #b996ff;
+  border-radius: 14px;
+}
+
+/* Batch label and heading */
+.discovery-batch-c-summary
+.discovery-overview-panel-heading span {
+  color: #b996ff;
+}
+
+.discovery-batch-c-summary
+.discovery-overview-panel-heading h4 {
+  color: #e2d6ff;
+}
+
+.discovery-batch-c-summary
+.discovery-overview-panel-heading > strong {
+  color: #c9aaff;
+}
+
+/* Supporting explanation */
+.discovery-batch-c-summary
+.discovery-overview-panel-copy {
+  color: #b7b9d6;
+}
+
+/* Both historical comparison cards */
+.discovery-batch-c-summary
+.discovery-overview-versus > div:first-child,
+.discovery-batch-c-summary
+.discovery-overview-versus > div:last-child {
+  background: linear-gradient(
+    145deg,
+    #211c39,
+    #15192d
+  );
+  border-color: #5b497e;
+  border-radius: 10px;
+}
+
+/* Comparison labels */
+.discovery-batch-c-summary
+.discovery-overview-versus > div span {
+  color: #c9aaff;
+}
+
+/* Open Batch C link/button */
+.discovery-batch-c-summary a {
+  color: #c9aaff;
+  border-color: #8060be;
+  background: rgba(185, 150, 255, 0.08);
+}
+
+.discovery-batch-c-summary a:hover {
+  color: #f0eaff;
+  border-color: #b996ff;
+  background: rgba(185, 150, 255, 0.16);
+}
+
+.discovery-batch-c-summary a:focus-visible {
+  outline: 2px solid #b996ff;
+  outline-offset: 3px;
+}
+
+
+/* Batch C — Historical Average R change */
+
+.discovery-batch-c-summary .discovery-overview-delta {
+  border-left-color: #b996ff;
+  background: rgba(185, 150, 255, 0.09);
+}
+
+.discovery-batch-c-summary .discovery-overview-delta span {
+  color: #c9aaff;
+}
+
+
+/* ==========================================
+   STRATEGY DISCOVERY — BATCH B BLUE THEME
+   ========================================== */
+
+/* Main Batch B research section */
+
+.robustness-lab.discovery-batch-b {
+  background: linear-gradient(
+    145deg,
+    #142a40 0%,
+    #0d1b2f 60%,
+    #10243a 100%
+  );
+  border-color: #3e6c94;
+}
+
+/* Evidence Readout and Research Readout */
+
+.discovery-batch-b .discovery-family-readout,
+.discovery-batch-b .discovery-research-readout {
+  background: linear-gradient(
+    135deg,
+    #193750 0%,
+    #11253c 65%,
+    #101b30 100%
+  );
+  border-color: #477eaa;
+  border-left: 3px solid #58b8ff;
+  border-top: 2px solid #477eaa;
+}
+
+/* Readout labels and headings */
+
+.discovery-batch-b .discovery-family-readout-heading .eyebrow,
+.discovery-batch-b .discovery-family-readout-heading strong,
+.discovery-batch-b .discovery-readout-heading .eyebrow,
+.discovery-batch-b .discovery-readout-heading h3 {
+  color: #8bceff;
+}
+
+/* Inner cards and explanations */
+
+.discovery-batch-b .discovery-family-readout-item,
+.discovery-batch-b .discovery-readout-section {
+  background: rgba(88, 184, 255, 0.055);
+  border-color: rgba(88, 184, 255, 0.23);
+}
+
+.discovery-batch-b .discovery-readout-section h4 {
+  color: #e8f5ff;
+}
+
+
+/* Batch B selected in Strategy Discovery Overview */
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(2)[aria-pressed="true"]
+) {
+  --question-accent: #58b8ff;
+}
+
+/* Selected question evidence panel */
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(2)[aria-pressed="true"]
+) #discovery-question-answer {
+  background: linear-gradient(
+    145deg,
+    #182f48 0%,
+    #101e32 65%,
+    #12283e 100%
+  );
+  border-color: #477eaa;
+}
+
+/* Educational headings */
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(2)[aria-pressed="true"]
+) #discovery-question-answer > .eyebrow,
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(2)[aria-pressed="true"]
+) #discovery-question-answer > h4,
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(2)[aria-pressed="true"]
+) .discovery-question-takeaways h4 {
+  color: #8bceff;
+}
+
+/* Eight market-condition cards */
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(2)[aria-pressed="true"]
+) .discovery-question-conditions article {
+  background: rgba(88, 184, 255, 0.055);
+  border-color: rgba(88, 184, 255, 0.25);
+}
+
+/* Quick Glossary shortcut */
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(2)[aria-pressed="true"]
+) .discovery-glossary-shortcut {
+  border-color: #477eaa;
+  border-left: 3px solid #58b8ff;
+  background: rgba(88, 184, 255, 0.08);
+}
+
+/* Beginner glossary panel */
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(2)[aria-pressed="true"]
+) .discovery-question-learning {
+  padding: 20px;
+  border: 1px solid #477eaa;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #192f47, #101d30);
+}
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(2)[aria-pressed="true"]
+) .discovery-question-learning h3 {
+  color: #8bceff;
+}
+
+/* Explore Batch B button */
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(2)[aria-pressed="true"]
+) .discovery-question-next {
+  color: #bfe4ff;
+  border-color: #58b8ff;
+  background: rgba(88, 184, 255, 0.1);
+}
+
+
+/* Batch B research-map identity — preserve heatmap colors */
+
+.discovery-overview-panel.discovery-batch-b-summary {
+  border-color: #477eaa;
+  border-left: 3px solid #58b8ff;
+}
+
+.discovery-batch-b-summary .discovery-overview-panel-heading span {
+  color: #58b8ff;
+}
+
+.discovery-batch-b-summary .discovery-overview-panel-heading h4 {
+  color: #bfe4ff;
+}
+
+.discovery-batch-b-summary a {
+  color: #8bceff;
+  border-color: #477eaa;
+}
+
+.discovery-batch-b-summary a:hover {
+  border-color: #58b8ff;
+}
+
+
+/* ==========================================
+   STRATEGY DISCOVERY — BATCH A TEAL THEME
+   ========================================== */
+
+/* Activate teal when Batch A is selected */
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(1)[aria-pressed="true"]
+) {
+  --question-accent: #15d4bc;
+}
+
+/* Main question and evidence area */
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(1)[aria-pressed="true"]
+) #discovery-question-answer {
+
+background: #092631;
+  border-color: #287e75;
+}
+
+/* Educational headings */
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(1)[aria-pressed="true"]
+) #discovery-question-answer > .eyebrow,
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(1)[aria-pressed="true"]
+) #discovery-question-answer > h4,
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(1)[aria-pressed="true"]
+) .discovery-question-takeaways h4 {
+  color: #49e3cf;
+}
+
+
+/* Four strategy-family result cards */
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(1)[aria-pressed="true"]
+) .discovery-question-results article {
+  background: #0b2632;
+  border-color: #214b55;
+  border-top: 2px solid #15d4bc;
+}
+
+
+/* Trading-cost learning interactions */
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(1)[aria-pressed="true"]
+) .discovery-cost-explorer > summary {
+  color: #49e3cf;
+}
+
+/* Beginner glossary */
+
+/* Batch A — Quick Glossary */
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(1)[aria-pressed="true"]
+) .discovery-question-learning {
+  padding: 20px;
+  border: 1px solid #214b55;
+  border-top: 2px solid #15d4bc;
+  border-radius: 14px;
+  background: #0b2632;
+}
+
+
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(1)[aria-pressed="true"]
+) .discovery-question-learning h3 {
+  color: #49e3cf;
+}
+
+/* Explore Batch A action */
+.discovery-question-overview:has(
+  .discovery-question-cards button:nth-child(1)[aria-pressed="true"]
+) .discovery-question-next {
+  color: #b9fff3;
+  border-color: #15d4bc;
+  background: rgba(21, 212, 188, 0.1);
+}
+
+
+/* Batch A Research Map — muted teal identity */
+
+.discovery-overview-panel.discovery-batch-a-summary {
+  background: #092631;
+  border-color: #287e75;
+  border-left: 3px solid #15d4bc;
+}
+
+.discovery-batch-a-summary
+.discovery-overview-panel-heading span {
+  color: #15d4bc;
+}
+
+.discovery-batch-a-summary
+.discovery-overview-panel-heading h4 {
+  color: #b9fff3;
+}
+
+.discovery-batch-a-summary a {
+  color: #49e3cf;
+  border-color: #287e75;
+}
+
+.discovery-batch-a-summary a:hover {
+  color: #ecfffb;
+  border-color: #15d4bc;
+}
+
+.discovery-batch-a-summary a:focus-visible {
+  outline: 2px solid #15d4bc;
+  outline-offset: 3px;
+}
+
+
+
+/* ==========================================
+   BATCH C — A VS C CHART COLORS
+   ========================================== */
+
+/* Batch A — Teal */
+.discovery-batch-c-chart .lab-chart-series-0 {
+  fill: #15d4bc;
+  stroke: #15d4bc;
+}
+
+/* Batch C — Lavender */
+.discovery-batch-c-chart .lab-chart-series-1 {
+  fill: #b996ff;
+  stroke: #b996ff;
+}
+
+
+/* ==========================================
+   BATCH C — LEGEND AND LINE CHART COLORS
+   ========================================== */
+
+/* Legend dashes */
+.discovery-batch-c-chart
+.lab-chart-legend .lab-chart-series-0::before {
+  background: #15d4bc;
+}
+
+.discovery-batch-c-chart
+.lab-chart-legend .lab-chart-series-1::before {
+  background: #b996ff;
+}
+
+/* Batch A — teal line and points */
+.discovery-batch-c-chart
+.lab-chart-series-0 .lab-chart-line,
+.discovery-batch-c-chart
+.lab-chart-series-0 .lab-chart-point:not(.is-selected) {
+  stroke: #15d4bc;
+}
+
+/* Batch C — lavender line and points */
+.discovery-batch-c-chart
+.lab-chart-series-1 .lab-chart-line,
+.discovery-batch-c-chart
+.lab-chart-series-1 .lab-chart-point:not(.is-selected) {
+  stroke: #b996ff;
+}
+
+
+/* ==========================================
+   BATCH A — RESEARCH MAP TEAL THEME
+   ========================================== */
+
+.discovery-overview-panel.discovery-batch-a-summary {
+  background: #092631;
+  border: 1px solid #248783;
+  border-left: 3px solid #15d4bc;
+}
+
+/* Batch identity and heading */
+.discovery-batch-a-summary
+.discovery-overview-panel-heading span,
+.discovery-batch-a-summary
+.discovery-overview-panel-heading h4 {
+  color: #4be2d4;
+}
+
+/* Supporting explanation */
+.discovery-batch-a-summary
+.discovery-overview-panel-copy {
+  color: #a9c3cc;
+}
+
+/* Table header */
+.discovery-batch-a-summary table thead {
+  background: #10343e;
+}
+
+.discovery-batch-a-summary table th {
+  color: #7de6dd;
+}
+
+/* Open Batch A action */
+.discovery-batch-a-summary a {
+  color: #7de6dd;
+  border-color: #248783;
+  background: #10343e;
+}
+
+.discovery-batch-a-summary a:hover {
+  border-color: #15d4bc;
+  background: #16434b;
+}
+
+
+
+/* =========================================
+   STRATEGY DISCOVERY — RESEARCH MAP READABILITY
+   Actual CSS grid elements
+   ========================================= */
+
+/* Column headings */
+.discovery-batch-a-summary
+.discovery-overview-matrix-head > * {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+/* Strategy names */
+.discovery-batch-a-summary
+.discovery-overview-matrix-row > strong {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  font-weight: 650;
+}
+
+/* Sample sizes */
+.discovery-batch-a-summary
+.discovery-overview-matrix-row > span:nth-of-type(1) {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  font-weight: 600;
+}
+
+/* Average R — important result */
+.discovery-batch-a-summary
+.discovery-overview-matrix-row > span:nth-of-type(2) {
+  font-size: 1rem;
+  line-height: 1.5;
+  font-weight: 650;
+}
+
+/* Secondary classifications */
+.discovery-batch-a-summary
+.discovery-overview-matrix-row small {
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+/* Research Map explanatory text */
+.discovery-batch-a-summary
+.discovery-overview-panel-copy,
+.discovery-batch-a-summary
+.discovery-overview-panel-note {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+
+/* Batch A — Beginner evidence guide */
+.discovery-question-evidence-guide {
+  background: #0b2631;
+  border: 1px solid #24666a;
+  border-left: 3px solid #15d4bc;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin: 14px 0 18px;
+  color: #c2dce2;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+
+/* Strategy Discovery — Expandable findings */
+.discovery-question-explanation > summary {
+  display: list-item;
+  cursor: pointer;
+  padding: 12px 16px;
+  background: #0b2631;
+  border: 1px solid #24666a;
+  border-radius: 8px;
+  color: #c5f5ec;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.discovery-question-explanation > summary:hover {
+  border-color: #15d4bc;
+  background: #10333d;
+}
+
+.discovery-question-explanation > summary:focus-visible {
+  outline: 2px solid #15d4bc;
+  outline-offset: 3px;
+}
+
+.discovery-question-explanation > p {
+  line-height: 1.7;
+  max-width: 72ch;
+  margin: 14px 0 20px;
+}
+
+
+/* Batch A — Scannable research findings */
+.discovery-question-explanation .discovery-finding-takeaways {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  counter-reset: discovery-findings;
+  margin: 16px 0 20px;
+  padding: 0;
+}
+
+.discovery-question-explanation .discovery-finding-takeaways li {
+  counter-increment: discovery-findings;
+  position: relative;
+  background: #0b2631;
+  border: 1px solid #24666a;
+  border-radius: 10px;
+  padding: 14px 16px 14px 48px;
+  color: #c8dde4;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.discovery-question-explanation .discovery-finding-takeaways li::before {
+  content: counter(discovery-findings);
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: #123d43;
+  color: #15d4bc;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}

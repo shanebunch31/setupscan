@@ -27,6 +27,21 @@ function browserAt(path) {
 }
 const quickRoute = { view: 'research', researchWorkspaceView: 'labs', researchTab: 'quick-backtest' }
 
+test('About route survives refresh and Back/Forward without loading historical experiment data', () => {
+  const { browser } = browserAt('/scan')
+  navigateAppRoute('about', 'workbench', 'overview', browser)
+  assert.equal(browser.location.pathname, '/about')
+  assert.equal(readAppRoute(browser).view, 'about')
+  assert.equal(readAppRoute(browserAt('/about/').browser).view, 'about')
+  assert.equal(researchLoadingMode('about', 'workbench', 'overview'), null)
+  navigateAppRoute('research', 'history', 'overview', browser)
+  assert.equal(readAppRoute(browser).researchWorkspaceView, 'history')
+  browser.history.back()
+  assert.equal(readAppRoute(browser).view, 'about')
+  browser.history.forward()
+  assert.equal(readAppRoute(browser).researchWorkspaceView, 'history')
+})
+
 test('legacy Backtest redirects by replacement, keeps query/hash and creates no Back loop', () => {
   const { browser, calls } = browserAt('/home')
   browser.history.pushState({}, '', '/backtest/?bookmark=yes#results')

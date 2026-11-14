@@ -43,7 +43,9 @@ import { MorningBrief } from './home/MorningBrief.jsx'
 import { apiUrl } from './config/apiBase.js'
 import { createRefreshTimestamp, formatLastRefresh, formatMarketTime } from './marketTime.js'
 import { filterScannerResults, ScannerFiltersButton, ScannerThresholdFilter, SCANNER_TERM_EXPLANATIONS } from './scannerFilters.js'
-import { MetricsGlossary, TermHelp } from './backtest/MetricsGlossary.jsx'
+import { MetricsGlossary, TermHelp, METRIC_DEFINITIONS } from './backtest/MetricsGlossary.jsx'
+import { ResearchEvidence } from './research/ResearchEvidence.js'
+import './research/researchEvidence.css'
 import { QuickBacktest } from './research/QuickBacktest.jsx'
 import { ResearchLabsOverview } from './research/ResearchLabsOverview.jsx'
 import { readAppRoute, navigateAppRoute, subscribeAppRoute, researchLoadingMode } from './research/appRoutes.js'
@@ -100,6 +102,7 @@ const navItems = [
   { id: 'paper', label: 'Paper Trading' },
   { id: 'research', label: 'Research' },
   { id: 'settings', label: 'Settings' },
+  { id: 'about', label: 'About SetupScan' },
 ]
 const researchTabs = [
   { id: 'overview', label: 'Overview' },
@@ -603,6 +606,7 @@ function AppSidebar({
     paper: LineChart,
     research: CircleHelp,
     settings: Settings2,
+    about: CircleHelp,
   }
 
   const researchLinks = [
@@ -1539,7 +1543,12 @@ const handleResearchWorkspaceNavigate = (nextView) => {
       {researchTab === 'volatility-aware-variants' && (
         <VolatilityAwareVariantsLab datasets={robustnessData} />
       )}
-      {researchTab === 'strategy-discovery' && <StrategyDiscoveryLab datasets={robustnessData} />}
+      {researchTab === 'strategy-discovery' && (
+  <StrategyDiscoveryLab
+    datasets={robustnessData}
+    onResearchNavigate={handleResearchWorkspaceNavigate}
+  />
+)}
     </>
   )
 
@@ -2171,6 +2180,16 @@ const handleResearchWorkspaceNavigate = (nextView) => {
         )}
 
         {view === 'paper' && <PaperTradingPanel />}
+        {view === 'about' && (
+          <ResearchEvidence
+            metricDefinitions={METRIC_DEFINITIONS}
+            onOpenHistory={() => {
+              setSelectedResearchRunId(null)
+              handleResearchWorkspaceNavigate('history')
+            }}
+            onOpenShadow={() => handleResearchWorkspaceNavigate('shadow')}
+          />
+        )}
         {view === 'research' && (
           <ResearchWorkspace
             activeView={researchWorkspaceView}
@@ -2206,7 +2225,7 @@ const handleResearchWorkspaceNavigate = (nextView) => {
             <CircleHelp size={14} /> Scores are rule-based research signals, not probabilities or
             financial advice.
           </span>
-          <span>Data provider: {historicalData?.provider ?? historicalStatus}</span>
+          <span>Quick Backtest data (separate from Labs): {historicalData?.provider ?? (loadingMode === 'quick-backtest' ? historicalStatus : 'not loaded in this view')}</span>
         </footer>
       </main>
       {watchlistOpen && (

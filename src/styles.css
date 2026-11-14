@@ -5794,6 +5794,274 @@ tbody tr.selected-row td:first-child {
   }
 }
 
+/* =========================================================
+   RESEARCH LABS — DISCOVERY EVIDENCE + NEXT QUESTIONS
+   ========================================================= */
+
+.labs-overview-ranking-panel .labs-strategy-row {
+  grid-template-columns: minmax(170px, 1fr) auto;
+}
+
+.labs-strategy-evidence-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 7px;
+  border: 1px solid #29485e;
+  border-radius: 999px;
+  font: 700 8px var(--mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.labs-strategy-evidence-badge.is-exploratory {
+  color: #25dfa9;
+  border-color: rgba(37, 223, 169, .35);
+  background: rgba(37, 223, 169, .08);
+}
+
+.labs-strategy-evidence-badge.is-descriptive {
+  color: #28c7ff;
+  border-color: rgba(40, 199, 255, .35);
+  background: rgba(40, 199, 255, .08);
+}
+
+.labs-strategy-evidence-badge.is-insufficient {
+  color: #ffb84d;
+  border-color: rgba(255, 184, 77, .4);
+  background: rgba(255, 184, 77, .09);
+}
+
+.labs-strategy-evidence-badge.is-unavailable {
+  color: #8ca6b8;
+  border-color: #29485e;
+  background: #0b2236;
+}
+
+.labs-discovery-interpretation {
+  margin: 16px;
+  padding: 16px;
+  border: 1px solid #1d4058;
+  border-left: 3px solid #18e6a5;
+  border-radius: var(--radius-card);
+  background: #091d2d;
+}
+
+.labs-discovery-interpretation > strong {
+  display: block;
+  color: #dce8ef;
+  font-size: 14px;
+}
+
+.labs-discovery-interpretation > p:not(.eyebrow) {
+  margin: 7px 0 0;
+  color: #8ca6b8;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.labs-discovery-interpretation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.labs-discovery-interpretation-meta span {
+  padding: 5px 7px;
+  border: 1px solid #23455d;
+  border-radius: 4px;
+  color: #9bb3c2;
+  background: #0b2236;
+  font: 700 8px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.labs-discovery-interpretation > small {
+  display: block;
+  margin-top: 10px;
+  color: #647f92;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.labs-research-question-list {
+  display: grid;
+  gap: 1px;
+  background: #173247;
+  border-top: 1px solid #173247;
+}
+
+.labs-research-question {
+  display: block;
+  width: 100%;
+  padding: 15px 16px;
+  text-align: left;
+  background: #0b2236;
+}
+
+.labs-research-question:hover {
+  background: #0d293f;
+}
+
+.labs-research-question > span {
+  display: block;
+  color: #18e6a5;
+  font: 700 8px var(--mono);
+  letter-spacing: .08em;
+}
+
+.labs-research-question > strong {
+  display: block;
+  margin-top: 6px;
+  color: #dce8ef;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.labs-research-question > p {
+  margin: 6px 0 0;
+  color: #7f9aac;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.labs-research-question > small {
+  display: block;
+  margin-top: 9px;
+  color: #28c7ff;
+  font: 700 9px var(--mono);
+}
+
+.labs-research-learning-note {
+  margin: 16px;
+  padding: 14px 15px;
+  border: 1px solid #1d4058;
+  border-radius: var(--radius-card);
+  background: #091d2d;
+}
+
+.labs-research-learning-note strong {
+  color: #dce8ef;
+  font-size: 11px;
+}
+
+.labs-research-learning-note p {
+  margin: 6px 0 0;
+  color: #7f9aac;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+@media (max-width: 800px) {
+  .labs-overview-ranking-panel .labs-strategy-row {
+    grid-template-columns: 1fr;
+  }
+
+  .labs-overview-ranking-panel .labs-strategy-metrics {
+    grid-column: auto;
+  }
+}
+
+/* =========================================================
+   RESEARCH LABS — EVIDENCE STRENGTH GUIDE
+   ========================================================= */
+
+.labs-evidence-guide {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.labs-evidence-guide-label {
+  flex: 0 0 auto;
+  padding-top: 4px;
+  color: #647f92;
+  font: 700 8px var(--mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.labs-evidence-guide-items {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  flex: 1;
+}
+
+.labs-evidence-guide-items > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.labs-evidence-guide-items small {
+  max-width: 240px;
+  color: #7f9aac;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+@media (max-width: 800px) {
+  .labs-evidence-guide {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .labs-evidence-guide-items {
+    flex-direction: column;
+  }
+}
+
+/* =========================================================
+   STRATEGY DISCOVERY — RESEARCH FOCUS
+   ========================================================= */
+
+.discovery-research-focus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid rgba(50, 126, 166, 0.24);
+  border-radius: 10px;
+  background: rgba(5, 24, 38, 0.6);
+}
+
+.discovery-research-focus .eyebrow {
+  margin: 0 0 4px;
+}
+
+.discovery-research-focus strong {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.discovery-research-focus > span {
+  flex: 0 0 auto;
+  max-width: 280px;
+  color: #7f9aac;
+  font-size: 10px;
+  line-height: 1.45;
+  text-align: right;
+}
+
+@media (max-width: 700px) {
+  .discovery-research-focus {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .discovery-research-focus > span {
+    max-width: none;
+    text-align: left;
+  }
+}
+
 /* Saved research results use the active theme and retain narrow-screen access. */
 .research-history-select { white-space: nowrap; background: var(--panel); }
 .research-run-detail .research-detail-overview { margin-inline: 0; background: var(--panel); }
